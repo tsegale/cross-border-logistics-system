@@ -13,6 +13,8 @@ import com.freightflow.banking.journal.InvalidStatementCursorException;
 import com.freightflow.banking.journal.JournalEntryAlreadyReversedException;
 import com.freightflow.banking.journal.JournalEntryNotFoundException;
 import com.freightflow.banking.journal.UnbalancedJournalEntryException;
+import com.freightflow.banking.transfer.InvalidTransferException;
+import com.freightflow.banking.transfer.TransferNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -143,6 +145,23 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         );
         problem.setProperty("journalEntryId", ex.getJournalEntryId());
         return problem;
+    }
+
+    @ExceptionHandler(TransferNotFoundException.class)
+    public ProblemDetail handleTransferNotFound(TransferNotFoundException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.NOT_FOUND,
+                "transfer-not-found",
+                "Transfer not found",
+                ex.getMessage()
+        );
+        problem.setProperty("transferId", ex.getTransferId());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidTransferException.class)
+    public ProblemDetail handleInvalidTransfer(InvalidTransferException ex) {
+        return problem(ex.getStatus(), ex.getSlug(), ex.getTitle(), ex.getMessage());
     }
 
     @ExceptionHandler(JournalEntryAlreadyReversedException.class)
