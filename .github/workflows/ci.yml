@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  java:
+    name: Java · ${{ matrix.service }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api-gateway, banking-service, logistics-service, notification-service]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      # Unit tests plus Testcontainers integration tests (Docker is available on GitHub-hosted runners).
+      - run: ./mvnw -B -ntp verify
+        working-directory: ${{ matrix.service }}
+
+  compose:
+    name: docker compose config
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # Catches broken interpolation or references before anyone runs the stack.
+      - run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose --profile events config --quiet
+          docker compose --profile notifications config --quiet
+          # The default profile stays the core: the optional pieces may not leak into it.
+          for s in kafka notification-service; do
+            if docker compose config --services | grep -qx "$s"; then echo "::error::$s is in the default profile"; exit 1; fi
+          done
+
+  # The stack as a user starts it. Unit and integration tests can't see a broken compose file or env wiring.
+  default-stack:
+    name: Default stack starts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
+      - run: docker compose up -d --wait --build
+      - name: Every service is ready, the gateway included
+        run: |
+          for port in 8080 8081 8082; do
+            curl -fsS "http://127.0.0.1:$port/actuator/health/readiness"; echo
+          done
+      - if: failure()
+        run: docker compose logs --tail 80
+
+  # Secrets in the whole history, not just this push. Reviewed findings go in .gitleaksignore.
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: >-
+          docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.30.1
+          git /repo --redact --no-banner
+
+  docker:
+    name: Docker image · ${{ matrix.service }}
+    needs: [java]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api-gateway, banking-service, logistics-service, notification-service]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.service }}
+          push: false
+          load: true # into the local daemon, for the scan and the SBOM
+          tags: freightflow/${{ matrix.service }}:ci
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      # Third-party actions with access to the job are pinned by commit, not by a tag that can be moved.
+      - name: Scan the image (fails on a CRITICAL with a fix available)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: freightflow/${{ matrix.service }}:ci
+          version: v0.76.1
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: freightflow/${{ matrix.service }}:ci
+          format: spdx-json
+          artifact-name: sbom-${{ matrix.service }}.spdx.json
+          upload-release-assets: false

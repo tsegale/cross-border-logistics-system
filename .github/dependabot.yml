@@ -1,0 +1,27 @@
+# Weekly version bumps for everything this repo pins. Grouped per ecosystem, so a framework's family of
+# packages arrives as one pull request that CI can pass or fail as a whole.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directories: ["/api-gateway", "/banking-service", "/logistics-service", "/notification-service"]
+    schedule: { interval: weekly }
+    groups:
+      maven: { patterns: ["*"] }
+
+  - package-ecosystem: docker
+    directories: ["/api-gateway", "/banking-service", "/logistics-service", "/notification-service"]
+    schedule: { interval: weekly }
+    groups:
+      docker: { patterns: ["*"] }
+
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule: { interval: weekly }
+    groups:
+      compose: { patterns: ["*"] }
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
