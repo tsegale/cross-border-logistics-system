@@ -1,6 +1,7 @@
 server:
   port: ${SERVER_PORT:8081}
   shutdown: graceful
+  forward-headers-strategy: framework
 
 spring:
   application:
@@ -23,6 +24,37 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  task:
+    scheduling:
+      pool:
+        size: 2
+      thread-name-prefix: banking-sched-
+
+freightflow:
+  banking:
+    supported-currencies: ${BANKING_SUPPORTED_CURRENCIES:NAD,ZAR,EUR}
+    transfer-locking-strategy: ${TRANSFER_LOCKING_STRATEGY:pessimistic}
+    idempotency:
+      ttl: ${IDEMPOTENCY_TTL:24h}
+      cleanup-interval: ${IDEMPOTENCY_CLEANUP_INTERVAL:15m}
+      lock-timeout: ${IDEMPOTENCY_LOCK_TIMEOUT:5s}
+    fx:
+      quote-ttl: ${FX_QUOTE_TTL:60s}
+      default-spread: ${FX_DEFAULT_SPREAD:0.0050}
+      # Static mid-market rates (Phase 1). NAD and ZAR are pegged 1:1 in the Common Monetary Area (spread 0).
+      rates:
+        NAD:
+          ZAR: 1.00000000
+          EUR: 0.05000000
+        ZAR:
+          NAD: 1.00000000
+          EUR: 0.05000000
+        EUR:
+          NAD: 20.00000000
+          ZAR: 20.00000000
+      pair-spreads:
+        NAD-ZAR: 0.0000
+        ZAR-NAD: 0.0000
 
 # Served under the path the gateway publishes them at, so Swagger UI works through the gateway unchanged.
 springdoc:
