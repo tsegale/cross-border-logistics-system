@@ -1,0 +1,36 @@
+# IDEs and OS
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+Thumbs.db
+
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+
+# Secrets: never commit these
+.env
+*.pem
+*.key
+secrets/
+docker-compose.override.yml
+
+# Local tooling
+node_modules/
+*.log
+
+# JVM crash dumps
+hs_err_pid*
+replay_pid*
+*.hprof
+
+# Benchmark output (raw k6 summaries, minted tokens)
+benchmarks/out/
+
+# Private working notes, such as the phase prompts
+local/
