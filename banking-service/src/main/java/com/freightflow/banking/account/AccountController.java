@@ -2,7 +2,12 @@ package com.freightflow.banking.account;
 
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
+import com.freightflow.banking.journal.LedgerService;
+import com.freightflow.banking.journal.dto.DepositRequest;
+import com.freightflow.banking.journal.dto.JournalEntryResponse;
+import com.freightflow.banking.journal.dto.StatementPageResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -16,20 +21,24 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
 
 @RestController
 @RequestMapping("/api/v1/accounts")
-@Tag(name = "Accounts", description = "Customer and system ledger accounts")
+@Tag(name = "Accounts", description = "Customer and system ledger accounts, deposits and statements")
 public class AccountController {
 
     private final AccountService accountService;
+    private final LedgerService ledgerService;
 
-    public AccountController(AccountService accountService) {
+    public AccountController(AccountService accountService, LedgerService ledgerService) {
         this.accountService = accountService;
+        this.ledgerService = ledgerService;
     }
 
     @PostMapping
@@ -98,5 +107,65 @@ public class AccountController {
     )
     public AccountResponse getAccount(@PathVariable("id") String id) {
         return accountService.getAccount(id);
+    }
+
+    @PostMapping("/{id}/deposits")
+    @Operation(
+            summary = "Credit a customer account from the currency's CLEARING account",
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = DepositRequest.class),
+                            examples = @ExampleObject(
+                                    value = """
+                                            {
+                                              "amount": 50000.00,
+                                              "currency": "NAD",
+                                              "reference": "DEP-BANK-WINDHOEK-001"
+                                            }
+                                            """
+                            )
+                    )
+            ),
+            responses = {
+                    @ApiResponse(responseCode = "201", description = "Deposit journal entry recorded",
+                            content = @Content(schema = @Schema(implementation = JournalEntryResponse.class))),
+                    @ApiResponse(responseCode = "400", description = "Invalid amount, currency or missing Idempotency-Key",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "404", description = "Account not found",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "409", description = "Currency mismatch, inactive account or idempotency key in flight",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "422", description = "Idempotency key reused with a different payload",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+            }
+    )
+    public ResponseEntity<JournalEntryResponse> deposit(
+            @PathVariable("id") String id,
+            @Parameter(description = "Idempotency-Key header", required = true)
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody DepositRequest request) {
+        JournalEntryResponse entry = ledgerService.deposit(id, request, idempotencyKey);
+        return ResponseEntity.created(URI.create("/api/v1/journal-entries/" + entry.id())).body(entry);
+    }
+
+    @GetMapping("/{id}/postings")
+    @Operation(
+            summary = "Keyset-paginated account statement (newest first) with running balance after each posting",
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Statement page",
+                            content = @Content(schema = @Schema(implementation = StatementPageResponse.class))),
+                    @ApiResponse(responseCode = "400", description = "Invalid cursor or page size",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "404", description = "Account not found",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+            }
+    )
+    public StatementPageResponse getStatement(
+            @PathVariable("id") String id,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "size", defaultValue = "20") int size) {
+        return ledgerService.getStatement(id, cursor, size);
     }
 }

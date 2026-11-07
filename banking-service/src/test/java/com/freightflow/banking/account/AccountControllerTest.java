@@ -34,6 +34,9 @@ class AccountControllerTest {
     @MockitoBean
     private AccountService accountService;
 
+    @MockitoBean
+    private com.freightflow.banking.journal.LedgerService ledgerService;
+
     @Test
     void createAccountReturns201AndLocationHeader() throws Exception {
         UUID id = UUID.fromString("01930000-0000-7000-8000-000000001000");

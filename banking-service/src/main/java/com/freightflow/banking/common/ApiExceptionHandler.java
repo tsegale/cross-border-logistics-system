@@ -4,6 +4,15 @@ import com.freightflow.banking.account.AccountNotActiveException;
 import com.freightflow.banking.account.AccountNotFoundException;
 import com.freightflow.banking.account.InsufficientFundsException;
 import com.freightflow.banking.account.InvalidAccountNumberException;
+import com.freightflow.banking.idempotency.IdempotencyKeyInFlightException;
+import com.freightflow.banking.idempotency.IdempotencyPayloadMismatchException;
+import com.freightflow.banking.idempotency.MissingIdempotencyKeyException;
+import com.freightflow.banking.journal.CurrencyMismatchException;
+import com.freightflow.banking.journal.InvalidMonetaryAmountException;
+import com.freightflow.banking.journal.InvalidStatementCursorException;
+import com.freightflow.banking.journal.JournalEntryAlreadyReversedException;
+import com.freightflow.banking.journal.JournalEntryNotFoundException;
+import com.freightflow.banking.journal.UnbalancedJournalEntryException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -122,6 +131,109 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setProperty("currency", ex.getCurrency());
         problem.setProperty("supportedCurrencies", ex.getSupportedCurrencies());
         return problem;
+    }
+
+    @ExceptionHandler(JournalEntryNotFoundException.class)
+    public ProblemDetail handleJournalEntryNotFound(JournalEntryNotFoundException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.NOT_FOUND,
+                "journal-entry-not-found",
+                "Journal entry not found",
+                ex.getMessage()
+        );
+        problem.setProperty("journalEntryId", ex.getJournalEntryId());
+        return problem;
+    }
+
+    @ExceptionHandler(JournalEntryAlreadyReversedException.class)
+    public ProblemDetail handleJournalEntryAlreadyReversed(JournalEntryAlreadyReversedException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.CONFLICT,
+                "journal-entry-already-reversed",
+                "Journal entry already reversed",
+                ex.getMessage()
+        );
+        problem.setProperty("journalEntryId", ex.getJournalEntryId());
+        return problem;
+    }
+
+    @ExceptionHandler(UnbalancedJournalEntryException.class)
+    public ProblemDetail handleUnbalancedJournalEntry(UnbalancedJournalEntryException ex) {
+        return problem(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "unbalanced-journal-entry",
+                "Unbalanced journal entry",
+                ex.getMessage()
+        );
+    }
+
+    @ExceptionHandler(CurrencyMismatchException.class)
+    public ProblemDetail handleCurrencyMismatch(CurrencyMismatchException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.CONFLICT,
+                "currency-mismatch",
+                "Currency mismatch",
+                ex.getMessage()
+        );
+        problem.setProperty("expectedCurrency", ex.getExpectedCurrency());
+        problem.setProperty("actualCurrency", ex.getActualCurrency());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidMonetaryAmountException.class)
+    public ProblemDetail handleInvalidAmount(InvalidMonetaryAmountException ex) {
+        return problem(
+                HttpStatus.BAD_REQUEST,
+                "invalid-amount",
+                "Invalid monetary amount",
+                ex.getMessage()
+        );
+    }
+
+    @ExceptionHandler(InvalidStatementCursorException.class)
+    public ProblemDetail handleInvalidCursor(InvalidStatementCursorException ex) {
+        return problem(
+                HttpStatus.BAD_REQUEST,
+                "invalid-cursor",
+                "Invalid pagination cursor",
+                ex.getMessage()
+        );
+    }
+
+    @ExceptionHandler(MissingIdempotencyKeyException.class)
+    public ProblemDetail handleMissingIdempotencyKey(MissingIdempotencyKeyException ex) {
+        return problem(
+                HttpStatus.BAD_REQUEST,
+                "idempotency-key-missing",
+                "Idempotency-Key required",
+                ex.getMessage()
+        );
+    }
+
+    @ExceptionHandler(IdempotencyPayloadMismatchException.class)
+    public ProblemDetail handleIdempotencyMismatch(IdempotencyPayloadMismatchException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "idempotency-key-payload-mismatch",
+                "Idempotency-Key payload mismatch",
+                ex.getMessage()
+        );
+        problem.setProperty("idempotencyKey", ex.getIdempotencyKey());
+        return problem;
+    }
+
+    @ExceptionHandler(IdempotencyKeyInFlightException.class)
+    public ResponseEntity<ProblemDetail> handleIdempotencyInFlight(IdempotencyKeyInFlightException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.CONFLICT,
+                "idempotency-key-in-flight",
+                "Idempotency-Key request in flight",
+                ex.getMessage()
+        );
+        problem.setProperty("idempotencyKey", ex.getIdempotencyKey());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(problem);
     }
 
     @ExceptionHandler({CannotCreateTransactionException.class, DataAccessResourceFailureException.class})

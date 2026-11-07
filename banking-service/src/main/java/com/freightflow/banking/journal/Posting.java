@@ -1,0 +1,89 @@
+package com.freightflow.banking.journal;
+
+import com.freightflow.banking.common.MoneyRounding;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import org.hibernate.annotations.UuidGenerator;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Objects;
+import java.util.UUID;
+
+@Entity
+@Table(name = "postings")
+public class Posting {
+
+    @Id
+    @UuidGenerator(style = UuidGenerator.Style.VERSION_7)
+    @Column(name = "id", nullable = false, updatable = false)
+    private UUID id;
+
+    @Column(name = "journal_entry_id", nullable = false, updatable = false)
+    private UUID journalEntryId;
+
+    @Column(name = "account_id", nullable = false, updatable = false)
+    private UUID accountId;
+
+    @Column(name = "amount", precision = 19, scale = 4, nullable = false, updatable = false)
+    private BigDecimal amount;
+
+    @Column(name = "currency", length = 3, nullable = false, updatable = false)
+    private String currency;
+
+    @Column(name = "running_balance", precision = 19, scale = 4, nullable = false, updatable = false)
+    private BigDecimal runningBalance;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    protected Posting() {
+    }
+
+    public static Posting create(
+            UUID journalEntryId,
+            UUID accountId,
+            BigDecimal signedAmount,
+            String currency,
+            BigDecimal runningBalance,
+            Instant createdAt) {
+        Posting posting = new Posting();
+        posting.journalEntryId = Objects.requireNonNull(journalEntryId, "journalEntryId");
+        posting.accountId = Objects.requireNonNull(accountId, "accountId");
+        posting.amount = MoneyRounding.toStorageScale(Objects.requireNonNull(signedAmount, "signedAmount"));
+        posting.currency = Objects.requireNonNull(currency, "currency").trim().toUpperCase();
+        posting.runningBalance = MoneyRounding.toStorageScale(Objects.requireNonNull(runningBalance, "runningBalance"));
+        posting.createdAt = Objects.requireNonNull(createdAt, "createdAt");
+        return posting;
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public UUID getJournalEntryId() {
+        return journalEntryId;
+    }
+
+    public UUID getAccountId() {
+        return accountId;
+    }
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public BigDecimal getRunningBalance() {
+        return runningBalance;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+}
