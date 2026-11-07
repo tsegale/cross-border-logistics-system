@@ -1,8 +1,18 @@
 package com.freightflow.logistics.common;
 
+import com.freightflow.logistics.idempotency.IdempotencyKeyInFlightException;
+import com.freightflow.logistics.idempotency.IdempotencyPayloadMismatchException;
+import com.freightflow.logistics.idempotency.MissingIdempotencyKeyException;
 import com.freightflow.logistics.location.UnknownLocationException;
 import com.freightflow.logistics.quote.InvalidRouteException;
 import com.freightflow.logistics.quote.QuoteNotFoundException;
+import com.freightflow.logistics.shipment.InvalidAccountNumberException;
+import com.freightflow.logistics.shipment.InvalidShipmentCursorException;
+import com.freightflow.logistics.shipment.InvalidShipmentStateTransitionException;
+import com.freightflow.logistics.shipment.InvalidTrackingNumberException;
+import com.freightflow.logistics.shipment.PreconditionFailedException;
+import com.freightflow.logistics.shipment.QuoteExpiredException;
+import com.freightflow.logistics.shipment.ShipmentNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -12,6 +22,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -109,6 +120,135 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         );
         problem.setProperty("quoteId", ex.getQuoteId());
         return problem;
+    }
+
+    @ExceptionHandler(QuoteExpiredException.class)
+    public ProblemDetail handleQuoteExpired(QuoteExpiredException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.CONFLICT,
+                "quote-expired",
+                "Freight quote has expired",
+                ex.getMessage()
+        );
+        problem.setProperty("quoteId", ex.getQuoteId());
+        problem.setProperty("validUntil", ex.getValidUntil());
+        return problem;
+    }
+
+    @ExceptionHandler(ShipmentNotFoundException.class)
+    public ProblemDetail handleShipmentNotFound(ShipmentNotFoundException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.NOT_FOUND,
+                "shipment-not-found",
+                "Shipment not found",
+                ex.getMessage()
+        );
+        problem.setProperty("identifier", ex.getIdentifier());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidShipmentStateTransitionException.class)
+    public ProblemDetail handleInvalidShipmentStateTransition(InvalidShipmentStateTransitionException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.CONFLICT,
+                "invalid-shipment-state-transition",
+                "Invalid shipment state transition",
+                ex.getMessage()
+        );
+        problem.setProperty("currentStatus", ex.getCurrentStatus());
+        problem.setProperty("requestedStatus", ex.getRequestedStatus());
+        problem.setProperty("allowedNextStatuses", ex.getAllowedNextStatuses());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidTrackingNumberException.class)
+    public ProblemDetail handleInvalidTrackingNumber(InvalidTrackingNumberException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.BAD_REQUEST,
+                "invalid-tracking-number",
+                "Invalid tracking number",
+                ex.getMessage()
+        );
+        problem.setProperty("trackingNumber", ex.getTrackingNumber());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidAccountNumberException.class)
+    public ProblemDetail handleInvalidAccountNumber(InvalidAccountNumberException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.BAD_REQUEST,
+                "invalid-account-number",
+                "Invalid account number",
+                ex.getMessage()
+        );
+        problem.setProperty("accountNumber", ex.getAccountNumber());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidShipmentCursorException.class)
+    public ProblemDetail handleInvalidShipmentCursor(InvalidShipmentCursorException ex) {
+        return problem(
+                HttpStatus.BAD_REQUEST,
+                "invalid-cursor",
+                "Invalid pagination cursor",
+                ex.getMessage()
+        );
+    }
+
+    @ExceptionHandler(PreconditionFailedException.class)
+    public ProblemDetail handlePreconditionFailed(PreconditionFailedException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.PRECONDITION_FAILED,
+                "precondition-failed",
+                "Precondition failed",
+                ex.getMessage()
+        );
+        problem.setProperty("expectedETag", ex.getExpectedETag());
+        problem.setProperty("currentETag", ex.getCurrentETag());
+        return problem;
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ProblemDetail handleOptimisticLockFailure(ObjectOptimisticLockingFailureException ex) {
+        return problem(
+                HttpStatus.PRECONDITION_FAILED,
+                "precondition-failed",
+                "Precondition failed",
+                "Concurrent modification detected on shipment resource"
+        );
+    }
+
+    @ExceptionHandler(MissingIdempotencyKeyException.class)
+    public ProblemDetail handleMissingIdempotencyKey(MissingIdempotencyKeyException ex) {
+        return problem(
+                HttpStatus.BAD_REQUEST,
+                "idempotency-key-missing",
+                "Missing or invalid Idempotency-Key header",
+                ex.getMessage()
+        );
+    }
+
+    @ExceptionHandler(IdempotencyPayloadMismatchException.class)
+    public ProblemDetail handleIdempotencyPayloadMismatch(IdempotencyPayloadMismatchException ex) {
+        return problem(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "idempotency-key-payload-mismatch",
+                "Idempotency-Key reused with different request payload",
+                ex.getMessage()
+        );
+    }
+
+    @ExceptionHandler(IdempotencyKeyInFlightException.class)
+    public ResponseEntity<ProblemDetail> handleIdempotencyKeyInFlight(IdempotencyKeyInFlightException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.CONFLICT,
+                "idempotency-key-in-flight",
+                "Request with this Idempotency-Key is currently in flight",
+                ex.getMessage()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(problem);
     }
 
     @ExceptionHandler(UnsupportedCurrencyException.class)
