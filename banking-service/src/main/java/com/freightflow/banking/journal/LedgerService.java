@@ -15,6 +15,7 @@ import com.freightflow.banking.journal.dto.PostingResponse;
 import com.freightflow.banking.journal.dto.ReversalRequest;
 import com.freightflow.banking.journal.dto.StatementLineResponse;
 import com.freightflow.banking.journal.dto.StatementPageResponse;
+import jakarta.persistence.EntityManager;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -46,6 +47,7 @@ public class LedgerService {
     private final IdempotencyService idempotencyService;
     private final BankingProperties properties;
     private final JdbcTemplate jdbcTemplate;
+    private final EntityManager entityManager;
     private final Clock clock;
 
     public LedgerService(
@@ -56,6 +58,7 @@ public class LedgerService {
             IdempotencyService idempotencyService,
             BankingProperties properties,
             JdbcTemplate jdbcTemplate,
+            EntityManager entityManager,
             Clock clock) {
         this.accountService = accountService;
         this.accounts = accounts;
@@ -64,6 +67,7 @@ public class LedgerService {
         this.idempotencyService = idempotencyService;
         this.properties = properties;
         this.jdbcTemplate = jdbcTemplate;
+        this.entityManager = entityManager;
         this.clock = clock;
     }
 
@@ -191,6 +195,10 @@ public class LedgerService {
         Set<UUID> accountIds = instructions.stream()
                 .map(PostingInstruction::accountId)
                 .collect(Collectors.toSet());
+        // Evict any pre-lock Account snapshots from the 1st-level cache so SELECT ... FOR UPDATE
+        // hydrates the latest committed balances after acquiring the row locks.
+        entityManager.flush();
+        entityManager.clear();
         List<Account> lockedAccounts = accounts.findAllByIdInForUpdate(accountIds);
         if (lockedAccounts.size() != accountIds.size()) {
             throw new AccountNotFoundException("One or more accounts in journal entry were not found");

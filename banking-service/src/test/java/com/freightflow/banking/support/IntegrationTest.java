@@ -9,7 +9,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * Base class for integration tests running against a real PostgreSQL 17 container with
  * the Flyway migrations applied and Hibernate {@code ddl-auto: validate} active.
  */
-@SpringBootTest
+@SpringBootTest(properties = {
+        "spring.datasource.hikari.maximum-pool-size=32",
+        "spring.datasource.hikari.connection-timeout=15000"
+})
 @AutoConfigureMockMvc
 @ImportTestcontainers(SharedContainers.class)
 @Testcontainers(disabledWithoutDocker = true)

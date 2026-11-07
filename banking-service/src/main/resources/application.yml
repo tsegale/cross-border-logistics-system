@@ -13,7 +13,8 @@ spring:
     password: ${BANKING_DB_PASSWORD:change-me-banking}
     # With the database down, fail a request in about 2 s instead of Hikari's default 30 s.
     hikari:
-      connection-timeout: 2000
+      connection-timeout: ${BANKING_DB_CONNECTION_TIMEOUT:2000}
+      maximum-pool-size: ${BANKING_DB_MAX_POOL_SIZE:32}
   jpa:
     open-in-view: false
     hibernate:
