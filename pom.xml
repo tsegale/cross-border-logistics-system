@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Aggregator only: builds and tests every service with one command.
+         banking-service/mvnw -f pom.xml verify
+     Each service is its own Maven project with its own wrapper and Spring Boot parent. There is no shared
+     parent POM and no shared library (ADR 0002). -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.freightflow</groupId>
+    <artifactId>freightflow-aggregator</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>FreightFlow (aggregator)</name>
+
+    <modules>
+        <module>api-gateway</module>
+        <module>banking-service</module>
+        <module>logistics-service</module>
+        <module>notification-service</module>
+    </modules>
+</project>

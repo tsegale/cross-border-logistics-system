@@ -1,0 +1,54 @@
+server:
+  port: ${SERVER_PORT:8082}
+  shutdown: graceful
+
+spring:
+  application:
+    name: logistics-service
+  datasource:
+    # Defaults match docker compose's published port, so the service also runs from the IDE.
+    url: ${LOGISTICS_DB_URL:jdbc:postgresql://127.0.0.1:5442/logistics}
+    username: ${LOGISTICS_DB_USER:logistics}
+    password: ${LOGISTICS_DB_PASSWORD:change-me-logistics}
+    # With the database down, fail a request in about 2 s instead of Hikari's default 30 s.
+    hikari:
+      connection-timeout: 2000
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks that the entities match it.
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  mvc:
+    problemdetails:
+      enabled: true
+
+# Served under the path the gateway publishes them at, so Swagger UI works through the gateway unchanged.
+springdoc:
+  api-docs:
+    path: /docs/logistics/v3/api-docs
+  swagger-ui:
+    path: /docs/logistics/swagger-ui.html
+  default-produces-media-type: application/json
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # prometheus is for scraping on the internal network: the gateway routes no /actuator path here.
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+# JSON on stdout.
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        name: ${spring.application.name}
+        version: ${SERVICE_VERSION:0.1.0}
