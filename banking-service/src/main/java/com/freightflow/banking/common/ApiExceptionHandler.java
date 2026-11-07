@@ -4,6 +4,9 @@ import com.freightflow.banking.account.AccountNotActiveException;
 import com.freightflow.banking.account.AccountNotFoundException;
 import com.freightflow.banking.account.InsufficientFundsException;
 import com.freightflow.banking.account.InvalidAccountNumberException;
+import com.freightflow.banking.fx.FxQuoteNotFoundException;
+import com.freightflow.banking.fx.FxQuoteUnavailableException;
+import com.freightflow.banking.fx.InvalidFxQuoteRequestException;
 import com.freightflow.banking.idempotency.IdempotencyKeyInFlightException;
 import com.freightflow.banking.idempotency.IdempotencyPayloadMismatchException;
 import com.freightflow.banking.idempotency.MissingIdempotencyKeyException;
@@ -162,6 +165,40 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(InvalidTransferException.class)
     public ProblemDetail handleInvalidTransfer(InvalidTransferException ex) {
         return problem(ex.getStatus(), ex.getSlug(), ex.getTitle(), ex.getMessage());
+    }
+
+    @ExceptionHandler(FxQuoteNotFoundException.class)
+    public ProblemDetail handleFxQuoteNotFound(FxQuoteNotFoundException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.NOT_FOUND,
+                "fx-quote-not-found",
+                "FX quote not found",
+                ex.getMessage()
+        );
+        problem.setProperty("fxQuoteId", ex.getFxQuoteId());
+        return problem;
+    }
+
+    @ExceptionHandler(FxQuoteUnavailableException.class)
+    public ProblemDetail handleFxQuoteUnavailable(FxQuoteUnavailableException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.CONFLICT,
+                ex.getSlug(),
+                ex.getTitle(),
+                ex.getMessage()
+        );
+        problem.setProperty("fxQuoteId", ex.getFxQuoteId());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidFxQuoteRequestException.class)
+    public ProblemDetail handleInvalidFxQuoteRequest(InvalidFxQuoteRequestException ex) {
+        return problem(
+                HttpStatus.BAD_REQUEST,
+                "invalid-fx-quote-request",
+                "Invalid FX quote request",
+                ex.getMessage()
+        );
     }
 
     @ExceptionHandler(JournalEntryAlreadyReversedException.class)

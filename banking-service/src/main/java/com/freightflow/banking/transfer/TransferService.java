@@ -2,12 +2,14 @@ package com.freightflow.banking.transfer;
 
 import com.freightflow.banking.account.Account;
 import com.freightflow.banking.account.AccountNotActiveException;
-import com.freightflow.banking.account.AccountNotFoundException;
 import com.freightflow.banking.account.AccountRepository;
 import com.freightflow.banking.account.AccountService;
+import com.freightflow.banking.account.AccountType;
 import com.freightflow.banking.account.InsufficientFundsException;
 import com.freightflow.banking.common.MoneyRounding;
 import com.freightflow.banking.config.BankingProperties;
+import com.freightflow.banking.fx.FxQuote;
+import com.freightflow.banking.fx.FxQuoteService;
 import com.freightflow.banking.idempotency.IdempotencyService;
 import com.freightflow.banking.journal.CurrencyMismatchException;
 import com.freightflow.banking.journal.InvalidMonetaryAmountException;
@@ -52,6 +54,7 @@ public class TransferService {
     private final JournalEntryRepository journalEntries;
     private final PostingRepository postings;
     private final TransferRepository transfers;
+    private final FxQuoteService fxQuoteService;
     private final IdempotencyService idempotencyService;
     private final BankingProperties properties;
     private final JdbcTemplate jdbcTemplate;
@@ -65,6 +68,7 @@ public class TransferService {
             JournalEntryRepository journalEntries,
             PostingRepository postings,
             TransferRepository transfers,
+            FxQuoteService fxQuoteService,
             IdempotencyService idempotencyService,
             BankingProperties properties,
             JdbcTemplate jdbcTemplate,
@@ -76,6 +80,7 @@ public class TransferService {
         this.journalEntries = journalEntries;
         this.postings = postings;
         this.transfers = transfers;
+        this.fxQuoteService = fxQuoteService;
         this.idempotencyService = idempotencyService;
         this.properties = properties;
         this.jdbcTemplate = jdbcTemplate;
@@ -188,13 +193,63 @@ public class TransferService {
             Account target,
             CreateTransferRequest request,
             String requestedCurrency) {
-        throw new InvalidTransferException(
-                HttpStatus.UNPROCESSABLE_CONTENT,
-                "fx-quote-required",
-                "FX quote required",
-                "Cross-currency transfers between " + source.getCurrency() + " and "
-                        + target.getCurrency() + " require an fxQuoteId"
+        if (request.fxQuoteId() == null) {
+            throw new InvalidTransferException(
+                    HttpStatus.UNPROCESSABLE_CONTENT,
+                    "fx-quote-required",
+                    "FX quote required",
+                    "Cross-currency transfers between " + source.getCurrency() + " and "
+                            + target.getCurrency() + " require an fxQuoteId"
+            );
+        }
+
+        FxQuote quote = fxQuoteService.consumeQuoteForTransfer(
+                request.fxQuoteId(),
+                source.getCurrency(),
+                target.getCurrency(),
+                request.amount(),
+                requestedCurrency
         );
+
+        Account fxPositionSell = accounts.findByAccountTypeAndCurrency(
+                        AccountType.FX_POSITION, quote.getSellCurrency())
+                .orElseThrow(() -> new IllegalStateException(
+                        "System FX_POSITION account not configured for " + quote.getSellCurrency()));
+        Account fxPositionBuy = accounts.findByAccountTypeAndCurrency(
+                        AccountType.FX_POSITION, quote.getBuyCurrency())
+                .orElseThrow(() -> new IllegalStateException(
+                        "System FX_POSITION account not configured for " + quote.getBuyCurrency()));
+
+        String reference = request.reference().trim();
+        JournalEntryResponse entry = ledgerService.recordEntry(
+                JournalEntryType.FX_TRANSFER,
+                reference,
+                null,
+                quote.getId(),
+                quote.getRate(),
+                List.of(
+                        new PostingInstruction(source.getId(), quote.getSellAmount().negate(), quote.getSellCurrency()),
+                        new PostingInstruction(fxPositionSell.getId(), quote.getSellAmount(), quote.getSellCurrency()),
+                        new PostingInstruction(fxPositionBuy.getId(), quote.getBuyAmount().negate(), quote.getBuyCurrency()),
+                        new PostingInstruction(target.getId(), quote.getBuyAmount(), quote.getBuyCurrency())
+                )
+        );
+
+        Transfer saved = transfers.save(Transfer.create(
+                entry.id(),
+                source.getId(),
+                target.getId(),
+                quote.getSellAmount(),
+                quote.getSellCurrency(),
+                quote.getBuyAmount(),
+                quote.getBuyCurrency(),
+                reference,
+                quote.getId(),
+                quote.getRate(),
+                entry.createdAt()
+        ));
+        transfers.flush();
+        return TransferResponse.from(saved, source.getAccountNumber(), target.getAccountNumber(), entry.postings());
     }
 
     /**

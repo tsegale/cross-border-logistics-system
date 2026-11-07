@@ -52,6 +52,9 @@ class TransferIntegrationTest extends IntegrationTest {
     private TransferRepository transferRepository;
 
     @Autowired
+    private com.freightflow.banking.fx.FxQuoteService fxQuoteService;
+
+    @Autowired
     private com.freightflow.banking.idempotency.IdempotencyService idempotencyService;
 
     @Autowired
@@ -233,7 +236,7 @@ class TransferIntegrationTest extends IntegrationTest {
         );
         TransferService conditionalService = new TransferService(
                 accountService, accountRepository, ledgerService, journalEntryRepository,
-                postingRepository, transferRepository, idempotencyService, conditionalProps,
+                postingRepository, transferRepository, fxQuoteService, idempotencyService, conditionalProps,
                 jdbcTemplate, entityManager, clock
         );
 
