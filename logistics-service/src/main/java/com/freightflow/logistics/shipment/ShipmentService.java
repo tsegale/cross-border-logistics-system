@@ -4,14 +4,22 @@ import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.config.LogisticsProperties;
 import com.freightflow.logistics.idempotency.IdempotencyService;
 import com.freightflow.logistics.idempotency.IdempotencyService.IdempotentResult;
+import com.freightflow.logistics.location.Location;
+import com.freightflow.logistics.location.LocationRepository;
+import com.freightflow.logistics.location.UnknownLocationException;
 import com.freightflow.logistics.quote.FreightQuote;
 import com.freightflow.logistics.quote.FreightQuoteRepository;
 import com.freightflow.logistics.quote.QuoteNotFoundException;
 import com.freightflow.logistics.shipment.dto.CancelShipmentRequest;
 import com.freightflow.logistics.shipment.dto.CreateShipmentRequest;
 import com.freightflow.logistics.shipment.dto.PartyDto;
+import com.freightflow.logistics.shipment.dto.PublicTrackingResponse;
+import com.freightflow.logistics.shipment.dto.PublicTrackingResponse.PublicLocationDto;
+import com.freightflow.logistics.shipment.dto.PublicTrackingResponse.PublicTrackingEventDto;
+import com.freightflow.logistics.shipment.dto.RecordTrackingEventRequest;
 import com.freightflow.logistics.shipment.dto.ShipmentPageResponse;
 import com.freightflow.logistics.shipment.dto.ShipmentResponse;
+import com.freightflow.logistics.shipment.dto.TrackingEventResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -23,7 +31,12 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class ShipmentService {
@@ -32,19 +45,25 @@ public class ShipmentService {
     public static final String IDEMPOTENCY_SCOPE = "shipment";
 
     private final ShipmentRepository shipments;
+    private final TrackingEventRepository trackingEvents;
     private final FreightQuoteRepository quotes;
+    private final LocationRepository locations;
     private final IdempotencyService idempotency;
     private final LogisticsProperties properties;
     private final Clock clock;
 
     public ShipmentService(
             ShipmentRepository shipments,
+            TrackingEventRepository trackingEvents,
             FreightQuoteRepository quotes,
+            LocationRepository locations,
             IdempotencyService idempotency,
             LogisticsProperties properties,
             Clock clock) {
         this.shipments = shipments;
+        this.trackingEvents = trackingEvents;
         this.quotes = quotes;
+        this.locations = locations;
         this.idempotency = idempotency;
         this.properties = properties;
         this.clock = clock;
@@ -193,5 +212,96 @@ public class ShipmentService {
         log.info("Cancelled shipment {} (trackingNumber={}, version={})",
                 saved.getId(), saved.getTrackingNumber(), saved.getVersion());
         return ShipmentResponse.from(saved);
+    }
+
+    @Transactional
+    public TrackingEventResponse recordTrackingEvent(
+            UUID shipmentId,
+            RecordTrackingEventRequest request,
+            String ifMatchHeader) {
+        Shipment shipment = shipments.findById(shipmentId)
+                .orElseThrow(() -> new ShipmentNotFoundException(shipmentId.toString()));
+
+        String normalizedLoc = request.location().trim().toUpperCase(Locale.ROOT);
+        Location location = locations.findById(normalizedLoc)
+                .orElseThrow(() -> new UnknownLocationException("location", normalizedLoc));
+
+        String carrierEventId = request.carrierEventId() != null && !request.carrierEventId().isBlank()
+                ? request.carrierEventId().trim()
+                : null;
+        if (carrierEventId != null) {
+            Optional<TrackingEvent> existing = trackingEvents.findByShipmentIdAndCarrierEventId(shipmentId, carrierEventId);
+            if (existing.isPresent()) {
+                log.info("Ignored duplicate tracking event carrierEventId={} on shipment {}", carrierEventId, shipmentId);
+                return TrackingEventResponse.from(
+                        existing.get(),
+                        location,
+                        shipment.getStatus(),
+                        shipment.getVersion(),
+                        true
+                );
+            }
+        }
+
+        ETags.assertMatches(ifMatchHeader, shipment.getVersion());
+
+        Instant now = clock.instant();
+        boolean appliedToStatus = shipment.applyTrackingEvent(request.targetStatus(), request.occurredAt(), now);
+        Shipment savedShipment = shipments.saveAndFlush(shipment);
+
+        TrackingEvent event = TrackingEvent.create(
+                shipmentId,
+                carrierEventId,
+                request.eventType(),
+                request.targetStatus(),
+                location.getUnlocode(),
+                request.description(),
+                request.occurredAt(),
+                now,
+                appliedToStatus
+        );
+        TrackingEvent savedEvent = trackingEvents.saveAndFlush(event);
+        log.info("Recorded tracking event {} on shipment {} (targetStatus={}, appliedToStatus={}, currentStatus={})",
+                savedEvent.getId(), shipmentId, request.targetStatus(), appliedToStatus, savedShipment.getStatus());
+
+        return TrackingEventResponse.from(
+                savedEvent,
+                location,
+                savedShipment.getStatus(),
+                savedShipment.getVersion(),
+                false
+        );
+    }
+
+    public record PublicTrackingResult(PublicTrackingResponse body, long version) {
+    }
+
+    @Transactional(readOnly = true)
+    public PublicTrackingResult trackByTrackingNumber(String rawTrackingNumber) {
+        String normalized = TrackingNumber.validate(rawTrackingNumber);
+        Shipment shipment = shipments.findByTrackingNumber(normalized)
+                .orElseThrow(() -> new ShipmentNotFoundException(normalized));
+
+        Map<String, Location> locationByCode = locations.findAll().stream()
+                .collect(Collectors.toMap(Location::getUnlocode, Function.identity()));
+
+        Location origin = locationByCode.get(shipment.getOriginUnlocode());
+        Location destination = locationByCode.get(shipment.getDestinationUnlocode());
+
+        List<TrackingEvent> events = trackingEvents.findByShipmentIdOrderByOccurredAtAscIdAsc(shipment.getId());
+        List<PublicTrackingEventDto> eventDtos = events.stream()
+                .map(ev -> PublicTrackingEventDto.from(ev, locationByCode.get(ev.getLocationUnlocode())))
+                .toList();
+
+        PublicTrackingResponse response = new PublicTrackingResponse(
+                shipment.getTrackingNumber(),
+                PublicLocationDto.from(origin),
+                PublicLocationDto.from(destination),
+                shipment.getMode(),
+                shipment.getStatus(),
+                shipment.getLatestEventAt(),
+                eventDtos
+        );
+        return new PublicTrackingResult(response, shipment.getVersion());
     }
 }

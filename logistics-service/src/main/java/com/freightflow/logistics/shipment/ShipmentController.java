@@ -1,14 +1,19 @@
 package com.freightflow.logistics.shipment;
 
 import com.freightflow.logistics.idempotency.IdempotencyService.IdempotentResult;
+import com.freightflow.logistics.shipment.ShipmentService.PublicTrackingResult;
 import com.freightflow.logistics.shipment.dto.CancelShipmentRequest;
 import com.freightflow.logistics.shipment.dto.CreateShipmentRequest;
+import com.freightflow.logistics.shipment.dto.PublicTrackingResponse;
+import com.freightflow.logistics.shipment.dto.RecordTrackingEventRequest;
 import com.freightflow.logistics.shipment.dto.ShipmentPageResponse;
 import com.freightflow.logistics.shipment.dto.ShipmentResponse;
+import com.freightflow.logistics.shipment.dto.TrackingEventResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,7 +29,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/shipments")
-@Tag(name = "Shipments", description = "Shipment bookings, lifecycle state machine, and keyset listing")
+@Tag(name = "Shipments", description = "Shipment bookings, lifecycle state machine, tracking events, and keyset listing")
 public class ShipmentController {
 
     private final ShipmentService shipmentService;
@@ -50,6 +55,16 @@ public class ShipmentController {
         return builder.body(created);
     }
 
+    @GetMapping("/track/{trackingNumber}")
+    @Operation(summary = "Public shipment tracking by tracking number with local IANA time zone timestamps and no customer PII")
+    public ResponseEntity<PublicTrackingResponse> trackByTrackingNumber(
+            @PathVariable String trackingNumber) {
+        PublicTrackingResult result = shipmentService.trackByTrackingNumber(trackingNumber);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.ETAG, ETags.format(result.version()))
+                .body(result.body());
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "Fetch a shipment by ID with its current ETag version")
     public ResponseEntity<ShipmentResponse> getShipment(@PathVariable UUID id) {
@@ -68,8 +83,21 @@ public class ShipmentController {
         return shipmentService.listShipments(status, cursor, size);
     }
 
+    @PostMapping("/{id}/tracking-events")
+    @Operation(summary = "Record a tracking event with out-of-order and duplicate-carrier-event safety")
+    public ResponseEntity<TrackingEventResponse> recordTrackingEvent(
+            @PathVariable UUID id,
+            @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+            @Valid @RequestBody RecordTrackingEventRequest request) {
+        TrackingEventResponse recorded = shipmentService.recordTrackingEvent(id, request, ifMatch);
+        HttpStatus status = recorded.duplicateIgnored() ? HttpStatus.OK : HttpStatus.CREATED;
+        return ResponseEntity.status(status)
+                .header(HttpHeaders.ETAG, ETags.format(recorded.shipmentVersion()))
+                .body(recorded);
+    }
+
     @PostMapping("/{id}/cancellation")
-    @Operation(summary = "Cancel a shipment before it reaches IN_TRANSIT")
+    @Operation(summary = "Cancel a shipment before it reaches PICKED_UP")
     public ResponseEntity<ShipmentResponse> cancelShipment(
             @PathVariable UUID id,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
