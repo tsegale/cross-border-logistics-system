@@ -8,3 +8,9 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | [0001](0001-database-per-service.md) | One database per service | Accepted |
 | [0002](0002-independent-service-builds.md) | Independent service builds, no shared library | Accepted |
 | [0003](0003-kafka-kraft-as-event-backbone.md) | Kafka in KRaft mode as the event backbone | Accepted (built in Phase 4) |
+| [0004](0004-double-entry-append-only-ledger.md) | Double-entry, append-only ledger with database-enforced invariants | Accepted |
+| [0005](0005-transfer-concurrency-strategy.md) | Transfer concurrency control: ordered pessimistic locking vs conditional UPDATE | Accepted |
+| [0006](0006-idempotency-keys.md) | Transactional idempotency keys with advisory locks | Accepted |
+| [0007](0007-money-rounding-and-fx-quotes.md) | Exact decimal money, HALF_EVEN rounding, and locked FX quotes | Accepted |
+| [0008](0008-freight-quotes-and-chargeable-weight.md) | Freight quotes, industry chargeable weight, and Incoterms 2020 allocation | Accepted |
+| [0009](0009-shipment-state-machine-and-tracking.md) | Shipment state machine, out-of-order tracking events, and optimistic locking | Accepted |
