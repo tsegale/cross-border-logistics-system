@@ -13,6 +13,12 @@ updates:
     schedule: { interval: weekly }
     groups:
       docker: { patterns: ["*"] }
+    # A Java upgrade is a deliberate decision with its own ADR, not a bot PR. Bot PR #2 moved the build to
+    # JDK 25 and the runtime to JRE 24, a non-LTS release that is already end-of-life. Patch and minor
+    # updates of the same major still arrive.
+    ignore:
+      - dependency-name: "eclipse-temurin"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker-compose
     directory: "/"
