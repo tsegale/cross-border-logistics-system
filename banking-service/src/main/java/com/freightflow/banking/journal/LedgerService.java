@@ -5,6 +5,7 @@ import com.freightflow.banking.account.AccountNotFoundException;
 import com.freightflow.banking.account.AccountRepository;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.AccountType;
+import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.common.MoneyRounding;
 import com.freightflow.banking.config.BankingProperties;
 import com.freightflow.banking.idempotency.IdempotencyService;
@@ -199,7 +200,9 @@ public class LedgerService {
         // hydrates the latest committed balances after acquiring the row locks.
         entityManager.flush();
         entityManager.clear();
-        List<Account> lockedAccounts = accounts.findAllByIdInForUpdate(accountIds);
+        List<Account> lockedAccounts = LockTimeouts.withLockTimeout(
+                jdbcTemplate, properties.ledger().accountLockTimeout(),
+                () -> accounts.findAllByIdInForUpdate(accountIds));
         if (lockedAccounts.size() != accountIds.size()) {
             throw new AccountNotFoundException("One or more accounts in journal entry were not found");
         }

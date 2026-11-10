@@ -1,5 +1,6 @@
 package com.freightflow.logistics.idempotency;
 
+import com.freightflow.logistics.common.LockTimeouts;
 import com.freightflow.logistics.config.LogisticsProperties;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -112,16 +113,16 @@ public class IdempotencyService {
         }
     }
 
+    /** The timeout applies to this one lock only; it must not leak into later statements of the transaction. */
     private void acquireAdvisoryLock(String scope, String key) {
-        long timeoutMs = Math.max(properties.idempotency().lockTimeout().toMillis(), 100L);
         try {
-            jdbcTemplate.execute("SET LOCAL lock_timeout = '" + timeoutMs + "ms'");
-            jdbcTemplate.queryForObject(
-                    "SELECT pg_advisory_xact_lock(hashtext(?), hashtext(?))",
-                    Object.class,
-                    scope,
-                    key
-            );
+            LockTimeouts.withLockTimeout(jdbcTemplate, properties.idempotency().lockTimeout(), () ->
+                    jdbcTemplate.queryForObject(
+                            "SELECT pg_advisory_xact_lock(hashtext(?), hashtext(?))::text",
+                            String.class,
+                            scope,
+                            key
+                    ));
         } catch (PessimisticLockingFailureException ex) {
             throw new IdempotencyKeyInFlightException(key);
         }

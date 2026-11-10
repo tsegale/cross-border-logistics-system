@@ -350,7 +350,8 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
                 properties.supportedCurrencies(),
                 TransferService.STRATEGY_CONDITIONAL_UPDATE,
                 properties.idempotency(),
-                properties.fx()
+                properties.fx(),
+                properties.ledger()
         );
         TransferService conditionalService = new TransferService(
                 accountService, accountRepository, ledgerService, journalEntryRepository,

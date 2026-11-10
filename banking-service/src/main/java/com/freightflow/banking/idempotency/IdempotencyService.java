@@ -1,5 +1,6 @@
 package com.freightflow.banking.idempotency;
 
+import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.config.BankingProperties;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -133,16 +134,20 @@ public class IdempotencyService {
         }
     }
 
+    /**
+     * Waits at most {@code lock-timeout} for a concurrent request with the same key, then answers 409 in flight.
+     * The timeout applies to this one lock only (ADR 0006): the account locks taken later in the transaction
+     * have their own, longer timeout.
+     */
     private void acquireAdvisoryLock(String scope, String key) {
-        long timeoutMs = Math.max(properties.idempotency().lockTimeout().toMillis(), 100L);
         try {
-            jdbcTemplate.execute("SET LOCAL lock_timeout = '" + timeoutMs + "ms'");
-            jdbcTemplate.queryForObject(
-                    "SELECT pg_advisory_xact_lock(hashtext(?), hashtext(?))",
-                    Object.class,
-                    scope,
-                    key
-            );
+            LockTimeouts.withLockTimeout(jdbcTemplate, properties.idempotency().lockTimeout(), () ->
+                    jdbcTemplate.queryForObject(
+                            "SELECT pg_advisory_xact_lock(hashtext(?), hashtext(?))::text",
+                            String.class,
+                            scope,
+                            key
+                    ));
         } catch (PessimisticLockingFailureException ex) {
             throw new IdempotencyKeyInFlightException(key);
         }

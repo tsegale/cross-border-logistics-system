@@ -16,6 +16,9 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/idempotency-key-payload-mismatch` | `422 Unprocessable Content` | Idempotency-Key reused with different request payload | — | Same `(scope, Idempotency-Key)` replayed with a different canonical SHA-256 request hash |
 | `https://freightflow.dev/problems/idempotency-key-in-flight` | `409 Conflict` (`Retry-After: 1`) | Request with this Idempotency-Key is currently in flight | — | Concurrent request holds the transactional advisory lock or `IN_PROGRESS` record for the same key |
 | `https://freightflow.dev/problems/database-unavailable` | `503 Service Unavailable` (`Retry-After: 5`) | Temporarily unavailable | — | PostgreSQL connection pool cannot reach the service database |
+| `https://freightflow.dev/problems/lock-timeout` | `503 Service Unavailable` (`Retry-After: 1`) | Resource busy | — | SQLSTATE `55P03`: a row lock was not granted within its lock timeout. The transaction rolled back; retry the same request with the same `Idempotency-Key` |
+| `https://freightflow.dev/problems/transaction-conflict` | `409 Conflict` (`Retry-After: 1`) | Transaction conflict | — | SQLSTATE `40P01` (deadlock) or `40001` (serialization failure). The transaction rolled back; retry the same request |
+| `https://freightflow.dev/problems/internal-error` | `500 Internal Server Error` | Internal error | — | Anything unexpected. The detail is generic; the cause is only in the service log |
 
 ---
 

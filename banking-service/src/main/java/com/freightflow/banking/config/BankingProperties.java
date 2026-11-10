@@ -15,11 +15,13 @@ public record BankingProperties(
         List<String> supportedCurrencies,
         String transferLockingStrategy,
         Idempotency idempotency,
-        Fx fx
+        Fx fx,
+        Ledger ledger
 ) {
 
     public static final String STRATEGY_PESSIMISTIC = "pessimistic";
     public static final String STRATEGY_CONDITIONAL_UPDATE = "conditional-update";
+    public static final Duration DEFAULT_ACCOUNT_LOCK_TIMEOUT = Duration.ofSeconds(10);
     private static final Set<String> STRATEGIES = Set.of(STRATEGY_PESSIMISTIC, STRATEGY_CONDITIONAL_UPDATE);
 
     /**
@@ -35,12 +37,23 @@ public record BankingProperties(
                     + STRATEGIES + ", was '" + transferLockingStrategy + "'");
         }
         transferLockingStrategy = strategy;
+        if (ledger == null) {
+            ledger = new Ledger(DEFAULT_ACCOUNT_LOCK_TIMEOUT);
+        }
     }
 
     public Set<String> normalizedCurrencies() {
         return supportedCurrencies.stream()
                 .map(c -> c.trim().toUpperCase(Locale.ROOT))
                 .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * @param accountLockTimeout how long a posting waits for the account row locks before it gives up with a
+     *                           retryable 503. Longer than the idempotency lock timeout on purpose: waiting
+     *                           for a hot account is normal, waiting on a duplicate request is not.
+     */
+    public record Ledger(Duration accountLockTimeout) {
     }
 
     public record Idempotency(

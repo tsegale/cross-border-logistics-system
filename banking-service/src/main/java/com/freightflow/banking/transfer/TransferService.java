@@ -6,6 +6,7 @@ import com.freightflow.banking.account.AccountRepository;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.AccountType;
 import com.freightflow.banking.account.InsufficientFundsException;
+import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.common.MoneyRounding;
 import com.freightflow.banking.config.BankingProperties;
 import com.freightflow.banking.fx.FxQuote;
@@ -271,64 +272,68 @@ public class TransferService {
         Instant now = clock.instant();
         Timestamp ts = Timestamp.from(now);
 
-        // If target's UUID sorts before source's UUID in PostgreSQL, lock target first so lock order
-        // is always ascending UUID order (preventing deadlocks on concurrent A->B and B->A).
-        if (compareUuidUnsigned(target.getId(), source.getId()) < 0) {
-            jdbcTemplate.queryForObject(
-                    "SELECT id FROM accounts WHERE id = ? FOR NO KEY UPDATE",
-                    UUID.class,
+        // The row locks (explicit for the target, implicit in each UPDATE) wait at most account-lock-timeout.
+        BigDecimal[] running = LockTimeouts.withLockTimeout(jdbcTemplate, properties.ledger().accountLockTimeout(), () -> {
+            // If target's UUID sorts before source's UUID in PostgreSQL, lock target first so lock order
+            // is always ascending UUID order (preventing deadlocks on concurrent A->B and B->A).
+            if (compareUuidUnsigned(target.getId(), source.getId()) < 0) {
+                jdbcTemplate.queryForObject(
+                        "SELECT id FROM accounts WHERE id = ? FOR NO KEY UPDATE",
+                        UUID.class,
+                        target.getId()
+                );
+            }
+
+            List<BigDecimal> sourceNewBalances = jdbcTemplate.query(
+                    """
+                    UPDATE accounts
+                    SET balance = balance - ?, updated_at = ?
+                    WHERE id = ?
+                      AND status = 'ACTIVE'
+                      AND (account_type <> 'CUSTOMER' OR balance >= ?)
+                    RETURNING balance
+                    """,
+                    (rs, rowNum) -> rs.getBigDecimal("balance"),
+                    amount,
+                    ts,
+                    source.getId(),
+                    amount
+            );
+
+            if (sourceNewBalances.isEmpty()) {
+                entityManager.refresh(source);
+                source.assertActive();
+                throw new InsufficientFundsException(
+                        source.getAccountNumber(),
+                        source.getCurrency(),
+                        MoneyRounding.roundToMinorUnits(source.getBalance(), source.getCurrency()),
+                        MoneyRounding.roundToMinorUnits(amount, source.getCurrency())
+                );
+            }
+
+            List<BigDecimal> targetNewBalances = jdbcTemplate.query(
+                    """
+                    UPDATE accounts
+                    SET balance = balance + ?, updated_at = ?
+                    WHERE id = ?
+                      AND status = 'ACTIVE'
+                    RETURNING balance
+                    """,
+                    (rs, rowNum) -> rs.getBigDecimal("balance"),
+                    amount,
+                    ts,
                     target.getId()
             );
-        }
 
-        List<BigDecimal> sourceNewBalances = jdbcTemplate.query(
-                """
-                UPDATE accounts
-                SET balance = balance - ?, updated_at = ?
-                WHERE id = ?
-                  AND status = 'ACTIVE'
-                  AND (account_type <> 'CUSTOMER' OR balance >= ?)
-                RETURNING balance
-                """,
-                (rs, rowNum) -> rs.getBigDecimal("balance"),
-                amount,
-                ts,
-                source.getId(),
-                amount
-        );
+            if (targetNewBalances.isEmpty()) {
+                entityManager.refresh(target);
+                throw new AccountNotActiveException(target.getAccountNumber(), target.getStatus());
+            }
 
-        if (sourceNewBalances.isEmpty()) {
-            entityManager.refresh(source);
-            source.assertActive();
-            throw new InsufficientFundsException(
-                    source.getAccountNumber(),
-                    source.getCurrency(),
-                    MoneyRounding.roundToMinorUnits(source.getBalance(), source.getCurrency()),
-                    MoneyRounding.roundToMinorUnits(amount, source.getCurrency())
-            );
-        }
-
-        List<BigDecimal> targetNewBalances = jdbcTemplate.query(
-                """
-                UPDATE accounts
-                SET balance = balance + ?, updated_at = ?
-                WHERE id = ?
-                  AND status = 'ACTIVE'
-                RETURNING balance
-                """,
-                (rs, rowNum) -> rs.getBigDecimal("balance"),
-                amount,
-                ts,
-                target.getId()
-        );
-
-        if (targetNewBalances.isEmpty()) {
-            entityManager.refresh(target);
-            throw new AccountNotActiveException(target.getAccountNumber(), target.getStatus());
-        }
-
-        BigDecimal sourceRunning = sourceNewBalances.getFirst();
-        BigDecimal targetRunning = targetNewBalances.getFirst();
+            return new BigDecimal[] {sourceNewBalances.getFirst(), targetNewBalances.getFirst()};
+        });
+        BigDecimal sourceRunning = running[0];
+        BigDecimal targetRunning = running[1];
 
         JournalEntry entry = journalEntries.save(
                 JournalEntry.create(JournalEntryType.TRANSFER, reference, null, null, null, now));

@@ -35,6 +35,8 @@ freightflow:
   banking:
     supported-currencies: ${BANKING_SUPPORTED_CURRENCIES:NAD,ZAR,EUR}
     transfer-locking-strategy: ${TRANSFER_LOCKING_STRATEGY:pessimistic}
+    ledger:
+      account-lock-timeout: ${LEDGER_ACCOUNT_LOCK_TIMEOUT:10s}
     idempotency:
       ttl: ${IDEMPOTENCY_TTL:24h}
       cleanup-interval: ${IDEMPOTENCY_CLEANUP_INTERVAL:15m}

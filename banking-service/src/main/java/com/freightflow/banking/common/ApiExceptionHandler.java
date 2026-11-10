@@ -20,13 +20,16 @@ import com.freightflow.banking.transfer.InvalidTransferException;
 import com.freightflow.banking.transfer.TransferNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.TransactionSystemException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -304,6 +307,42 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, "5")
                 .body(problem);
+    }
+
+    /**
+     * Lock timeouts, deadlocks and serialization failures are transient: the transaction rolled back and the same
+     * request, with the same Idempotency-Key, can be sent again. 55P03 means the row was busy for longer than
+     * the lock timeout (503); 40P01 and 40001 mean this transaction lost a conflict (409). Both carry Retry-After.
+     */
+    @ExceptionHandler({ConcurrencyFailureException.class, TransactionSystemException.class, JpaSystemException.class})
+    public ResponseEntity<ProblemDetail> handleTransientDatabaseConflict(Exception ex) {
+        String sqlState = SqlStates.of(ex).orElse(null);
+        if (SqlStates.LOCK_NOT_AVAILABLE.equals(sqlState)) {
+            log.warn("Lock timeout: {}", ex.getMessage());
+            return retryable(HttpStatus.SERVICE_UNAVAILABLE, "lock-timeout", "Resource busy",
+                    "An account involved is locked by other transactions right now. Retry the same request.");
+        }
+        if (SqlStates.DEADLOCK_DETECTED.equals(sqlState) || SqlStates.SERIALIZATION_FAILURE.equals(sqlState)
+                || (sqlState == null && ex instanceof ConcurrencyFailureException)) {
+            log.warn("Transaction conflict (SQLSTATE {}): {}", sqlState, ex.getMessage());
+            return retryable(HttpStatus.CONFLICT, "transaction-conflict", "Transaction conflict",
+                    "The transaction conflicted with a concurrent one and was rolled back. Retry the same request.");
+        }
+        return handleUnexpected(ex);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ProblemDetail> handleUnexpected(Exception ex) {
+        log.error("Unhandled exception", ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(problem(HttpStatus.INTERNAL_SERVER_ERROR, "internal-error", "Internal error",
+                        "The request could not be completed."));
+    }
+
+    private static ResponseEntity<ProblemDetail> retryable(HttpStatus status, String slug, String title, String detail) {
+        return ResponseEntity.status(status)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(problem(status, slug, title, detail));
     }
 
     public static ProblemDetail problem(HttpStatus status, String slug, String title, String detail) {

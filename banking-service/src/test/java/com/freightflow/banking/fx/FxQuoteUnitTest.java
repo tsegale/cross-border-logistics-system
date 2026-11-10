@@ -29,7 +29,8 @@ class FxQuoteUnitTest {
                                 "EUR", Map.of("NAD", new BigDecimal("20.00000000"), "ZAR", new BigDecimal("20.00000000"))
                         ),
                         Map.of("NAD-ZAR", new BigDecimal("0.0000"), "ZAR-NAD", new BigDecimal("0.0000"))
-                )
+                ),
+                null
         );
     }
 
@@ -77,7 +78,8 @@ class FxQuoteUnitTest {
                         new BigDecimal("0.0050"),
                         Map.of("NAD", Map.of("ZAR", new BigDecimal("1.02000000"))),
                         Map.of()
-                )
+                ),
+                null
         );
         StaticConfiguredExchangeRateProvider brokenProvider = new StaticConfiguredExchangeRateProvider(brokenPeg);
         assertThatThrownBy(() -> brokenProvider.lookupRate("NAD", "ZAR"))
