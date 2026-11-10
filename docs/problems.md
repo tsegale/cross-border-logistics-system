@@ -48,6 +48,7 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/unknown-location` | `422 Unprocessable Content` | Unknown UN/LOCODE location | `field`, `unlocode` | Location code does not exist in seeded corridor `locations` |
 | `https://freightflow.dev/problems/same-origin-destination` | `422 Unprocessable Content` | Invalid route | `origin`, `destination`, `mode` | Quote `origin` and `destination` are the same UN/LOCODE |
 | `https://freightflow.dev/problems/unsupported-route` | `422 Unprocessable Content` | Unsupported corridor lane or mode | `origin`, `destination`, `mode` | No tariff exists for `(origin, destination, mode)` (e.g., `SEA_LCL` from inland `NAWDH`) |
+| `https://freightflow.dev/problems/nothing-to-quote` | `422 Unprocessable Content` | Nothing to quote for this payer | `incoterm`, `payerRole` | The quoting party pays for no leg under the Incoterm (`EXW` asked by the shipper, `DDP` asked by the consignee) |
 | `https://freightflow.dev/problems/quote-not-found` | `404 Not Found` | Freight quote not found | `quoteId` | Freight quote UUID does not exist |
 | `https://freightflow.dev/problems/quote-expired` | `409 Conflict` | Freight quote has expired | `quoteId`, `validUntil` | Freight quote `validUntil` has passed when booking a shipment |
 | `https://freightflow.dev/problems/shipment-not-found` | `404 Not Found` | Shipment not found | `identifier` | Shipment UUID or valid tracking number does not exist |
