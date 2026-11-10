@@ -105,21 +105,10 @@ public class QuoteService {
                 ? convertAndRound(tariff.getDestinationHandlingFee(), fxRate, quoteCurrency)
                 : MoneyRounding.toStorageScale(BigDecimal.ZERO);
 
-        BigDecimal importCustomsDutyCharge;
-        if (incoterm.includesImportCustomsAndDuties()) {
-            BigDecimal cifFreightBase = baseFreightCharge.add(fuelSurcharge).add(originHandlingCharge);
-            BigDecimal rawDuty = cifFreightBase.multiply(tariff.getImportDutyPercent())
-                    .divide(ONE_HUNDRED, MoneyRounding.STORAGE_SCALE + 4, MoneyRounding.ROUNDING_MODE);
-            importCustomsDutyCharge = MoneyRounding.normalizeCustomerAmount(rawDuty, quoteCurrency);
-        } else {
-            importCustomsDutyCharge = MoneyRounding.toStorageScale(BigDecimal.ZERO);
-        }
-
         BigDecimal totalAmount = baseFreightCharge
                 .add(fuelSurcharge)
                 .add(originHandlingCharge)
-                .add(destinationHandlingCharge)
-                .add(importCustomsDutyCharge);
+                .add(destinationHandlingCharge);
 
         Instant now = clock.instant();
         Instant validUntil = now.plus(properties.quoteValidity());
@@ -146,7 +135,6 @@ public class QuoteService {
                 fuelSurcharge,
                 originHandlingCharge,
                 destinationHandlingCharge,
-                importCustomsDutyCharge,
                 totalAmount,
                 tariff.getTransitDaysMin(),
                 tariff.getTransitDaysMax(),

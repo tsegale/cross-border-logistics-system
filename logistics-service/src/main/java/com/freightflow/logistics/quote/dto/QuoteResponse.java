@@ -32,9 +32,9 @@ public record QuoteResponse(
         BigDecimal fuelSurcharge,
         BigDecimal originHandlingCharge,
         BigDecimal destinationHandlingCharge,
-        BigDecimal importCustomsDutyCharge,
         BigDecimal totalAmount,
         List<QuoteLineItemDto> lineItems,
+        List<String> notes,
         IncotermAllocationDto incotermAllocation,
         int transitDaysMin,
         int transitDaysMax,
@@ -57,13 +57,23 @@ public record QuoteResponse(
     ) {
     }
 
+    public static final String DUTIES_EXCLUDED =
+            "Import duties and taxes are not part of this quote: they depend on the customs value of the goods "
+                    + "and are paid by the consignee.";
+    public static final String DUTIES_AS_DISBURSEMENT =
+            "Import duties and taxes are not part of this quote. Under DDP they are paid to customs on the "
+                    + "shipper's behalf and billed at cost as a disbursement.";
+
+    private static List<String> notes(Incoterm incoterm) {
+        return List.of(incoterm.sellerPaysImportDuties() ? DUTIES_AS_DISBURSEMENT : DUTIES_EXCLUDED);
+    }
+
     public static QuoteResponse from(FreightQuote quote, List<QuotePackage> packages) {
         String ccy = quote.getCurrency();
         BigDecimal baseFreight = MoneyRounding.roundToMinorUnits(quote.getBaseFreightCharge(), ccy);
         BigDecimal fuel = MoneyRounding.roundToMinorUnits(quote.getFuelSurcharge(), ccy);
         BigDecimal originHandling = MoneyRounding.roundToMinorUnits(quote.getOriginHandlingCharge(), ccy);
         BigDecimal destHandling = MoneyRounding.roundToMinorUnits(quote.getDestinationHandlingCharge(), ccy);
-        BigDecimal importDuty = MoneyRounding.roundToMinorUnits(quote.getImportCustomsDutyCharge(), ccy);
         BigDecimal total = MoneyRounding.roundToMinorUnits(quote.getTotalAmount(), ccy);
 
         List<QuoteLineItemDto> items = new ArrayList<>();
@@ -74,9 +84,6 @@ public record QuoteResponse(
         items.add(new QuoteLineItemDto("FUEL_SURCHARGE", "Fuel surcharge (" + quote.getSnapshotFuelSurchargePct().stripTrailingZeros().toPlainString() + "%)", fuel, ccy));
         if (destHandling.compareTo(BigDecimal.ZERO) > 0) {
             items.add(new QuoteLineItemDto("DESTINATION_HANDLING", "Destination terminal handling and delivery (" + quote.getDestinationUnlocode() + ")", destHandling, ccy));
-        }
-        if (importDuty.compareTo(BigDecimal.ZERO) > 0) {
-            items.add(new QuoteLineItemDto("IMPORT_CUSTOMS_DUTIES", "Import customs clearance and duties (" + quote.getDestinationUnlocode() + ")", importDuty, ccy));
         }
 
         List<PackageSpecDto> pkgDtos = packages.stream()
@@ -116,9 +123,9 @@ public record QuoteResponse(
                 fuel,
                 originHandling,
                 destHandling,
-                importDuty,
                 total,
                 List.copyOf(items),
+                notes(incoterm),
                 allocation,
                 quote.getTransitDaysMin(),
                 quote.getTransitDaysMax(),

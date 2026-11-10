@@ -50,9 +50,6 @@ public class Tariff {
     @Column(name = "destination_handling_fee", precision = 19, scale = 4, nullable = false)
     private BigDecimal destinationHandlingFee;
 
-    @Column(name = "import_duty_percent", precision = 7, scale = 4, nullable = false)
-    private BigDecimal importDutyPercent;
-
     @Column(name = "transit_days_min", nullable = false)
     private int transitDaysMin;
 
@@ -104,10 +101,6 @@ public class Tariff {
 
     public BigDecimal getDestinationHandlingFee() {
         return destinationHandlingFee;
-    }
-
-    public BigDecimal getImportDutyPercent() {
-        return importDutyPercent;
     }
 
     public int getTransitDaysMin() {

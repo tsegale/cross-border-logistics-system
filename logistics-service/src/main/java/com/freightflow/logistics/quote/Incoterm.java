@@ -52,19 +52,19 @@ public enum Incoterm {
 
     private final boolean includesOriginHandling;
     private final boolean includesDestinationHandling;
-    private final boolean includesImportCustomsAndDuties;
+    private final boolean sellerPaysImportDuties;
     private final List<String> sellerResponsibilities;
     private final List<String> buyerResponsibilities;
 
     Incoterm(
             boolean includesOriginHandling,
             boolean includesDestinationHandling,
-            boolean includesImportCustomsAndDuties,
+            boolean sellerPaysImportDuties,
             List<String> sellerResponsibilities,
             List<String> buyerResponsibilities) {
         this.includesOriginHandling = includesOriginHandling;
         this.includesDestinationHandling = includesDestinationHandling;
-        this.includesImportCustomsAndDuties = includesImportCustomsAndDuties;
+        this.sellerPaysImportDuties = sellerPaysImportDuties;
         this.sellerResponsibilities = sellerResponsibilities;
         this.buyerResponsibilities = buyerResponsibilities;
     }
@@ -77,8 +77,9 @@ public enum Incoterm {
         return includesDestinationHandling;
     }
 
-    public boolean includesImportCustomsAndDuties() {
-        return includesImportCustomsAndDuties;
+    /** True under DDP only: duties and taxes are then billed to the shipper at cost, as a disbursement. */
+    public boolean sellerPaysImportDuties() {
+        return sellerPaysImportDuties;
     }
 
     public List<String> sellerResponsibilities() {

@@ -1,5 +1,6 @@
 package com.freightflow.logistics.quote;
 
+import com.freightflow.logistics.quote.dto.QuoteResponse;
 import com.freightflow.logistics.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,7 +74,7 @@ class QuoteIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.fuelSurcharge").value(42.75))
                 .andExpect(jsonPath("$.originHandlingCharge").value(0.00))
                 .andExpect(jsonPath("$.destinationHandlingCharge").value(0.00))
-                .andExpect(jsonPath("$.importCustomsDutyCharge").value(0.00))
+                .andExpect(jsonPath("$.importCustomsDutyCharge").doesNotExist())
                 .andExpect(jsonPath("$.totalAmount").value(384.75))
                 .andReturn();
 
@@ -82,7 +83,7 @@ class QuoteIntegrationTest extends IntegrationTest {
 
         // 2. Same cargo under DDP in NAD (converted at 1 EUR = 20 NAD)
         // Includes originHandling (65 EUR = 1300 NAD), baseFreight (342 EUR = 6840 NAD),
-        // fuel (42.75 EUR = 855 NAD), destHandling (85 EUR = 1700 NAD), and importDuty (15% of 8995 = 1349.25 NAD)
+        // fuel (42.75 EUR = 855 NAD) and destHandling (85 EUR = 1700 NAD). No duties: billed at cost under DDP.
         MvcResult ddpRes = mockMvc.perform(post("/api/v1/quotes")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -110,9 +111,10 @@ class QuoteIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.fuelSurcharge").value(855.00))
                 .andExpect(jsonPath("$.originHandlingCharge").value(1300.00))
                 .andExpect(jsonPath("$.destinationHandlingCharge").value(1700.00))
-                .andExpect(jsonPath("$.importCustomsDutyCharge").value(1349.25))
-                .andExpect(jsonPath("$.totalAmount").value(12044.25))
-                .andExpect(jsonPath("$.lineItems.length()").value(5))
+                .andExpect(jsonPath("$.importCustomsDutyCharge").doesNotExist())
+                .andExpect(jsonPath("$.totalAmount").value(10695.00))
+                .andExpect(jsonPath("$.lineItems.length()").value(4))
+                .andExpect(jsonPath("$.notes[0]").value(QuoteResponse.DUTIES_AS_DISBURSEMENT))
                 .andReturn();
 
         // 3. AIR quote NAWDH -> DEFRA under DAP where minimumCharge applies

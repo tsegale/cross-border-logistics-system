@@ -89,9 +89,6 @@ public class FreightQuote {
     @Column(name = "destination_handling_charge", precision = 19, scale = 4, nullable = false, updatable = false)
     private BigDecimal destinationHandlingCharge;
 
-    @Column(name = "import_customs_duty_charge", precision = 19, scale = 4, nullable = false, updatable = false)
-    private BigDecimal importCustomsDutyCharge;
-
     @Column(name = "total_amount", precision = 19, scale = 4, nullable = false, updatable = false)
     private BigDecimal totalAmount;
 
@@ -132,7 +129,6 @@ public class FreightQuote {
             BigDecimal fuelSurcharge,
             BigDecimal originHandlingCharge,
             BigDecimal destinationHandlingCharge,
-            BigDecimal importCustomsDutyCharge,
             BigDecimal totalAmount,
             int transitDaysMin,
             int transitDaysMax,
@@ -160,7 +156,6 @@ public class FreightQuote {
         q.fuelSurcharge = MoneyRounding.toStorageScale(fuelSurcharge);
         q.originHandlingCharge = MoneyRounding.toStorageScale(originHandlingCharge);
         q.destinationHandlingCharge = MoneyRounding.toStorageScale(destinationHandlingCharge);
-        q.importCustomsDutyCharge = MoneyRounding.toStorageScale(importCustomsDutyCharge);
         q.totalAmount = MoneyRounding.toStorageScale(totalAmount);
         q.transitDaysMin = transitDaysMin;
         q.transitDaysMax = transitDaysMax;
@@ -255,10 +250,6 @@ public class FreightQuote {
 
     public BigDecimal getDestinationHandlingCharge() {
         return destinationHandlingCharge;
-    }
-
-    public BigDecimal getImportCustomsDutyCharge() {
-        return importCustomsDutyCharge;
     }
 
     public BigDecimal getTotalAmount() {
