@@ -122,6 +122,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/quotes \
     "destination": "DEHAM",
     "mode": "SEA_LCL",
     "incoterm": "FCA",
+    "payerRole": "CONSIGNEE",
     "packages": [{"lengthCm":120,"widthCm":100,"heightCm":150,"weightKg":500,"quantity":2,"description":"Frozen hake fillets"}],
     "currency": "EUR"
   }'
@@ -134,6 +135,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/quotes \
   "destination": "DEHAM",
   "mode": "SEA_LCL",
   "incoterm": "FCA",
+  "payerRole": "CONSIGNEE",
   "billingUnit": "WM_TON",
   "actualWeightKg": 1000.000,
   "volumeCbm": 3.6000,
@@ -142,7 +144,9 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/quotes \
   "currency": "EUR",
   "baseFreightCharge": 342.00,
   "fuelSurcharge": 42.75,
-  "totalAmount": 384.75
+  "destinationHandlingCharge": 85.00,
+  "importClearanceCharge": 55.00,
+  "totalAmount": 524.75
 }
 ```
 

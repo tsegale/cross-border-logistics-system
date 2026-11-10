@@ -228,6 +228,7 @@ class ShipmentIntegrationTest extends IntegrationTest {
                                   "destination": "%s",
                                   "mode": "%s",
                                   "incoterm": "%s",
+                                  "payerRole": "CONSIGNEE",
                                   "packages": [
                                     {
                                       "lengthCm": 120,

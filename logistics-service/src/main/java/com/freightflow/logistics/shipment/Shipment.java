@@ -132,7 +132,7 @@ public class Shipment {
         s.originUnlocode = quote.getOriginUnlocode();
         s.destinationUnlocode = quote.getDestinationUnlocode();
         s.mode = quote.getMode();
-        s.incoterm = quote.getIncoterms();
+        s.incoterm = quote.getIncoterm();
         s.status = ShipmentStatus.AWAITING_PAYMENT;
         s.shipperName = shipper.name().trim();
         s.shipperAddress = shipper.address().trim();

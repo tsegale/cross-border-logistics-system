@@ -267,6 +267,7 @@ class TrackingEventIntegrationTest extends IntegrationTest {
                                   "destination": "DEHAM",
                                   "mode": "SEA_LCL",
                                   "incoterm": "FCA",
+                                  "payerRole": "CONSIGNEE",
                                   "packages": [
                                     {
                                       "lengthCm": 120,

@@ -171,6 +171,7 @@ QUOTE_RESP=$(curl -fsS -X POST "${GATEWAY}/api/v1/quotes" \
     "destination": "DEHAM",
     "mode": "SEA_LCL",
     "incoterm": "FCA",
+    "payerRole": "CONSIGNEE",
     "packages": [
       {
         "lengthCm": 120,
@@ -186,7 +187,9 @@ QUOTE_RESP=$(curl -fsS -X POST "${GATEWAY}/api/v1/quotes" \
 echo "$QUOTE_RESP"
 # Expected 201 Created:
 # volumeCbm = 3.6, actualWeightKg = 1000.0, chargeableUnits = 3.6 (WM_TON),
-# baseFreightCharge = 342.00, fuelSurcharge = 42.75, totalAmount = 384.75 EUR
+# FCA asked by the consignee: main carriage, destination handling and import clearance
+# baseFreightCharge = 342.00, fuelSurcharge = 42.75, destinationHandlingCharge = 85.00,
+# importClearanceCharge = 55.00, totalAmount = 524.75 EUR
 
 QUOTE_ID=$(json_field "$QUOTE_RESP" "id")
 curl -fsS "${GATEWAY}/api/v1/quotes/${QUOTE_ID}"

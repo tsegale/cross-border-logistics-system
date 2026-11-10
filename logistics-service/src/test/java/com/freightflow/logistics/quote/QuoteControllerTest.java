@@ -52,6 +52,7 @@ class QuoteControllerTest {
                                   "destination": "DEHAM",
                                   "mode": "ROCKET",
                                   "incoterm": "FCA",
+                                  "payerRole": "CONSIGNEE",
                                   "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
                                   "currency": "EUR"
                                 }
@@ -70,6 +71,7 @@ class QuoteControllerTest {
                                   "destination": "DEHAM",
                                   "mode": "SEA_LCL",
                                   "incoterm": "FCA",
+                                  "payerRole": "CONSIGNEE",
                                   "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
                                   "currency": "EUR"
                                 }
@@ -89,6 +91,7 @@ class QuoteControllerTest {
                                   "destination": "DEHAM",
                                   "mode": "SEA_LCL",
                                   "incoterm": "FCA",
+                                  "payerRole": "CONSIGNEE",
                                   "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
                                   "currency": "USD"
                                 }

@@ -5,6 +5,7 @@ import com.freightflow.logistics.idempotency.IdempotencyPayloadMismatchException
 import com.freightflow.logistics.idempotency.MissingIdempotencyKeyException;
 import com.freightflow.logistics.location.UnknownLocationException;
 import com.freightflow.logistics.quote.InvalidRouteException;
+import com.freightflow.logistics.quote.NothingToQuoteException;
 import com.freightflow.logistics.quote.QuoteNotFoundException;
 import com.freightflow.logistics.shipment.InvalidAccountNumberException;
 import com.freightflow.logistics.shipment.InvalidShipmentCursorException;
@@ -110,6 +111,19 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setProperty("origin", ex.getOrigin());
         problem.setProperty("destination", ex.getDestination());
         problem.setProperty("mode", ex.getMode());
+        return problem;
+    }
+
+    @ExceptionHandler(NothingToQuoteException.class)
+    public ProblemDetail handleNothingToQuote(NothingToQuoteException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "nothing-to-quote",
+                "Nothing to quote for this payer",
+                ex.getMessage()
+        );
+        problem.setProperty("incoterm", ex.getIncoterm());
+        problem.setProperty("payerRole", ex.getPayerRole());
         return problem;
     }
 

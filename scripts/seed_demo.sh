@@ -97,6 +97,7 @@ QUOTE_RESP="$(curl -fsS -X POST "${GATEWAY_URL}/api/v1/quotes" \
     "destination": "DEHAM",
     "mode": "SEA_LCL",
     "incoterm": "FCA",
+    "payerRole": "CONSIGNEE",
     "packages": [
       {
         "lengthCm": 120,

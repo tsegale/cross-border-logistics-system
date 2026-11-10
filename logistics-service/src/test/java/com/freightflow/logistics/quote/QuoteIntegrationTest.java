@@ -47,6 +47,7 @@ class QuoteIntegrationTest extends IntegrationTest {
                                   "destination": "DEHAM",
                                   "mode": "SEA_LCL",
                                   "incoterm": "FCA",
+                                  "payerRole": "CONSIGNEE",
                                   "packages": [
                                     {
                                       "lengthCm": 120,
@@ -73,9 +74,12 @@ class QuoteIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.baseFreightCharge").value(342.00))
                 .andExpect(jsonPath("$.fuelSurcharge").value(42.75))
                 .andExpect(jsonPath("$.originHandlingCharge").value(0.00))
-                .andExpect(jsonPath("$.destinationHandlingCharge").value(0.00))
+                .andExpect(jsonPath("$.destinationHandlingCharge").value(85.00))
+                .andExpect(jsonPath("$.importClearanceCharge").value(55.00))
                 .andExpect(jsonPath("$.importCustomsDutyCharge").doesNotExist())
-                .andExpect(jsonPath("$.totalAmount").value(384.75))
+                .andExpect(jsonPath("$.payerRole").value("CONSIGNEE"))
+                .andExpect(jsonPath("$.billableLegs.length()").value(3))
+                .andExpect(jsonPath("$.totalAmount").value(524.75))
                 .andReturn();
 
         JsonNode fcaJson = JSON.readTree(fcaRes.getResponse().getContentAsString());
@@ -83,7 +87,8 @@ class QuoteIntegrationTest extends IntegrationTest {
 
         // 2. Same cargo under DDP in NAD (converted at 1 EUR = 20 NAD)
         // Includes originHandling (65 EUR = 1300 NAD), baseFreight (342 EUR = 6840 NAD),
-        // fuel (42.75 EUR = 855 NAD) and destHandling (85 EUR = 1700 NAD). No duties: billed at cost under DDP.
+        // fuel (42.75 EUR = 855 NAD), destHandling (85 EUR = 1700 NAD) and import clearance (55 EUR = 1100 NAD).
+        // No duties: under DDP they are billed at cost as a disbursement.
         MvcResult ddpRes = mockMvc.perform(post("/api/v1/quotes")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -92,6 +97,7 @@ class QuoteIntegrationTest extends IntegrationTest {
                                   "destination": "DEHAM",
                                   "mode": "SEA_LCL",
                                   "incoterm": "DDP",
+                                  "payerRole": "SHIPPER",
                                   "packages": [
                                     {
                                       "lengthCm": 120,
@@ -112,8 +118,9 @@ class QuoteIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.originHandlingCharge").value(1300.00))
                 .andExpect(jsonPath("$.destinationHandlingCharge").value(1700.00))
                 .andExpect(jsonPath("$.importCustomsDutyCharge").doesNotExist())
-                .andExpect(jsonPath("$.totalAmount").value(10695.00))
-                .andExpect(jsonPath("$.lineItems.length()").value(4))
+                .andExpect(jsonPath("$.importClearanceCharge").value(1100.00))
+                .andExpect(jsonPath("$.totalAmount").value(11795.00))
+                .andExpect(jsonPath("$.lineItems.length()").value(5))
                 .andExpect(jsonPath("$.notes[0]").value(QuoteResponse.DUTIES_AS_DISBURSEMENT))
                 .andReturn();
 
@@ -128,6 +135,7 @@ class QuoteIntegrationTest extends IntegrationTest {
                                   "destination": "DEFRA",
                                   "mode": "AIR",
                                   "incoterm": "DAP",
+                                  "payerRole": "SHIPPER",
                                   "packages": [
                                     {
                                       "lengthCm": 40,
@@ -152,10 +160,10 @@ class QuoteIntegrationTest extends IntegrationTest {
             MvcResult fetched = mockMvc.perform(get("/api/v1/quotes/{id}", fcaQuoteId))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(fcaQuoteId))
-                    .andExpect(jsonPath("$.totalAmount").value(384.75))
+                    .andExpect(jsonPath("$.totalAmount").value(524.75))
                     .andReturn();
             JsonNode fetchedJson = JSON.readTree(fetched.getResponse().getContentAsString());
-            assertThat(fetchedJson.get("totalAmount").decimalValue()).isEqualByComparingTo(new BigDecimal("384.75"));
+            assertThat(fetchedJson.get("totalAmount").decimalValue()).isEqualByComparingTo(new BigDecimal("524.75"));
         } finally {
             jdbcTemplate.update(
                     "UPDATE tariffs SET rate_per_unit = 95.0000 WHERE origin_unlocode = 'NAWVB' AND destination_unlocode = 'DEHAM' AND mode = 'SEA_LCL'");
@@ -170,6 +178,7 @@ class QuoteIntegrationTest extends IntegrationTest {
                                   "destination": "NAWVB",
                                   "mode": "SEA_LCL",
                                   "incoterm": "EXW",
+                                  "payerRole": "CONSIGNEE",
                                   "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
                                   "currency": "EUR"
                                 }
@@ -186,12 +195,30 @@ class QuoteIntegrationTest extends IntegrationTest {
                                   "destination": "DEFRA",
                                   "mode": "SEA_LCL",
                                   "incoterm": "EXW",
+                                  "payerRole": "CONSIGNEE",
                                   "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
                                   "currency": "EUR"
                                 }
                                 """))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/unsupported-route"));
+
+        // EXW quoted to the shipper: the shipper pays no leg -> 422 nothing-to-quote
+        mockMvc.perform(post("/api/v1/quotes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "origin": "NAWVB",
+                                  "destination": "DEHAM",
+                                  "mode": "SEA_LCL",
+                                  "incoterm": "EXW",
+                                  "payerRole": "SHIPPER",
+                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
+                                  "currency": "EUR"
+                                }
+                                """))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/nothing-to-quote"));
 
         // Unknown quote -> 404 quote-not-found
         mockMvc.perform(get("/api/v1/quotes/{id}", UUID.randomUUID()))

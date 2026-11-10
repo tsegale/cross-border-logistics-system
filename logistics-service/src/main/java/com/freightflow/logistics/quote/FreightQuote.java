@@ -38,6 +38,10 @@ public class FreightQuote {
     private Incoterm incoterm;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "payer_role", length = 16, nullable = false, updatable = false)
+    private PayerRole payerRole;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "billing_unit", length = 16, nullable = false, updatable = false)
     private BillingUnit billingUnit;
 
@@ -89,6 +93,9 @@ public class FreightQuote {
     @Column(name = "destination_handling_charge", precision = 19, scale = 4, nullable = false, updatable = false)
     private BigDecimal destinationHandlingCharge;
 
+    @Column(name = "import_clearance_charge", precision = 19, scale = 4, nullable = false, updatable = false)
+    private BigDecimal importClearanceCharge;
+
     @Column(name = "total_amount", precision = 19, scale = 4, nullable = false, updatable = false)
     private BigDecimal totalAmount;
 
@@ -112,6 +119,7 @@ public class FreightQuote {
             String destinationUnlocode,
             TransportMode mode,
             Incoterm incoterm,
+            PayerRole payerRole,
             BillingUnit billingUnit,
             int packageCount,
             BigDecimal actualWeightKg,
@@ -129,6 +137,7 @@ public class FreightQuote {
             BigDecimal fuelSurcharge,
             BigDecimal originHandlingCharge,
             BigDecimal destinationHandlingCharge,
+            BigDecimal importClearanceCharge,
             BigDecimal totalAmount,
             int transitDaysMin,
             int transitDaysMax,
@@ -139,6 +148,7 @@ public class FreightQuote {
         q.destinationUnlocode = Objects.requireNonNull(destinationUnlocode, "destinationUnlocode");
         q.mode = Objects.requireNonNull(mode, "mode");
         q.incoterm = Objects.requireNonNull(incoterm, "incoterm");
+        q.payerRole = Objects.requireNonNull(payerRole, "payerRole");
         q.billingUnit = Objects.requireNonNull(billingUnit, "billingUnit");
         q.packageCount = packageCount;
         q.actualWeightKg = Objects.requireNonNull(actualWeightKg, "actualWeightKg");
@@ -156,6 +166,7 @@ public class FreightQuote {
         q.fuelSurcharge = MoneyRounding.toStorageScale(fuelSurcharge);
         q.originHandlingCharge = MoneyRounding.toStorageScale(originHandlingCharge);
         q.destinationHandlingCharge = MoneyRounding.toStorageScale(destinationHandlingCharge);
+        q.importClearanceCharge = MoneyRounding.toStorageScale(importClearanceCharge);
         q.totalAmount = MoneyRounding.toStorageScale(totalAmount);
         q.transitDaysMin = transitDaysMin;
         q.transitDaysMax = transitDaysMax;
@@ -180,8 +191,12 @@ public class FreightQuote {
         return mode;
     }
 
-    public Incoterm getIncoterms() {
+    public Incoterm getIncoterm() {
         return incoterm;
+    }
+
+    public PayerRole getPayerRole() {
+        return payerRole;
     }
 
     public BillingUnit getBillingUnit() {
@@ -250,6 +265,10 @@ public class FreightQuote {
 
     public BigDecimal getDestinationHandlingCharge() {
         return destinationHandlingCharge;
+    }
+
+    public BigDecimal getImportClearanceCharge() {
+        return importClearanceCharge;
     }
 
     public BigDecimal getTotalAmount() {

@@ -1,6 +1,7 @@
 package com.freightflow.logistics.quote.dto;
 
 import com.freightflow.logistics.quote.Incoterm;
+import com.freightflow.logistics.quote.PayerRole;
 import com.freightflow.logistics.quote.TransportMode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -21,6 +22,9 @@ public record CreateQuoteRequest(
 
         @NotNull(message = "incoterm is required")
         Incoterm incoterm,
+
+        @NotNull(message = "payerRole is required: SHIPPER or CONSIGNEE")
+        PayerRole payerRole,
 
         @NotEmpty(message = "packages must not be empty")
         List<@Valid PackageSpecDto> packages,

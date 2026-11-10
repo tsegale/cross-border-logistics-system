@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -87,28 +88,41 @@ public class QuoteService {
         CalculationResult calc = ChargeableWeightCalculator.calculate(request.mode(), request.packages());
         BigDecimal fxRate = lookupConversionRate(tariff.getCurrency(), quoteCurrency);
 
-        // Compute base freight in tariff currency, then convert to requested quote currency and round with HALF_EVEN
-        BigDecimal rawFreightTariffCcy = calc.chargeableUnits().multiply(tariff.getRatePerUnit())
-                .max(tariff.getMinimumCharge());
-        BigDecimal baseFreightCharge = convertAndRound(rawFreightTariffCcy, fxRate, quoteCurrency);
-
-        BigDecimal rawFuelQuoteCcy = baseFreightCharge.multiply(tariff.getFuelSurchargePercent())
-                .divide(ONE_HUNDRED, MoneyRounding.STORAGE_SCALE + 4, MoneyRounding.ROUNDING_MODE);
-        BigDecimal fuelSurcharge = MoneyRounding.normalizeCustomerAmount(rawFuelQuoteCcy, quoteCurrency);
-
         Incoterm incoterm = request.incoterm();
-        BigDecimal originHandlingCharge = incoterm.includesOriginHandling()
-                ? convertAndRound(tariff.getOriginHandlingFee(), fxRate, quoteCurrency)
-                : MoneyRounding.toStorageScale(BigDecimal.ZERO);
+        PayerRole payerRole = request.payerRole();
+        Set<ChargeLeg> legs = incoterm.billableLegs(payerRole);
+        if (legs.isEmpty()) {
+            throw new NothingToQuoteException(incoterm, payerRole);
+        }
+        BigDecimal zero = MoneyRounding.toStorageScale(BigDecimal.ZERO);
 
-        BigDecimal destinationHandlingCharge = incoterm.includesDestinationHandling()
+        // Main carriage is priced in the tariff currency, then converted and rounded HALF_EVEN; the minimum
+        // charge applies to the freight before the fuel surcharge.
+        BigDecimal baseFreightCharge = zero;
+        BigDecimal fuelSurcharge = zero;
+        if (legs.contains(ChargeLeg.MAIN_CARRIAGE)) {
+            BigDecimal rawFreightTariffCcy = calc.chargeableUnits().multiply(tariff.getRatePerUnit())
+                    .max(tariff.getMinimumCharge());
+            baseFreightCharge = convertAndRound(rawFreightTariffCcy, fxRate, quoteCurrency);
+            BigDecimal rawFuelQuoteCcy = baseFreightCharge.multiply(tariff.getFuelSurchargePercent())
+                    .divide(ONE_HUNDRED, MoneyRounding.STORAGE_SCALE + 4, MoneyRounding.ROUNDING_MODE);
+            fuelSurcharge = MoneyRounding.normalizeCustomerAmount(rawFuelQuoteCcy, quoteCurrency);
+        }
+        BigDecimal originHandlingCharge = legs.contains(ChargeLeg.ORIGIN_HANDLING)
+                ? convertAndRound(tariff.getOriginHandlingFee(), fxRate, quoteCurrency)
+                : zero;
+        BigDecimal destinationHandlingCharge = legs.contains(ChargeLeg.DESTINATION_HANDLING)
                 ? convertAndRound(tariff.getDestinationHandlingFee(), fxRate, quoteCurrency)
-                : MoneyRounding.toStorageScale(BigDecimal.ZERO);
+                : zero;
+        BigDecimal importClearanceCharge = legs.contains(ChargeLeg.IMPORT_CLEARANCE)
+                ? convertAndRound(tariff.getImportClearanceFee(), fxRate, quoteCurrency)
+                : zero;
 
         BigDecimal totalAmount = baseFreightCharge
                 .add(fuelSurcharge)
                 .add(originHandlingCharge)
-                .add(destinationHandlingCharge);
+                .add(destinationHandlingCharge)
+                .add(importClearanceCharge);
 
         Instant now = clock.instant();
         Instant validUntil = now.plus(properties.quoteValidity());
@@ -118,6 +132,7 @@ public class QuoteService {
                 destination.getUnlocode(),
                 request.mode(),
                 incoterm,
+                payerRole,
                 calc.billingUnit(),
                 calc.totalPieces(),
                 calc.actualWeightKg(),
@@ -135,6 +150,7 @@ public class QuoteService {
                 fuelSurcharge,
                 originHandlingCharge,
                 destinationHandlingCharge,
+                importClearanceCharge,
                 totalAmount,
                 tariff.getTransitDaysMin(),
                 tariff.getTransitDaysMax(),
