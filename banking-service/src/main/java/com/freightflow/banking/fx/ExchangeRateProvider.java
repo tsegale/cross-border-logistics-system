@@ -10,6 +10,9 @@ public interface ExchangeRateProvider {
 
     RateQuote lookupRate(String sellCurrency, String buyCurrency);
 
+    /** A short, stable name for where the rates come from, shown on indicative rates. */
+    String sourceName();
+
     record RateQuote(
             String sellCurrency,
             String buyCurrency,

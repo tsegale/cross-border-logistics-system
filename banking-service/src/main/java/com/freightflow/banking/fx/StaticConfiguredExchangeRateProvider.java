@@ -21,6 +21,11 @@ public class StaticConfiguredExchangeRateProvider implements ExchangeRateProvide
     }
 
     @Override
+    public String sourceName() {
+        return "static-configuration";
+    }
+
+    @Override
     public RateQuote lookupRate(String sellCurrency, String buyCurrency) {
         String sell = MoneyRounding.validateSupportedCurrency(
                 sellCurrency, properties.normalizedCurrencies()).getCurrencyCode();

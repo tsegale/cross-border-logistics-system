@@ -14,7 +14,7 @@ spring:
             - id: banking
               uri: ${BANKING_SERVICE_URI:http://127.0.0.1:8081}
               predicates:
-                - Path=/api/v1/accounts/**,/api/v1/transfers/**,/api/v1/fx-quotes/**,/api/v1/journal-entries/**,/api/v1/ledger/**,/docs/banking/**
+                - Path=/api/v1/accounts/**,/api/v1/transfers/**,/api/v1/fx-quotes/**,/api/v1/fx-rates/**,/api/v1/journal-entries/**,/api/v1/ledger/**,/docs/banking/**
               filters:
                 - PreserveHostHeader
             - id: logistics
