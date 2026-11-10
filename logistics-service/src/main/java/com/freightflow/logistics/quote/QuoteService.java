@@ -25,8 +25,6 @@ import java.util.UUID;
 @Service
 public class QuoteService {
 
-    private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
-
     private final LocationRepository locations;
     private final TariffRepository tariffs;
     private final FreightQuoteRepository quotes;
@@ -101,35 +99,9 @@ public class QuoteService {
         if (legs.isEmpty()) {
             throw new NothingToQuoteException(incoterm, payerRole);
         }
-        BigDecimal zero = MoneyRounding.toStorageScale(BigDecimal.ZERO);
-
-        // Main carriage is priced in the tariff currency, then converted and rounded HALF_EVEN; the minimum
-        // charge applies to the freight before the fuel surcharge.
-        BigDecimal baseFreightCharge = zero;
-        BigDecimal fuelSurcharge = zero;
-        if (legs.contains(ChargeLeg.MAIN_CARRIAGE)) {
-            BigDecimal rawFreightTariffCcy = calc.chargeableUnits().multiply(tariff.getRatePerUnit())
-                    .max(tariff.getMinimumCharge());
-            baseFreightCharge = MoneyRounding.normalizeCustomerAmount(rawFreightTariffCcy, quoteCurrency);
-            BigDecimal rawFuelQuoteCcy = baseFreightCharge.multiply(tariff.getFuelSurchargePercent())
-                    .divide(ONE_HUNDRED, MoneyRounding.STORAGE_SCALE + 4, MoneyRounding.ROUNDING_MODE);
-            fuelSurcharge = MoneyRounding.normalizeCustomerAmount(rawFuelQuoteCcy, quoteCurrency);
-        }
-        BigDecimal originHandlingCharge = legs.contains(ChargeLeg.ORIGIN_HANDLING)
-                ? MoneyRounding.normalizeCustomerAmount(tariff.getOriginHandlingFee(), quoteCurrency)
-                : zero;
-        BigDecimal destinationHandlingCharge = legs.contains(ChargeLeg.DESTINATION_HANDLING)
-                ? MoneyRounding.normalizeCustomerAmount(tariff.getDestinationHandlingFee(), quoteCurrency)
-                : zero;
-        BigDecimal importClearanceCharge = legs.contains(ChargeLeg.IMPORT_CLEARANCE)
-                ? MoneyRounding.normalizeCustomerAmount(tariff.getImportClearanceFee(), quoteCurrency)
-                : zero;
-
-        BigDecimal totalAmount = baseFreightCharge
-                .add(fuelSurcharge)
-                .add(originHandlingCharge)
-                .add(destinationHandlingCharge)
-                .add(importClearanceCharge);
+        FreightPricing.Charges charges = FreightPricing.price(
+                FreightPricing.TariffRates.of(tariff), calc.chargeableUnits(), legs);
+        BigDecimal totalAmount = charges.total();
 
         String shownCurrency = quoteCurrency.equals(indicativeCurrency) ? null : indicativeCurrency;
         Indicative indicative = shownCurrency == null
@@ -158,11 +130,11 @@ public class QuoteService {
                 tariff.getFuelSurchargePercent(),
                 noConversion,
                 quoteCurrency,
-                baseFreightCharge,
-                fuelSurcharge,
-                originHandlingCharge,
-                destinationHandlingCharge,
-                importClearanceCharge,
+                charges.baseFreight(),
+                charges.fuelSurcharge(),
+                charges.originHandling(),
+                charges.destinationHandling(),
+                charges.importClearance(),
                 totalAmount,
                 tariff.getTransitDaysMin(),
                 tariff.getTransitDaysMax(),
