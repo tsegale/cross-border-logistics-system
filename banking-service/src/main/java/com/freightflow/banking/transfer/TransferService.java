@@ -25,6 +25,8 @@ import com.freightflow.banking.journal.dto.PostingResponse;
 import com.freightflow.banking.transfer.dto.CreateTransferRequest;
 import com.freightflow.banking.transfer.dto.TransferResponse;
 import jakarta.persistence.EntityManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -45,8 +47,10 @@ import java.util.stream.Collectors;
 @Service
 public class TransferService {
 
-    public static final String STRATEGY_PESSIMISTIC = "pessimistic";
-    public static final String STRATEGY_CONDITIONAL_UPDATE = "conditional-update";
+    private static final Logger log = LoggerFactory.getLogger(TransferService.class);
+
+    public static final String STRATEGY_PESSIMISTIC = BankingProperties.STRATEGY_PESSIMISTIC;
+    public static final String STRATEGY_CONDITIONAL_UPDATE = BankingProperties.STRATEGY_CONDITIONAL_UPDATE;
 
     private final AccountService accountService;
     private final AccountRepository accounts;
@@ -86,6 +90,7 @@ public class TransferService {
         this.jdbcTemplate = jdbcTemplate;
         this.entityManager = entityManager;
         this.clock = clock;
+        log.info("Transfer locking strategy: {}", properties.transferLockingStrategy());
     }
 
     @Transactional
@@ -156,7 +161,7 @@ public class TransferService {
         BigDecimal normalizedAmount = MoneyRounding.normalizeCustomerAmount(request.amount(), source.getCurrency());
         String reference = request.reference().trim();
 
-        if (STRATEGY_CONDITIONAL_UPDATE.equalsIgnoreCase(properties.transferLockingStrategy())) {
+        if (STRATEGY_CONDITIONAL_UPDATE.equals(properties.transferLockingStrategy())) {
             return executeConditionalSameCurrencyTransfer(source, target, normalizedAmount, reference);
         }
 

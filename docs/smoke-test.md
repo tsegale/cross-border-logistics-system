@@ -106,7 +106,7 @@ echo "$FX_RESP"
 
 FX_ID=$(json_field "$FX_RESP" "id")
 
-XFER_RESP=$(curl -fsS -X POST "${GATEWAY}/api/v1/transfers?strategy=pessimistic" \
+XFER_RESP=$(curl -fsS -X POST "${GATEWAY}/api/v1/transfers" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: smoke-xfer-fx-${RUN_ID}" \
   -d "{

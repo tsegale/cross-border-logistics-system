@@ -1,111 +1,87 @@
+// Load generator for the transfer contention benchmark. benchmarks/run_transfer_contention.py runs it; it can
+// also run on its own against a stack that is already up:
+//
+//   k6 run -e ACCOUNTS_FILE=$PWD/benchmarks/out/accounts.json -e WORKLOAD=disjoint_pairs -e VUS=32 \
+//          -e ITERATIONS_PER_VU=30 benchmarks/k6/transfer_contention.js
+//
+// The locking strategy is NOT a request parameter: banking-service reads TRANSFER_LOCKING_STRATEGY at startup
+// and reports it on /actuator/info. The orchestrator recreates the container to switch it.
+//
+// Workloads (closed loop: every VU sends its next request when the previous one has answered):
+//   hot_account     every VU debits the same source account into its own sink account
+//   disjoint_pairs  VU i transfers pairs[i][0] -> pairs[i][1]; no account is shared between two VUs
 import http from 'k6/http';
 import { check } from 'k6';
+import { Counter } from 'k6/metrics';
 import exec from 'k6/execution';
 
 const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:8080';
-const STRATEGY = __ENV.STRATEGY || 'pessimistic';
-const WORKLOAD = __ENV.WORKLOAD || 'hot_account';
-const VUS = parseInt(__ENV.VUS || '100', 10);
-const DURATION = __ENV.DURATION || '10s';
+const WORKLOAD = __ENV.WORKLOAD || 'disjoint_pairs';
+const VUS = parseInt(__ENV.VUS || '32', 10);
+const ITERATIONS_PER_VU = parseInt(__ENV.ITERATIONS_PER_VU || '30', 10);
+const RUN_TAG = __ENV.RUN_TAG || `${Date.now()}`;
+const SUMMARY_FILE = __ENV.SUMMARY_FILE || '';
+const ACCOUNTS = JSON.parse(open(__ENV.ACCOUNTS_FILE));
+
+if (!['hot_account', 'disjoint_pairs'].includes(WORKLOAD)) {
+  throw new Error(`unknown WORKLOAD ${WORKLOAD}`);
+}
+if (VUS > ACCOUNTS.sinks.length || VUS > ACCOUNTS.pairs.length) {
+  throw new Error(`accounts file has accounts for ${ACCOUNTS.pairs.length} VUs, asked for ${VUS}`);
+}
 
 export const options = {
   scenarios: {
-    transfer_contention: {
-      executor: 'constant-vus',
+    transfers: {
+      executor: 'per-vu-iterations',
       vus: VUS,
-      duration: DURATION,
+      iterations: ITERATIONS_PER_VU,
+      maxDuration: '15m',
     },
   },
-  thresholds: {
-    http_req_failed: ['rate==0'],
-  },
+  summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
 
-function createAndFundAccount(holderReference, initialDeposit) {
-  const createRes = http.post(
-    `${BASE_URL}/api/v1/accounts`,
-    JSON.stringify({ holderReference, currency: 'EUR' }),
-    { headers: { 'Content-Type': 'application/json' } }
-  );
-  const acc = createRes.json();
+const created = new Counter('transfers_created');
+const shed = new Counter('transfers_503');
+const conflict = new Counter('transfers_409');
+const other = new Counter('transfers_other');
 
-  if (initialDeposit > 0) {
-    http.post(
-      `${BASE_URL}/api/v1/accounts/${acc.id}/deposits`,
-      JSON.stringify({
-        amount: initialDeposit,
-        currency: 'EUR',
-        reference: `BENCH-SEED-${acc.accountNumber}`,
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': `bench-dep-${acc.id}`,
-        },
-      }
-    );
-  }
-  return acc.accountNumber;
-}
+export default function () {
+  const vu = exec.vu.idInTest - 1;
+  const [source, target] = WORKLOAD === 'hot_account'
+    ? [ACCOUNTS.hotSource, ACCOUNTS.sinks[vu]]
+    : ACCOUNTS.pairs[vu];
 
-export function setup() {
-  const accounts = [];
-  if (WORKLOAD === 'hot_account') {
-    const hotSource = createAndFundAccount('Hot Corridor Clearing Pool', 50000000.0);
-    for (let i = 0; i < VUS; i++) {
-      accounts.push(createAndFundAccount(`Hot Sink ${i}`, 0));
-    }
-    return { hotSource, accounts };
-  }
-
-  for (let i = 0; i < VUS; i++) {
-    accounts.push(createAndFundAccount(`Corridor Trader ${i}`, 5000000.0));
-  }
-  return { hotSource: null, accounts };
-}
-
-export default function (data) {
-  const vuIndex = (exec.vu.idInTest - 1) % data.accounts.length;
-  const iter = exec.vu.iterationInScenario;
-
-  let sourceAccountNumber;
-  let destinationAccountNumber;
-
-  if (WORKLOAD === 'hot_account') {
-    sourceAccountNumber = data.hotSource;
-    destinationAccountNumber = data.accounts[vuIndex];
-  } else {
-    sourceAccountNumber = data.accounts[vuIndex];
-    destinationAccountNumber = data.accounts[(vuIndex + 1) % data.accounts.length];
-  }
-
-  const idemKey = `k6-${STRATEGY}-${WORKLOAD}-${exec.vu.idInTest}-${iter}-${Date.now()}`;
   const res = http.post(
-    `${BASE_URL}/api/v1/transfers?strategy=${STRATEGY}`,
+    `${BASE_URL}/api/v1/transfers`,
     JSON.stringify({
-      sourceAccount: sourceAccountNumber,
-      targetAccount: destinationAccountNumber,
-      amount: 1.0,
+      sourceAccount: source,
+      targetAccount: target,
+      amount: '1.00',
       currency: 'EUR',
-      reference: `BENCH-${STRATEGY}`,
+      reference: `BENCH-${WORKLOAD}`,
     }),
     {
       headers: {
         'Content-Type': 'application/json',
-        'Idempotency-Key': idemKey,
+        'Idempotency-Key': `bench-${RUN_TAG}-${vu}-${exec.vu.iterationInScenario}`,
       },
-    }
+      responseCallback: http.expectedStatuses(201),
+    },
   );
-
-  check(res, {
-    'transfer created (201)': (r) => r.status === 201,
-  });
+  if (res.status === 201) {
+    created.add(1);
+  } else if (res.status === 503) {
+    shed.add(1);
+  } else if (res.status === 409) {
+    conflict.add(1);
+  } else {
+    other.add(1);
+  }
+  check(res, { 'transfer created (201)': (r) => r.status === 201 });
 }
 
-export function teardown() {
-  const recRes = http.get(`${BASE_URL}/api/v1/ledger/reconciliation`);
-  check(recRes, {
-    'reconciliation status 200': (r) => r.status === 200,
-    'ledger balanced with zero drift': (r) => r.json('balanced') === true,
-  });
+export function handleSummary(data) {
+  return SUMMARY_FILE ? { [SUMMARY_FILE]: JSON.stringify(data, null, 2) } : {};
 }

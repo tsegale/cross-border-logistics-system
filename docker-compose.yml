@@ -47,6 +47,8 @@ services:
       BANKING_DB_URL: jdbc:postgresql://banking-db:5432/banking
       BANKING_DB_USER: ${BANKING_DB_USER:?set in .env}
       BANKING_DB_PASSWORD: ${BANKING_DB_PASSWORD:?set in .env}
+      # pessimistic | conditional-update (ADR 0005). The benchmark switches it by recreating this container.
+      TRANSFER_LOCKING_STRATEGY: ${TRANSFER_LOCKING_STRATEGY:-pessimistic}
     ports:
       - "127.0.0.1:8081:8081"
     depends_on:
