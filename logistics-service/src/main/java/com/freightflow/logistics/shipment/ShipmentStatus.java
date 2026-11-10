@@ -56,6 +56,41 @@ public enum ShipmentStatus {
         };
     }
 
+    /** The forward path a carrier scans along. CUSTOMS_HOLD sits on it but is optional, so it is never "skipped". */
+    private static final List<ShipmentStatus> MILESTONES = List.of(
+            BOOKED, PICKED_UP, AT_ORIGIN_PORT, IN_TRANSIT, AT_DESTINATION_PORT,
+            CUSTOMS_HOLD, CUSTOMS_CLEARED, OUT_FOR_DELIVERY, DELIVERED);
+
+    /** Position on the milestone path, or -1 for AWAITING_PAYMENT, CANCELLED and EXCEPTION. */
+    public int milestoneRank() {
+        return MILESTONES.indexOf(this);
+    }
+
+    /** The required milestones strictly between this status and {@code target}, in order. */
+    public List<ShipmentStatus> milestonesSkippedTo(ShipmentStatus target) {
+        int from = milestoneRank();
+        int to = target.milestoneRank();
+        if (from < 0 || to <= from + 1) {
+            return List.of();
+        }
+        return MILESTONES.subList(from + 1, to).stream()
+                .filter(status -> status != CUSTOMS_HOLD)
+                .toList();
+    }
+
+    /**
+     * Whether a carrier event may move a shipment here: any transition the state machine allows, plus any forward
+     * move along the milestone path from BOOKED onwards, because carrier feeds miss scans. Never out of a
+     * terminal status, and never out of AWAITING_PAYMENT: only the payment moves a shipment to BOOKED.
+     */
+    public boolean canTrackForwardTo(ShipmentStatus target) {
+        if (canTransitionTo(target)) {
+            return true;
+        }
+        int from = milestoneRank();
+        return from >= 0 && this != DELIVERED && target.milestoneRank() > from;
+    }
+
     public boolean canTransitionTo(ShipmentStatus target) {
         return allowedNextStatuses().contains(target);
     }

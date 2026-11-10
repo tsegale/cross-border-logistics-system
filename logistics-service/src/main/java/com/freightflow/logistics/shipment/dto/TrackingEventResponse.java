@@ -3,9 +3,11 @@ package com.freightflow.logistics.shipment.dto;
 import com.freightflow.logistics.location.Location;
 import com.freightflow.logistics.shipment.ShipmentStatus;
 import com.freightflow.logistics.shipment.TrackingEvent;
+import com.freightflow.logistics.shipment.TrackingOutcome;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 public record TrackingEventResponse(
@@ -23,6 +25,9 @@ public record TrackingEventResponse(
         OffsetDateTime occurredAtLocal,
         Instant recordedAt,
         boolean appliedToStatus,
+        TrackingOutcome outcome,
+        String outcomeReason,
+        List<ShipmentStatus> skippedStatuses,
         boolean duplicateIgnored,
         long shipmentVersion
 ) {
@@ -49,6 +54,9 @@ public record TrackingEventResponse(
                 localTime,
                 event.getRecordedAt(),
                 event.isAppliedToStatus(),
+                event.getOutcome(),
+                event.getOutcomeReason(),
+                event.getSkippedStatuses(),
                 duplicateIgnored,
                 shipmentVersion
         );

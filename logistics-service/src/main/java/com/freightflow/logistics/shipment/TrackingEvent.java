@@ -9,7 +9,8 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
-import java.util.Objects;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -49,30 +50,17 @@ public class TrackingEvent {
     @Column(name = "applied_to_status", nullable = false, updatable = false)
     private boolean appliedToStatus;
 
-    protected TrackingEvent() {
-    }
+    @Enumerated(EnumType.STRING)
+    @Column(name = "outcome", length = 16, nullable = false, updatable = false)
+    private TrackingOutcome outcome;
 
-    public static TrackingEvent create(
-            UUID shipmentId,
-            String carrierEventId,
-            String eventType,
-            ShipmentStatus targetStatus,
-            String locationUnlocode,
-            String description,
-            Instant occurredAt,
-            Instant recordedAt,
-            boolean appliedToStatus) {
-        TrackingEvent e = new TrackingEvent();
-        e.shipmentId = Objects.requireNonNull(shipmentId, "shipmentId");
-        e.carrierEventId = carrierEventId != null && !carrierEventId.isBlank() ? carrierEventId.trim() : null;
-        e.eventType = Objects.requireNonNull(eventType, "eventType").trim();
-        e.targetStatus = Objects.requireNonNull(targetStatus, "targetStatus");
-        e.locationUnlocode = Objects.requireNonNull(locationUnlocode, "locationUnlocode");
-        e.description = Objects.requireNonNull(description, "description").trim();
-        e.occurredAt = Objects.requireNonNull(occurredAt, "occurredAt");
-        e.recordedAt = Objects.requireNonNull(recordedAt, "recordedAt");
-        e.appliedToStatus = appliedToStatus;
-        return e;
+    @Column(name = "outcome_reason", length = 300, updatable = false)
+    private String outcomeReason;
+
+    @Column(name = "skipped_statuses", length = 200, updatable = false)
+    private String skippedStatuses;
+
+    protected TrackingEvent() {
     }
 
     public UUID getId() {
@@ -113,5 +101,25 @@ public class TrackingEvent {
 
     public boolean isAppliedToStatus() {
         return appliedToStatus;
+    }
+
+    public TrackingOutcome getOutcome() {
+        return outcome;
+    }
+
+    public String getOutcomeReason() {
+        return outcomeReason;
+    }
+
+    public List<ShipmentStatus> getSkippedStatuses() {
+        if (skippedStatuses == null || skippedStatuses.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(skippedStatuses.split(",")).map(ShipmentStatus::valueOf).toList();
+    }
+
+    /** Comma-separated, as stored in {@code skipped_statuses}; null when nothing was skipped. */
+    static String joinSkipped(List<ShipmentStatus> skipped) {
+        return skipped.isEmpty() ? null : String.join(",", skipped.stream().map(Enum::name).toList());
     }
 }

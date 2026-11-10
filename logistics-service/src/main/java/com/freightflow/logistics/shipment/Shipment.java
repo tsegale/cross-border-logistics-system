@@ -16,6 +16,7 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -162,22 +163,29 @@ public class Shipment {
     }
 
     /**
-     * Applies a tracking event to the shipment's current status if and only if the event is not older
-     * than {@code latestEventAt}. Events with {@code occurredAt < latestEventAt} are stored in the
-     * tracking history with {@code appliedToStatus = false} and never move the status backwards (ADR 0009).
+     * Applies a tracking event (ADR 0009). An event older than {@code latestEventAt} never moves the status
+     * backwards; a forward move along the milestone path is applied even when scans were missed; a backward or
+     * disallowed move is not applied. In the last two cases the shipment is left untouched, so recording the event
+     * does not bump the version.
      */
-    public boolean applyTrackingEvent(ShipmentStatus targetStatus, Instant occurredAt, Instant now) {
+    public TrackingDecision applyTrackingEvent(ShipmentStatus targetStatus, Instant occurredAt, Instant now) {
         if (this.latestEventAt != null && occurredAt.isBefore(this.latestEventAt)) {
-            this.updatedAt = Objects.requireNonNull(now, "now");
-            return false;
+            return TrackingDecision.notApplied(TrackingOutcome.OUT_OF_ORDER,
+                    "Occurred before the latest applied event (" + this.latestEventAt + ")");
         }
+        List<ShipmentStatus> skipped = List.of();
         if (this.status != targetStatus) {
-            this.status.assertCanTransitionTo(targetStatus);
+            if (!this.status.canTrackForwardTo(targetStatus)) {
+                return TrackingDecision.notApplied(TrackingOutcome.REJECTED,
+                        "Cannot move from " + this.status + " to " + targetStatus
+                                + ": backwards or not allowed (allowed next: " + this.status.allowedNextStatuses() + ")");
+            }
+            skipped = this.status.milestonesSkippedTo(targetStatus);
             this.status = targetStatus;
         }
         this.latestEventAt = occurredAt;
         this.updatedAt = Objects.requireNonNull(now, "now");
-        return true;
+        return TrackingDecision.applied(skipped);
     }
 
     public UUID getId() {

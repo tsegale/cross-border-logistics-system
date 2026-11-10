@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -324,6 +325,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                     "The transaction conflicted with a concurrent one and was rolled back. Retry the same request.");
         }
         return handleUnexpected(ex);
+    }
+
+    /**
+     * A constraint rejected the write: usually two requests racing on a unique key. The detail is generic so no
+     * schema details leak; the constraint name is in the log.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ProblemDetail> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(problem(HttpStatus.CONFLICT, "data-conflict", "Conflicting data",
+                        "The request conflicts with data that already exists or changed concurrently."));
     }
 
     @ExceptionHandler(Exception.class)

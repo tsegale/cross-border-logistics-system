@@ -58,4 +58,16 @@ class TransientDatabaseErrorMappingTest {
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/internal-error"))
                 .andExpect(jsonPath("$.detail").value("The request could not be completed."));
     }
+
+    @Test
+    void constraintViolationIsA409WithoutSchemaDetails() throws Exception {
+        given(quoteService.getQuote(QUOTE)).willThrow(new org.springframework.dao.DataIntegrityViolationException(
+                "duplicate key value violates unique constraint \"uq_secret_index\""));
+
+        mockMvc.perform(get("/api/v1/quotes/" + QUOTE))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/data-conflict"))
+                .andExpect(jsonPath("$.detail").value(
+                        "The request conflicts with data that already exists or changed concurrently."));
+    }
 }

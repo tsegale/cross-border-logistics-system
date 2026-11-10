@@ -20,14 +20,20 @@ import com.freightflow.logistics.shipment.dto.RecordTrackingEventRequest;
 import com.freightflow.logistics.shipment.dto.ShipmentPageResponse;
 import com.freightflow.logistics.shipment.dto.ShipmentResponse;
 import com.freightflow.logistics.shipment.dto.TrackingEventResponse;
+import com.freightflow.logistics.common.UuidV7;
+import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.resilience.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -50,6 +56,8 @@ public class ShipmentService {
     private final LocationRepository locations;
     private final IdempotencyService idempotency;
     private final LogisticsProperties properties;
+    private final JdbcTemplate jdbcTemplate;
+    private final EntityManager entityManager;
     private final Clock clock;
 
     public ShipmentService(
@@ -59,6 +67,8 @@ public class ShipmentService {
             LocationRepository locations,
             IdempotencyService idempotency,
             LogisticsProperties properties,
+            JdbcTemplate jdbcTemplate,
+            EntityManager entityManager,
             Clock clock) {
         this.shipments = shipments;
         this.trackingEvents = trackingEvents;
@@ -66,6 +76,8 @@ public class ShipmentService {
         this.locations = locations;
         this.idempotency = idempotency;
         this.properties = properties;
+        this.jdbcTemplate = jdbcTemplate;
+        this.entityManager = entityManager;
         this.clock = clock;
     }
 
@@ -214,6 +226,21 @@ public class ShipmentService {
         return ShipmentResponse.from(saved);
     }
 
+    /**
+     * Records a carrier or operator tracking event. Every event is stored, applied or not (ADR 0009).
+     *
+     * <ul>
+     *   <li>A known {@code carrierEventId} returns the stored event ({@code duplicateIgnored}). Two concurrent
+     *       copies of a new one race on the unique index: the insert is {@code ON CONFLICT DO NOTHING}, so the
+     *       loser waits for the winner's commit, inserts nothing, discards its own changes and answers as a
+     *       duplicate instead of a 500.</li>
+     *   <li>Two different events for one shipment conflict on its {@code @Version}: the whole transaction is
+     *       retried (Spring's {@code @Retryable} runs outside {@code @Transactional}). With {@code If-Match} the
+     *       retry re-checks the ETag, so a client that pinned a version still gets 412.</li>
+     * </ul>
+     */
+    @Retryable(includes = ObjectOptimisticLockingFailureException.class,
+            maxRetries = 6, delay = 20, jitter = 20, multiplier = 2, maxDelay = 500)
     @Transactional
     public TrackingEventResponse recordTrackingEvent(
             UUID shipmentId,
@@ -232,45 +259,51 @@ public class ShipmentService {
         if (carrierEventId != null) {
             Optional<TrackingEvent> existing = trackingEvents.findByShipmentIdAndCarrierEventId(shipmentId, carrierEventId);
             if (existing.isPresent()) {
-                log.info("Ignored duplicate tracking event carrierEventId={} on shipment {}", carrierEventId, shipmentId);
-                return TrackingEventResponse.from(
-                        existing.get(),
-                        location,
-                        shipment.getStatus(),
-                        shipment.getVersion(),
-                        true
-                );
+                return duplicate(existing.get(), location, shipment);
             }
         }
 
         ETags.assertMatches(ifMatchHeader, shipment.getVersion());
 
         Instant now = clock.instant();
-        boolean appliedToStatus = shipment.applyTrackingEvent(request.targetStatus(), request.occurredAt(), now);
+        TrackingDecision decision = shipment.applyTrackingEvent(request.targetStatus(), request.occurredAt(), now);
+        UUID eventId = UuidV7.next(clock);
+        List<UUID> inserted = jdbcTemplate.queryForList("""
+                INSERT INTO tracking_events (id, shipment_id, carrier_event_id, event_type, target_status,
+                    location_unlocode, description, occurred_at, recorded_at, applied_to_status,
+                    outcome, outcome_reason, skipped_statuses)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (shipment_id, carrier_event_id) WHERE carrier_event_id IS NOT NULL DO NOTHING
+                RETURNING id
+                """, UUID.class,
+                eventId, shipmentId, carrierEventId, request.eventType().trim(), request.targetStatus().name(),
+                location.getUnlocode(), request.description().trim(), Timestamp.from(request.occurredAt()),
+                Timestamp.from(now), decision.isApplied(), decision.outcome().name(), decision.reason(),
+                TrackingEvent.joinSkipped(decision.skipped()));
+
+        if (inserted.isEmpty()) {
+            // A concurrent request with the same carrierEventId committed first: its event stands, ours is dropped.
+            entityManager.refresh(shipment);
+            TrackingEvent winner = trackingEvents.findByShipmentIdAndCarrierEventId(shipmentId, carrierEventId)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "carrierEventId " + carrierEventId + " conflicted but no stored event was found"));
+            return duplicate(winner, location, shipment);
+        }
+
         Shipment savedShipment = shipments.saveAndFlush(shipment);
+        TrackingEvent savedEvent = trackingEvents.findById(eventId)
+                .orElseThrow(() -> new IllegalStateException("Inserted tracking event " + eventId + " not found"));
+        log.info("Recorded tracking event {} on shipment {} (targetStatus={}, outcome={}, skipped={}, currentStatus={})",
+                eventId, shipmentId, request.targetStatus(), decision.outcome(), decision.skipped(),
+                savedShipment.getStatus());
+        return TrackingEventResponse.from(savedEvent, location, savedShipment.getStatus(), savedShipment.getVersion(), false);
+    }
 
-        TrackingEvent event = TrackingEvent.create(
-                shipmentId,
-                carrierEventId,
-                request.eventType(),
-                request.targetStatus(),
-                location.getUnlocode(),
-                request.description(),
-                request.occurredAt(),
-                now,
-                appliedToStatus
-        );
-        TrackingEvent savedEvent = trackingEvents.saveAndFlush(event);
-        log.info("Recorded tracking event {} on shipment {} (targetStatus={}, appliedToStatus={}, currentStatus={})",
-                savedEvent.getId(), shipmentId, request.targetStatus(), appliedToStatus, savedShipment.getStatus());
-
-        return TrackingEventResponse.from(
-                savedEvent,
-                location,
-                savedShipment.getStatus(),
-                savedShipment.getVersion(),
-                false
-        );
+    private TrackingEventResponse duplicate(TrackingEvent existing, Location requestLocation, Shipment shipment) {
+        log.info("Ignored duplicate tracking event carrierEventId={} on shipment {}",
+                existing.getCarrierEventId(), shipment.getId());
+        Location location = locations.findById(existing.getLocationUnlocode()).orElse(requestLocation);
+        return TrackingEventResponse.from(existing, location, shipment.getStatus(), shipment.getVersion(), true);
     }
 
     public record PublicTrackingResult(PublicTrackingResponse body, long version) {
