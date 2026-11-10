@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.Locale;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -23,7 +25,7 @@ class AccountNumberTest {
     })
     void seededSystemAccountNumbersPassIso7064Mod97Validation(String accountNumber) {
         assertThat(AccountNumber.isValid(accountNumber)).isTrue();
-        assertThat(AccountNumber.validate("  " + accountNumber.toLowerCase() + " ")).isEqualTo(accountNumber);
+        assertThat(AccountNumber.validate("  " + accountNumber.toLowerCase(Locale.ROOT) + " ")).isEqualTo(accountNumber);
     }
 
     @Test

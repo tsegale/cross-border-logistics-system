@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import java.util.Locale;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -69,7 +70,7 @@ class ShipmentStateMachineUnitTest {
         String tn = TrackingNumber.generate(seq::incrementAndGet);
         assertThat(tn).startsWith("FF-").hasSize(13);
         assertThat(TrackingNumber.isValid(tn)).isTrue();
-        assertThat(TrackingNumber.validate(tn.toLowerCase())).isEqualTo(tn);
+        assertThat(TrackingNumber.validate(tn.toLowerCase(Locale.ROOT))).isEqualTo(tn);
 
         // Single-character substitution in body (index 5 is inside the 8-char body at indices 3..10)
         char original = tn.charAt(5);
@@ -112,7 +113,7 @@ class ShipmentStateMachineUnitTest {
     void accountNumberValidatorChecksFormatAndIso7064CheckDigits() {
         String validAccount = buildValidAccountNumber("EUR", "000000001");
         assertThat(AccountNumberValidator.isValid(validAccount)).isTrue();
-        assertThat(AccountNumberValidator.validate(" " + validAccount.toLowerCase() + " ")).isEqualTo(validAccount);
+        assertThat(AccountNumberValidator.validate(" " + validAccount.toLowerCase(Locale.ROOT) + " ")).isEqualTo(validAccount);
 
         String badCheck = "FF" + (validAccount.substring(2, 4).equals("00") ? "01" : "00") + validAccount.substring(4);
         assertThat(AccountNumberValidator.isValid(badCheck)).isFalse();

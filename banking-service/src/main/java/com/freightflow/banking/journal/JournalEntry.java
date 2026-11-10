@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.util.Locale;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -81,7 +82,7 @@ public class JournalEntry {
             if (instruction.signedAmount() == null || instruction.signedAmount().compareTo(BigDecimal.ZERO) == 0) {
                 throw new UnbalancedJournalEntryException("Every posting must have a non-zero signed amount");
             }
-            String currency = Objects.requireNonNull(instruction.currency(), "currency").trim().toUpperCase();
+            String currency = Objects.requireNonNull(instruction.currency(), "currency").trim().toUpperCase(Locale.ROOT);
             BigDecimal scaled = MoneyRounding.toStorageScale(instruction.signedAmount());
             sumsByCurrency.merge(currency, scaled, BigDecimal::add);
         }

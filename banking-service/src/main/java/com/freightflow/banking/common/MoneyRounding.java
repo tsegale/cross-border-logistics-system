@@ -1,5 +1,6 @@
 package com.freightflow.banking.common;
 
+import java.util.Locale;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Currency;
@@ -25,7 +26,7 @@ public final class MoneyRounding {
         if (code == null || code.isBlank()) {
             throw new UnsupportedCurrencyException(code, supportedCodes);
         }
-        String normalized = code.trim().toUpperCase();
+        String normalized = code.trim().toUpperCase(Locale.ROOT);
         if (!supportedCodes.contains(normalized)) {
             throw new UnsupportedCurrencyException(code, supportedCodes);
         }
@@ -37,7 +38,7 @@ public final class MoneyRounding {
     }
 
     public static int minorUnits(String currencyCode) {
-        Currency currency = Currency.getInstance(currencyCode.trim().toUpperCase());
+        Currency currency = Currency.getInstance(currencyCode.trim().toUpperCase(Locale.ROOT));
         int digits = currency.getDefaultFractionDigits();
         return Math.max(digits, 0);
     }

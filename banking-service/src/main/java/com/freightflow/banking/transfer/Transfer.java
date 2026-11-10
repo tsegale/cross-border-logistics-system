@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.util.Locale;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Objects;
@@ -74,9 +75,9 @@ public class Transfer {
         transfer.sourceAccountId = Objects.requireNonNull(sourceAccountId, "sourceAccountId");
         transfer.targetAccountId = Objects.requireNonNull(targetAccountId, "targetAccountId");
         transfer.sourceAmount = MoneyRounding.toStorageScale(Objects.requireNonNull(sourceAmount, "sourceAmount"));
-        transfer.sourceCurrency = Objects.requireNonNull(sourceCurrency, "sourceCurrency").trim().toUpperCase();
+        transfer.sourceCurrency = Objects.requireNonNull(sourceCurrency, "sourceCurrency").trim().toUpperCase(Locale.ROOT);
         transfer.targetAmount = MoneyRounding.toStorageScale(Objects.requireNonNull(targetAmount, "targetAmount"));
-        transfer.targetCurrency = Objects.requireNonNull(targetCurrency, "targetCurrency").trim().toUpperCase();
+        transfer.targetCurrency = Objects.requireNonNull(targetCurrency, "targetCurrency").trim().toUpperCase(Locale.ROOT);
         transfer.reference = Objects.requireNonNull(reference, "reference").trim();
         transfer.fxQuoteId = fxQuoteId;
         transfer.fxRate = fxRate;

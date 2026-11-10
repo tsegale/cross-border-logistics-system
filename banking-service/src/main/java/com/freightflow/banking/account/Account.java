@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.util.Locale;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Objects;
@@ -57,7 +58,7 @@ public class Account {
         account.accountNumber = AccountNumber.validate(accountNumber);
         account.holderReference = Objects.requireNonNull(holderReference, "holderReference").trim();
         account.accountType = AccountType.CUSTOMER;
-        account.currency = Objects.requireNonNull(currency, "currency").trim().toUpperCase();
+        account.currency = Objects.requireNonNull(currency, "currency").trim().toUpperCase(Locale.ROOT);
         account.status = AccountStatus.ACTIVE;
         account.balance = MoneyRounding.toStorageScale(BigDecimal.ZERO);
         account.createdAt = Objects.requireNonNull(now, "now");

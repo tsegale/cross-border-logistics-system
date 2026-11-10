@@ -33,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -97,10 +98,10 @@ public class TransferService {
     @Transactional
     public TransferResponse createTransfer(CreateTransferRequest request, String idempotencyKey) {
         Map<String, Object> canonical = new LinkedHashMap<>();
-        canonical.put("sourceAccount", request.sourceAccount().trim().toUpperCase());
-        canonical.put("targetAccount", request.targetAccount().trim().toUpperCase());
+        canonical.put("sourceAccount", request.sourceAccount().trim().toUpperCase(Locale.ROOT));
+        canonical.put("targetAccount", request.targetAccount().trim().toUpperCase(Locale.ROOT));
         canonical.put("amount", request.amount().stripTrailingZeros().toPlainString());
-        canonical.put("currency", request.currency().trim().toUpperCase());
+        canonical.put("currency", request.currency().trim().toUpperCase(Locale.ROOT));
         canonical.put("reference", request.reference().trim());
         canonical.put("fxQuoteId", request.fxQuoteId() != null ? request.fxQuoteId().toString() : "");
 

@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.util.Locale;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Objects;
@@ -65,8 +66,8 @@ public class FxQuote {
             Instant createdAt,
             Instant expiresAt) {
         FxQuote quote = new FxQuote();
-        quote.sellCurrency = Objects.requireNonNull(sellCurrency, "sellCurrency").trim().toUpperCase();
-        quote.buyCurrency = Objects.requireNonNull(buyCurrency, "buyCurrency").trim().toUpperCase();
+        quote.sellCurrency = Objects.requireNonNull(sellCurrency, "sellCurrency").trim().toUpperCase(Locale.ROOT);
+        quote.buyCurrency = Objects.requireNonNull(buyCurrency, "buyCurrency").trim().toUpperCase(Locale.ROOT);
         quote.sellAmount = MoneyRounding.toStorageScale(Objects.requireNonNull(sellAmount, "sellAmount"));
         quote.buyAmount = MoneyRounding.toStorageScale(Objects.requireNonNull(buyAmount, "buyAmount"));
         quote.midRate = Objects.requireNonNull(midRate, "midRate");

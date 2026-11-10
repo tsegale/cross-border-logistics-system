@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.util.Locale;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Objects;
@@ -53,7 +54,7 @@ public class Posting {
         posting.journalEntryId = Objects.requireNonNull(journalEntryId, "journalEntryId");
         posting.accountId = Objects.requireNonNull(accountId, "accountId");
         posting.amount = MoneyRounding.toStorageScale(Objects.requireNonNull(signedAmount, "signedAmount"));
-        posting.currency = Objects.requireNonNull(currency, "currency").trim().toUpperCase();
+        posting.currency = Objects.requireNonNull(currency, "currency").trim().toUpperCase(Locale.ROOT);
         posting.runningBalance = MoneyRounding.toStorageScale(Objects.requireNonNull(runningBalance, "runningBalance"));
         posting.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         return posting;
