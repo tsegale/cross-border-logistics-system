@@ -57,8 +57,7 @@ class QuoteIntegrationTest extends IntegrationTest {
                                       "quantity": 2,
                                       "description": "Frozen hake fillets"
                                     }
-                                  ],
-                                  "currency": "EUR"
+                                  ]
                                 }
                                 """))
                 .andExpect(status().isCreated())
@@ -85,10 +84,9 @@ class QuoteIntegrationTest extends IntegrationTest {
         JsonNode fcaJson = JSON.readTree(fcaRes.getResponse().getContentAsString());
         String fcaQuoteId = fcaJson.get("id").asString();
 
-        // 2. Same cargo under DDP in NAD (converted at 1 EUR = 20 NAD)
-        // Includes originHandling (65 EUR = 1300 NAD), baseFreight (342 EUR = 6840 NAD),
-        // fuel (42.75 EUR = 855 NAD), destHandling (85 EUR = 1700 NAD) and import clearance (55 EUR = 1100 NAD).
-        // No duties: under DDP they are billed at cost as a disbursement.
+        // 2. Same cargo under DDP for the shipper, priced in the tariff currency (EUR): origin 65, freight 342,
+        // fuel 42.75, destination 85, import clearance 55. No duties: under DDP they are billed at cost.
+        // NAD was asked for as an indicative currency, but banking-service is not stubbed here: no figure, a note.
         MvcResult ddpRes = mockMvc.perform(post("/api/v1/quotes")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -108,18 +106,20 @@ class QuoteIntegrationTest extends IntegrationTest {
                                       "description": "Frozen hake fillets"
                                     }
                                   ],
-                                  "currency": "NAD"
+                                  "indicativeCurrency": "NAD"
                                 }
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.currency").value("NAD"))
-                .andExpect(jsonPath("$.baseFreightCharge").value(6840.00))
-                .andExpect(jsonPath("$.fuelSurcharge").value(855.00))
-                .andExpect(jsonPath("$.originHandlingCharge").value(1300.00))
-                .andExpect(jsonPath("$.destinationHandlingCharge").value(1700.00))
+                .andExpect(jsonPath("$.currency").value("EUR"))
+                .andExpect(jsonPath("$.baseFreightCharge").value(342.00))
+                .andExpect(jsonPath("$.fuelSurcharge").value(42.75))
+                .andExpect(jsonPath("$.originHandlingCharge").value(65.00))
+                .andExpect(jsonPath("$.destinationHandlingCharge").value(85.00))
                 .andExpect(jsonPath("$.importCustomsDutyCharge").doesNotExist())
-                .andExpect(jsonPath("$.importClearanceCharge").value(1100.00))
-                .andExpect(jsonPath("$.totalAmount").value(11795.00))
+                .andExpect(jsonPath("$.importClearanceCharge").value(55.00))
+                .andExpect(jsonPath("$.totalAmount").value(589.75))
+                .andExpect(jsonPath("$.indicative").doesNotExist())
+                .andExpect(jsonPath("$.notes[1]").value(QuoteResponse.INDICATIVE_UNAVAILABLE))
                 .andExpect(jsonPath("$.lineItems.length()").value(5))
                 .andExpect(jsonPath("$.notes[0]").value(QuoteResponse.DUTIES_AS_DISBURSEMENT))
                 .andReturn();
@@ -145,8 +145,7 @@ class QuoteIntegrationTest extends IntegrationTest {
                                       "quantity": 1,
                                       "description": "Cut diamonds sample"
                                     }
-                                  ],
-                                  "currency": "EUR"
+                                  ]
                                 }
                                 """))
                 .andExpect(status().isCreated())
@@ -179,8 +178,7 @@ class QuoteIntegrationTest extends IntegrationTest {
                                   "mode": "SEA_LCL",
                                   "incoterm": "EXW",
                                   "payerRole": "CONSIGNEE",
-                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
-                                  "currency": "EUR"
+                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}]
                                 }
                                 """))
                 .andExpect(status().isUnprocessableContent())
@@ -196,8 +194,7 @@ class QuoteIntegrationTest extends IntegrationTest {
                                   "mode": "SEA_LCL",
                                   "incoterm": "EXW",
                                   "payerRole": "CONSIGNEE",
-                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
-                                  "currency": "EUR"
+                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}]
                                 }
                                 """))
                 .andExpect(status().isUnprocessableContent())
@@ -213,8 +210,7 @@ class QuoteIntegrationTest extends IntegrationTest {
                                   "mode": "SEA_LCL",
                                   "incoterm": "EXW",
                                   "payerRole": "SHIPPER",
-                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
-                                  "currency": "EUR"
+                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}]
                                 }
                                 """))
                 .andExpect(status().isUnprocessableContent())

@@ -181,8 +181,7 @@ QUOTE_RESP=$(curl -fsS -X POST "${GATEWAY}/api/v1/quotes" \
         "quantity": 2,
         "description": "Frozen hake fillets"
       }
-    ],
-    "currency": "EUR"
+    ]
   }')
 echo "$QUOTE_RESP"
 # Expected 201 Created:

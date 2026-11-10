@@ -67,6 +67,8 @@ services:
       LOGISTICS_DB_URL: jdbc:postgresql://logistics-db:5432/logistics
       LOGISTICS_DB_USER: ${LOGISTICS_DB_USER:?set in .env}
       LOGISTICS_DB_PASSWORD: ${LOGISTICS_DB_PASSWORD:?set in .env}
+      # Internal network only: holds and captures are not routed by the gateway.
+      BANKING_SERVICE_URI: http://banking-service:8081
     ports:
       - "127.0.0.1:8082:8082"
     depends_on:

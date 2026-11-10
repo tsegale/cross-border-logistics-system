@@ -6,6 +6,7 @@ import com.freightflow.logistics.location.Location;
 import com.freightflow.logistics.location.LocationRepository;
 import com.freightflow.logistics.location.UnknownLocationException;
 import com.freightflow.logistics.quote.ChargeableWeightCalculator.CalculationResult;
+import com.freightflow.logistics.quote.IndicativePricing.Indicative;
 import com.freightflow.logistics.quote.dto.CreateQuoteRequest;
 import com.freightflow.logistics.quote.dto.PackageSpecDto;
 import com.freightflow.logistics.quote.dto.QuoteResponse;
@@ -18,7 +19,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -32,6 +32,7 @@ public class QuoteService {
     private final FreightQuoteRepository quotes;
     private final QuotePackageRepository quotePackages;
     private final LogisticsProperties properties;
+    private final IndicativePricing indicativePricing;
     private final Clock clock;
 
     public QuoteService(
@@ -40,19 +41,23 @@ public class QuoteService {
             FreightQuoteRepository quotes,
             QuotePackageRepository quotePackages,
             LogisticsProperties properties,
+            IndicativePricing indicativePricing,
             Clock clock) {
         this.locations = locations;
         this.tariffs = tariffs;
         this.quotes = quotes;
         this.quotePackages = quotePackages;
         this.properties = properties;
+        this.indicativePricing = indicativePricing;
         this.clock = clock;
     }
 
     @Transactional
     public QuoteResponse createQuote(CreateQuoteRequest request) {
-        String quoteCurrency = MoneyRounding.validateSupportedCurrency(
-                request.currency(), properties.normalizedCurrencies()).getCurrencyCode();
+        String indicativeCurrency = request.indicativeCurrency() == null || request.indicativeCurrency().isBlank()
+                ? null
+                : MoneyRounding.validateSupportedCurrency(
+                        request.indicativeCurrency(), properties.normalizedCurrencies()).getCurrencyCode();
 
         String originCode = request.origin().trim().toUpperCase(Locale.ROOT);
         String destCode = request.destination().trim().toUpperCase(Locale.ROOT);
@@ -86,7 +91,9 @@ public class QuoteService {
                 ));
 
         CalculationResult calc = ChargeableWeightCalculator.calculate(request.mode(), request.packages());
-        BigDecimal fxRate = lookupConversionRate(tariff.getCurrency(), quoteCurrency);
+        // Quotes are priced in the tariff currency. Logistics never converts: banking owns FX.
+        String quoteCurrency = tariff.getCurrency();
+        BigDecimal noConversion = BigDecimal.ONE.setScale(MoneyRounding.RATE_SCALE, MoneyRounding.ROUNDING_MODE);
 
         Incoterm incoterm = request.incoterm();
         PayerRole payerRole = request.payerRole();
@@ -103,19 +110,19 @@ public class QuoteService {
         if (legs.contains(ChargeLeg.MAIN_CARRIAGE)) {
             BigDecimal rawFreightTariffCcy = calc.chargeableUnits().multiply(tariff.getRatePerUnit())
                     .max(tariff.getMinimumCharge());
-            baseFreightCharge = convertAndRound(rawFreightTariffCcy, fxRate, quoteCurrency);
+            baseFreightCharge = MoneyRounding.normalizeCustomerAmount(rawFreightTariffCcy, quoteCurrency);
             BigDecimal rawFuelQuoteCcy = baseFreightCharge.multiply(tariff.getFuelSurchargePercent())
                     .divide(ONE_HUNDRED, MoneyRounding.STORAGE_SCALE + 4, MoneyRounding.ROUNDING_MODE);
             fuelSurcharge = MoneyRounding.normalizeCustomerAmount(rawFuelQuoteCcy, quoteCurrency);
         }
         BigDecimal originHandlingCharge = legs.contains(ChargeLeg.ORIGIN_HANDLING)
-                ? convertAndRound(tariff.getOriginHandlingFee(), fxRate, quoteCurrency)
+                ? MoneyRounding.normalizeCustomerAmount(tariff.getOriginHandlingFee(), quoteCurrency)
                 : zero;
         BigDecimal destinationHandlingCharge = legs.contains(ChargeLeg.DESTINATION_HANDLING)
-                ? convertAndRound(tariff.getDestinationHandlingFee(), fxRate, quoteCurrency)
+                ? MoneyRounding.normalizeCustomerAmount(tariff.getDestinationHandlingFee(), quoteCurrency)
                 : zero;
         BigDecimal importClearanceCharge = legs.contains(ChargeLeg.IMPORT_CLEARANCE)
-                ? convertAndRound(tariff.getImportClearanceFee(), fxRate, quoteCurrency)
+                ? MoneyRounding.normalizeCustomerAmount(tariff.getImportClearanceFee(), quoteCurrency)
                 : zero;
 
         BigDecimal totalAmount = baseFreightCharge
@@ -123,6 +130,11 @@ public class QuoteService {
                 .add(originHandlingCharge)
                 .add(destinationHandlingCharge)
                 .add(importClearanceCharge);
+
+        String shownCurrency = quoteCurrency.equals(indicativeCurrency) ? null : indicativeCurrency;
+        Indicative indicative = shownCurrency == null
+                ? null
+                : indicativePricing.convert(totalAmount, quoteCurrency, shownCurrency).orElse(null);
 
         Instant now = clock.instant();
         Instant validUntil = now.plus(properties.quoteValidity());
@@ -144,7 +156,7 @@ public class QuoteService {
                 tariff.getRatePerUnit(),
                 tariff.getMinimumCharge(),
                 tariff.getFuelSurchargePercent(),
-                fxRate,
+                noConversion,
                 quoteCurrency,
                 baseFreightCharge,
                 fuelSurcharge,
@@ -156,7 +168,7 @@ public class QuoteService {
                 tariff.getTransitDaysMax(),
                 validUntil,
                 now
-        ));
+        ).withIndicative(shownCurrency, indicative));
 
         List<QuotePackage> savedPackages = new ArrayList<>(request.packages().size());
         for (int i = 0; i < request.packages().size(); i++) {
@@ -184,22 +196,5 @@ public class QuoteService {
                 .orElseThrow(() -> new QuoteNotFoundException(id));
         List<QuotePackage> pkgs = quotePackages.findByQuoteIdOrderByLineNumberAsc(id);
         return QuoteResponse.from(quote, pkgs);
-    }
-
-    private BigDecimal lookupConversionRate(String fromCurrency, String toCurrency) {
-        if (fromCurrency.equalsIgnoreCase(toCurrency)) {
-            return BigDecimal.ONE.setScale(MoneyRounding.RATE_SCALE, MoneyRounding.ROUNDING_MODE);
-        }
-        Map<String, BigDecimal> fromMap = properties.fxRates().get(fromCurrency.toUpperCase(Locale.ROOT));
-        BigDecimal rate = fromMap != null ? fromMap.get(toCurrency.toUpperCase(Locale.ROOT)) : null;
-        if (rate == null || rate.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalStateException("Missing FX conversion rate for " + fromCurrency + " -> " + toCurrency);
-        }
-        return rate.setScale(MoneyRounding.RATE_SCALE, MoneyRounding.ROUNDING_MODE);
-    }
-
-    private static BigDecimal convertAndRound(BigDecimal amountInTariffCcy, BigDecimal fxRate, String targetCurrency) {
-        BigDecimal converted = amountInTariffCcy.multiply(fxRate);
-        return MoneyRounding.normalizeCustomerAmount(converted, targetCurrency);
     }
 }

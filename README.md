@@ -123,8 +123,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/quotes \
     "mode": "SEA_LCL",
     "incoterm": "FCA",
     "payerRole": "CONSIGNEE",
-    "packages": [{"lengthCm":120,"widthCm":100,"heightCm":150,"weightKg":500,"quantity":2,"description":"Frozen hake fillets"}],
-    "currency": "EUR"
+    "packages": [{"lengthCm":120,"widthCm":100,"heightCm":150,"weightKg":500,"quantity":2,"description":"Frozen hake fillets"}]
   }'
 ```
 

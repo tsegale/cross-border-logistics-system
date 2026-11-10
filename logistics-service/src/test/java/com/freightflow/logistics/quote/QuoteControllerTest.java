@@ -53,8 +53,7 @@ class QuoteControllerTest {
                                   "mode": "ROCKET",
                                   "incoterm": "FCA",
                                   "payerRole": "CONSIGNEE",
-                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
-                                  "currency": "EUR"
+                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}]
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
@@ -72,8 +71,7 @@ class QuoteControllerTest {
                                   "mode": "SEA_LCL",
                                   "incoterm": "FCA",
                                   "payerRole": "CONSIGNEE",
-                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
-                                  "currency": "EUR"
+                                  "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}]
                                 }
                                 """))
                 .andExpect(status().isUnprocessableContent())
@@ -93,7 +91,7 @@ class QuoteControllerTest {
                                   "incoterm": "FCA",
                                   "payerRole": "CONSIGNEE",
                                   "packages": [{"lengthCm": 50, "widthCm": 50, "heightCm": 50, "weightKg": 20, "quantity": 1}],
-                                  "currency": "USD"
+                                  "indicativeCurrency": "USD"
                                 }
                                 """))
                 .andExpect(status().isBadRequest())

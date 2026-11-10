@@ -238,7 +238,7 @@ class ShipmentIntegrationTest extends IntegrationTest {
                                       "quantity": 2
                                     }
                                   ],
-                                  "currency": "%s"
+                                  "indicativeCurrency": "%s"
                                 }
                                 """.formatted(origin, destination, mode, incoterm, currency)))
                 .andExpect(status().isCreated())

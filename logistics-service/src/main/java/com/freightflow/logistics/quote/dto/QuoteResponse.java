@@ -39,6 +39,7 @@ public record QuoteResponse(
         BigDecimal destinationHandlingCharge,
         BigDecimal importClearanceCharge,
         BigDecimal totalAmount,
+        IndicativeDto indicative,
         List<QuoteLineItemDto> lineItems,
         List<String> notes,
         IncotermAllocationDto incotermAllocation,
@@ -53,6 +54,19 @@ public record QuoteResponse(
             String description,
             BigDecimal amount,
             String currency
+    ) {
+    }
+
+    /**
+     * The total in another currency, for information only. The customer is charged {@code totalAmount} in the quote
+     * currency; banking-service fixes the rate when it authorises the payment.
+     */
+    public record IndicativeDto(
+            String currency,
+            BigDecimal totalAmount,
+            String rate,
+            Instant rateAsOf,
+            String rateSource
     ) {
     }
 
@@ -71,6 +85,12 @@ public record QuoteResponse(
     public static final String DUTIES_AS_DISBURSEMENT =
             "Import duties and taxes are not part of this quote. Under DDP they are paid to customs on the "
                     + "shipper's behalf and billed at cost as a disbursement.";
+
+    public static final String INDICATIVE_ONLY =
+            "The indicative total is for information only. You are charged in the quote currency; the exchange "
+                    + "rate is fixed by banking-service when the payment is authorised.";
+    public static final String INDICATIVE_UNAVAILABLE =
+            "An indicative total in the requested currency is unavailable right now; the quote itself is valid.";
 
     public static QuoteResponse from(FreightQuote quote, List<QuotePackage> packages) {
         String ccy = quote.getCurrency();
@@ -123,9 +143,20 @@ public record QuoteResponse(
                 List.copyOf(incoterm.buyerLegs()),
                 incoterm.importDutiesPaidBy()
         );
-        List<String> notes = List.of(incoterm.importDutiesPaidBy() == PayerRole.SHIPPER
-                ? DUTIES_AS_DISBURSEMENT
-                : DUTIES_EXCLUDED);
+        List<String> notes = new ArrayList<>();
+        notes.add(incoterm.importDutiesPaidBy() == PayerRole.SHIPPER ? DUTIES_AS_DISBURSEMENT : DUTIES_EXCLUDED);
+        IndicativeDto indicative = null;
+        if (quote.getIndicativeCurrency() != null && quote.getIndicativeTotalAmount() != null) {
+            indicative = new IndicativeDto(
+                    quote.getIndicativeCurrency(),
+                    MoneyRounding.roundToMinorUnits(quote.getIndicativeTotalAmount(), quote.getIndicativeCurrency()),
+                    "1 " + quote.getIndicativeCurrency() + " = " + quote.getIndicativeRate().toPlainString() + " " + ccy,
+                    quote.getIndicativeRateAsOf(),
+                    quote.getIndicativeRateSource());
+            notes.add(INDICATIVE_ONLY);
+        } else if (quote.getIndicativeCurrency() != null) {
+            notes.add(INDICATIVE_UNAVAILABLE);
+        }
 
         return new QuoteResponse(
                 quote.getId(),
@@ -150,8 +181,9 @@ public record QuoteResponse(
                 destHandling,
                 importClearance,
                 total,
+                indicative,
                 List.copyOf(items),
-                notes,
+                List.copyOf(notes),
                 allocation,
                 quote.getTransitDaysMin(),
                 quote.getTransitDaysMax(),

@@ -276,8 +276,7 @@ class TrackingEventIntegrationTest extends IntegrationTest {
                                       "weightKg": 500,
                                       "quantity": 2
                                     }
-                                  ],
-                                  "currency": "EUR"
+                                  ]
                                 }
                                 """))
                 .andExpect(status().isCreated())

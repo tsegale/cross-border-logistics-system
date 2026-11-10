@@ -107,12 +107,11 @@ QUOTE_RESP="$(curl -fsS -X POST "${GATEWAY_URL}/api/v1/quotes" \
         "quantity": 2,
         "description": "Frozen Merluccius capensis hake fillets"
       }
-    ],
-    "currency": "EUR"
+    ]
   }')"
 QUOTE_ID="$(extract_json_field "$QUOTE_RESP" "id")"
 QUOTE_TOTAL="$(extract_json_field "$QUOTE_RESP" "totalAmount")"
-echo "   Freight Quote ID: ${QUOTE_ID} (Total: ${QUOTE_TOTAL} EUR)"
+echo "   Freight Quote ID: ${QUOTE_ID} (Total: ${QUOTE_TOTAL} EUR, the tariff currency)"
 
 # 6. Book a shipment from the quote (starts in AWAITING_PAYMENT)
 echo "6. Booking shipment in AWAITING_PAYMENT status..."

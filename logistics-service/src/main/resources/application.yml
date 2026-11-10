@@ -25,6 +25,13 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  http:
+    serviceclient:
+      # banking-service owns accounts, holds and FX (ADR 0001); timeouts and resilience in ADR 0013.
+      banking:
+        base-url: ${BANKING_SERVICE_URI:http://127.0.0.1:8081}
+        connect-timeout: ${BANKING_CONNECT_TIMEOUT:500ms}
+        read-timeout: ${BANKING_READ_TIMEOUT:2s}
   task:
     scheduling:
       pool:
@@ -39,19 +46,6 @@ freightflow:
       ttl: ${IDEMPOTENCY_TTL:24h}
       cleanup-interval: ${IDEMPOTENCY_CLEANUP_INTERVAL:15m}
       lock-timeout: ${IDEMPOTENCY_LOCK_TIMEOUT:5s}
-    fx-rates:
-      EUR:
-        EUR: 1.00000000
-        NAD: 20.00000000
-        ZAR: 20.00000000
-      NAD:
-        NAD: 1.00000000
-        ZAR: 1.00000000
-        EUR: 0.05000000
-      ZAR:
-        ZAR: 1.00000000
-        NAD: 1.00000000
-        EUR: 0.05000000
 
 # Served under the path the gateway publishes them at, so Swagger UI works through the gateway unchanged.
 springdoc:

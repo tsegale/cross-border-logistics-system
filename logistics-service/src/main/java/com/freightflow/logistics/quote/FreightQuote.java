@@ -99,6 +99,21 @@ public class FreightQuote {
     @Column(name = "total_amount", precision = 19, scale = 4, nullable = false, updatable = false)
     private BigDecimal totalAmount;
 
+    @Column(name = "indicative_currency", length = 3, updatable = false)
+    private String indicativeCurrency;
+
+    @Column(name = "indicative_total_amount", precision = 19, scale = 4, updatable = false)
+    private BigDecimal indicativeTotalAmount;
+
+    @Column(name = "indicative_rate", precision = 19, scale = 8, updatable = false)
+    private BigDecimal indicativeRate;
+
+    @Column(name = "indicative_rate_as_of", updatable = false)
+    private Instant indicativeRateAsOf;
+
+    @Column(name = "indicative_rate_source", length = 64, updatable = false)
+    private String indicativeRateSource;
+
     @Column(name = "transit_days_min", nullable = false, updatable = false)
     private int transitDaysMin;
 
@@ -173,6 +188,41 @@ public class FreightQuote {
         q.validUntil = Objects.requireNonNull(validUntil, "validUntil");
         q.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         return q;
+    }
+
+    /**
+     * Records the indicative total shown with the quote. {@code indicative} is null when the currency was asked
+     * for but banking-service could not be reached.
+     */
+    public FreightQuote withIndicative(String currency, IndicativePricing.Indicative indicative) {
+        this.indicativeCurrency = currency;
+        if (currency != null && indicative != null) {
+            this.indicativeTotalAmount = MoneyRounding.toStorageScale(indicative.totalAmount());
+            this.indicativeRate = indicative.rate();
+            this.indicativeRateAsOf = indicative.asOf();
+            this.indicativeRateSource = indicative.source();
+        }
+        return this;
+    }
+
+    public String getIndicativeCurrency() {
+        return indicativeCurrency;
+    }
+
+    public BigDecimal getIndicativeTotalAmount() {
+        return indicativeTotalAmount;
+    }
+
+    public BigDecimal getIndicativeRate() {
+        return indicativeRate;
+    }
+
+    public Instant getIndicativeRateAsOf() {
+        return indicativeRateAsOf;
+    }
+
+    public String getIndicativeRateSource() {
+        return indicativeRateSource;
     }
 
     public UUID getId() {
