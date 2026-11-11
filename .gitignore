@@ -34,3 +34,6 @@ benchmarks/out/
 
 # Private working notes, such as the phase prompts
 local/
+
+# Python bytecode from the scripts
+__pycache__/

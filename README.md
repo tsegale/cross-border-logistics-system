@@ -345,12 +345,12 @@ records its CPU and memory; its results lead the reports once it has run.
 ## Running the tests
 
 ```bash
-cd banking-service && ./mvnw verify       # banking-service: 113 tests (unit, Testcontainers, concurrency, contract)
-cd logistics-service && ./mvnw verify     # logistics-service: 145 tests (unit, Testcontainers, contract, Toxiproxy faults)
-cd api-gateway && ./mvnw verify           # api-gateway: 27 tests (edge policy, problem details)
+cd banking-service && ./mvnw verify       # banking-service: 268 tests (unit, Testcontainers, concurrency, contract, authorisation matrix)
+cd logistics-service && ./mvnw verify     # logistics-service: 264 tests (unit, Testcontainers, contract, Toxiproxy faults, real Keycloak, authorisation matrix)
+cd api-gateway && ./mvnw verify           # api-gateway: 58 tests (edge policy, JWT validation, issuer outage, rate limits)
 ```
 
-Integration tests start their own PostgreSQL 17 in Testcontainers, so Docker must be running. The logistics fault-injection tests also run the `freightflow-banking-service` image, so build it first (`docker compose build banking-service`). Every service enforces a JaCoCo coverage gate (`>= 80%` line, `>= 70%` branch).
+Integration tests start their own PostgreSQL 17 in Testcontainers, so Docker must be running. The logistics fault-injection tests also run the `freightflow-banking-service` image, so build it first (`docker compose build banking-service`), and start a real Keycloak; on a 3.7 GiB Docker VM stop the compose stack while they run. Every service enforces a JaCoCo coverage gate (`>= 80%` line, `>= 70%` branch).
 
 ## Roadmap
 
