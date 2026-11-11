@@ -248,6 +248,13 @@ public class HoldService {
         return HoldResponse.from(hold, accountNumber(hold.getPayerAccountId()));
     }
 
+    @Transactional(readOnly = true)
+    public List<HoldResponse> findByReference(String reference) {
+        return holds.findTop50ByReferenceOrderByCreatedAtDesc(reference.trim()).stream()
+                .map(hold -> HoldResponse.from(hold, accountNumber(hold.getPayerAccountId())))
+                .toList();
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private record Locked(Account account, Hold hold) {

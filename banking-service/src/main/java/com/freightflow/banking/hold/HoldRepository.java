@@ -10,6 +10,8 @@ import java.util.UUID;
 
 public interface HoldRepository extends JpaRepository<Hold, UUID> {
 
+    List<Hold> findTop50ByReferenceOrderByCreatedAtDesc(String reference);
+
     /** Active holds past their expiry, oldest first. Read without a lock: expiring one re-checks under the locks. */
     @Query(value = """
             SELECT id FROM holds

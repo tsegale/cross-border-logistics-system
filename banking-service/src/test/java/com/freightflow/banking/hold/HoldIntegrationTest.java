@@ -320,6 +320,24 @@ class HoldIntegrationTest extends IntegrationTest {
     }
 
     @Test
+    void holdsAreFoundByTheirReference() throws Exception {
+        AccountResponse payer = funded("EUR", "1000.00");
+        String reference = "SHIPMENT " + UUID.randomUUID();
+        mockMvc.perform(post("/api/v1/holds").header("Idempotency-Key", key()).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"payerAccount":"%s","amount":10.00,"currency":"EUR","reference":"%s"}
+                                """.formatted(payer.accountNumber(), reference)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/holds").param("reference", reference))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].reference").value(reference));
+        mockMvc.perform(get("/api/v1/holds").param("reference", "SHIPMENT nobody"))
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
     void unknownHoldIs404() throws Exception {
         mockMvc.perform(get("/api/v1/holds/{id}", UUID.randomUUID()))
                 .andExpect(status().isNotFound())
