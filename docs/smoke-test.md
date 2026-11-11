@@ -1,286 +1,116 @@
-# Phase 1 End-to-End Smoke Test (`api-gateway` `:8080`)
+# End-to-end smoke test (`api-gateway` `:8080`)
 
-This walkthrough verifies every endpoint across `banking-service` and `logistics-service` through `api-gateway` (`http://127.0.0.1:8080`).
-
-The same calls run as a script, which CI executes in the `default-stack` job after `seed_demo.sh` and which stops at the first unexpected HTTP status:
+The authoritative version is the script: every call states the status it expects and the script stops at the first
+one that differs. CI runs it against the default stack after `seed_demo.sh`.
 
 ```bash
+cp .env.example .env
+python scripts/generate_secrets.py
 docker compose up -d --build --wait
 ./scripts/smoke_test.sh
 ```
 
+Since Phase 3 every call is made as a persona of the realm (ADR 0016), with a real Keycloak token. This page walks
+through the same flow by hand.
+
 ## Prerequisites
 
 ```bash
-docker compose up -d --wait --build
 export GATEWAY="http://127.0.0.1:8080"
 export RUN_ID="$(date +%s)"
-
-json_field() {
-  printf '%s' "$1" | grep -oE "\"$2\"[[:space:]]*:[[:space:]]*\"?[^\",}]+\"?" | head -n 1 | sed -E 's/^[^:]+:[[:space:]]*"?([^",}]+)"?$/\1/'
-}
+export NAMIB="0193a0e0-0000-7000-8000-00000000a001"
+OPERATOR="Authorization: Bearer $(scripts/token.sh operator)"
+CUSTOMER="Authorization: Bearer $(scripts/token.sh customer-namib-exports)"
+OTHER_CUSTOMER="Authorization: Bearer $(scripts/token.sh customer-hanseatic-imports)"
+CARRIER="Authorization: Bearer $(scripts/token.sh carrier-walvis-haulage)"
+AUDITOR="Authorization: Bearer $(scripts/token.sh auditor)"
 ```
 
----
+Tokens live 5 minutes; fetch them again if a call answers `401`.
 
-## 1. Gateway Health & OpenAPI Docs
+## 1. The edge (ADR 0015, ADR 0017)
 
 ```bash
-curl -fsS "${GATEWAY}/actuator/health"
-# Expected: {"groups":["liveness","readiness"],"status":"UP"}
+curl -s "${GATEWAY}/api/v1/accounts/FF14EUR000000001"
+# 401 {"type":"https://freightflow.dev/problems/unauthenticated", ...}  WWW-Authenticate: Bearer
 
-curl -fsS -o /dev/null -w "%{http_code}\n" "${GATEWAY}/docs/banking/v3/api-docs"
-# Expected: 200
+curl -s -H "$CUSTOMER" "${GATEWAY}/api/v1/ledger/reconciliation"
+# 403 {"type":"https://freightflow.dev/problems/forbidden", ...}
 
-curl -fsS -o /dev/null -w "%{http_code}\n" "${GATEWAY}/docs/logistics/v3/api-docs"
-# Expected: 200
+curl -s -X POST -H "$OPERATOR" "${GATEWAY}/api/v1/holds"
+# 404: holds are internal; only logistics-service's own token reaches them, inside the network (ADR 0019)
+
+curl -s http://127.0.0.1:8085/actuator/health    # the gateway's management port
 ```
 
----
-
-## 2. Accounts & ISO 7064 MOD 97-10 Check Digits (`banking-service`)
-
-### 2.1 Open NAD, ZAR, and EUR Customer Accounts
+## 2. Accounts: the operator opens them, the customer sees its own
 
 ```bash
-NAD_RESP=$(curl -fsS -X POST "${GATEWAY}/api/v1/accounts" \
-  -H "Content-Type: application/json" \
-  -d "{\"holderReference\":\"CUST-NAM-WALVIS-${RUN_ID}\",\"currency\":\"NAD\"}")
-echo "$NAD_RESP"
-# Expected 201 Created:
-# {
-#   "id": "019...",
-#   "accountNumber": "FF..NAD.........",
-#   "holderReference": "CUST-NAM-WALVIS-...",
-#   "type": "CUSTOMER",
-#   "currency": "NAD",
-#   "status": "ACTIVE",
-#   "balance": 0.00,
-#   ...
-# }
+NAD=$(curl -s -X POST -H "$OPERATOR" -H "Content-Type: application/json" "${GATEWAY}/api/v1/accounts" \
+  -d "{\"currency\":\"NAD\",\"organizationId\":\"${NAMIB}\"}")
+EUR=$(curl -s -X POST -H "$OPERATOR" -H "Content-Type: application/json" "${GATEWAY}/api/v1/accounts" \
+  -d "{\"currency\":\"EUR\",\"organizationId\":\"${NAMIB}\"}")
+NAD_ID=$(echo "$NAD" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+NAD_ACC=$(echo "$NAD" | python -c 'import json,sys; print(json.load(sys.stdin)["accountNumber"])')
+EUR_ID=$(echo "$EUR" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+EUR_ACC=$(echo "$EUR" | python -c 'import json,sys; print(json.load(sys.stdin)["accountNumber"])')
 
-EUR_RESP=$(curl -fsS -X POST "${GATEWAY}/api/v1/accounts" \
-  -H "Content-Type: application/json" \
-  -d "{\"holderReference\":\"CUST-DEU-HAMBURG-${RUN_ID}\",\"currency\":\"EUR\"}")
-echo "$EUR_RESP"
+curl -s -H "$CUSTOMER" "${GATEWAY}/api/v1/accounts/${NAD_ACC}"          # 200, ownerOrganizationId = NAMIB
+curl -s -H "$OTHER_CUSTOMER" "${GATEWAY}/api/v1/accounts/${NAD_ACC}"    # 404 account-not-found (ADR 0018)
 ```
 
-### 2.2 Fetch Account by Account Number & Reject Mistyped Check Digits
+## 3. Deposits (operator), FX and a transfer (customer)
 
 ```bash
-NAD_ACC=$(json_field "$NAD_RESP" "accountNumber")
-NAD_ID=$(json_field "$NAD_RESP" "id")
-EUR_ACC=$(json_field "$EUR_RESP" "accountNumber")
-EUR_ID=$(json_field "$EUR_RESP" "id")
+curl -s -X POST -H "$OPERATOR" -H "Content-Type: application/json" -H "Idempotency-Key: dep-${RUN_ID}" \
+  "${GATEWAY}/api/v1/accounts/${NAD_ID}/deposits" -d '{"amount":100000.00,"currency":"NAD","reference":"DEP"}'
+curl -s -X POST -H "$OPERATOR" -H "Content-Type: application/json" -H "Idempotency-Key: dep-eur-${RUN_ID}" \
+  "${GATEWAY}/api/v1/accounts/${EUR_ID}/deposits" -d '{"amount":5000.00,"currency":"EUR","reference":"DEP"}'
 
-curl -fsS "${GATEWAY}/api/v1/accounts/${NAD_ACC}"
-# Expected 200 OK with matching account details
+QUOTE=$(curl -s -X POST -H "$CUSTOMER" -H "Content-Type: application/json" "${GATEWAY}/api/v1/fx-quotes" \
+  -d '{"sellCurrency":"NAD","buyCurrency":"EUR","sellAmount":20000.00}')      # buyAmount 995.00
+FX_ID=$(echo "$QUOTE" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+curl -s -X POST -H "$CUSTOMER" -H "Content-Type: application/json" -H "Idempotency-Key: fx-${RUN_ID}" \
+  "${GATEWAY}/api/v1/transfers" \
+  -d "{\"sourceAccount\":\"${NAD_ACC}\",\"targetAccount\":\"${EUR_ACC}\",\"amount\":20000.00,\"currency\":\"NAD\",\"fxQuoteId\":\"${FX_ID}\",\"reference\":\"FX\"}"
 
-# Corrupt the check digits (FF00...) -> 400 invalid-account-number
-curl -s -X GET "${GATEWAY}/api/v1/accounts/FF00NAD000001000"
-# Expected 400 Bad Request:
-# {
-#   "type": "https://freightflow.dev/problems/invalid-account-number",
-#   "title": "Invalid account number",
-#   "status": 400,
-#   "detail": "...",
-#   "accountNumber": "FF00NAD000001000"
-# }
+curl -s -H "$AUDITOR" "${GATEWAY}/api/v1/ledger/reconciliation"           # balanced: true
 ```
 
----
+The same key from another organisation is another request, never a replay of this one (ADR 0020).
 
-## 3. Idempotent Deposits, Transfers, FX Quotes & Reversals
-
-### 3.1 Deposit Funds from `CLEARING`
+## 4. Book, get paid, pick up
 
 ```bash
-curl -fsS -X POST "${GATEWAY}/api/v1/accounts/${NAD_ID}/deposits" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: smoke-dep-nad-${RUN_ID}" \
-  -d '{"amount":100000.00,"currency":"NAD","reference":"DEP-WINDHOEK-001"}'
-# Expected 201 Created: balanced 2-posting DEPOSIT journal entry (CLEARING-NAD -> customer)
+PICKUP=$(date -u -d '+7 days' +%F 2>/dev/null || date -u -v+7d +%F)
+QUOTE_ID=$(curl -s -X POST -H "$CUSTOMER" -H "Content-Type: application/json" "${GATEWAY}/api/v1/quotes" \
+  -d '{"origin":"NAWVB","destination":"DEHAM","mode":"SEA_LCL","incoterm":"FCA","payerRole":"CONSIGNEE",
+       "packages":[{"lengthCm":120,"widthCm":100,"heightCm":150,"weightKg":500,"quantity":2}]}' \
+  | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')                          # 524.75 EUR
+SHIP=$(curl -s -X POST -H "$CUSTOMER" -H "Content-Type: application/json" -H "Idempotency-Key: ship-${RUN_ID}" \
+  "${GATEWAY}/api/v1/shipments" \
+  -d "{\"quoteId\":\"${QUOTE_ID}\",\"shipper\":{\"name\":\"Namib Fisheries\",\"address\":\"Walvis Bay\",\"contact\":\"x\"},
+       \"consignee\":{\"name\":\"Hanseatic Seafood\",\"address\":\"Hamburg\",\"contact\":\"y\"},
+       \"payerAccountNumber\":\"${EUR_ACC}\",\"goodsDescription\":\"Frozen hake\",\"declaredValue\":18500.00,
+       \"plannedPickupDate\":\"${PICKUP}\"}")
+SHIP_ID=$(echo "$SHIP" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+# 201 AWAITING_PAYMENT; a moment later the relay authorises the hold with logistics' own token: BOOKED
+curl -s -H "$CUSTOMER" "${GATEWAY}/api/v1/shipments/${SHIP_ID}"         # status BOOKED, payment AUTHORISED
+curl -s -H "$OTHER_CUSTOMER" "${GATEWAY}/api/v1/shipments/${SHIP_ID}"   # 404 shipment-not-found
+
+# Only the assigned carrier reports tracking events (ADR 0018)
+curl -s -X PUT -H "$OPERATOR" -H "Content-Type: application/json" \
+  "${GATEWAY}/api/v1/shipments/${SHIP_ID}/carrier" -d '{"carrierId":"carrier-walvis-haulage"}'
+curl -s -X POST -H "$CARRIER" -H "Content-Type: application/json" \
+  "${GATEWAY}/api/v1/shipments/${SHIP_ID}/tracking-events" \
+  -d '{"carrierEventId":"VSL-1","eventType":"DEPARTED","targetStatus":"IN_TRANSIT","location":"NAWVB",
+       "description":"Vessel departed","occurredAt":"2026-04-21T06:00:00Z"}'
+# APPLIED, skippedStatuses [PICKED_UP, AT_ORIGIN_PORT]; the hold is captured
+
+curl -s -H "$AUDITOR" "${GATEWAY}/api/v1/shipments/${SHIP_ID}"          # audit.bookedBy: who booked
+TRACK_NO=$(echo "$SHIP" | python -c 'import json,sys; print(json.load(sys.stdin)["trackingNumber"])')
+curl -s "${GATEWAY}/api/v1/shipments/track/${TRACK_NO}"                 # public, no token, no customer data
 ```
 
-### 3.2 Lock an FX Quote (`NAD -> EUR`) and Execute a Cross-Currency Transfer
-
-```bash
-FX_RESP=$(curl -fsS -X POST "${GATEWAY}/api/v1/fx-quotes" \
-  -H "Content-Type: application/json" \
-  -d '{"sellCurrency":"NAD","buyCurrency":"EUR","sellAmount":20000.00}')
-echo "$FX_RESP"
-# Expected 201 Created with locked rate, buyAmount, and expiresAt
-
-FX_ID=$(json_field "$FX_RESP" "id")
-
-XFER_RESP=$(curl -fsS -X POST "${GATEWAY}/api/v1/transfers" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: smoke-xfer-fx-${RUN_ID}" \
-  -d "{
-    \"sourceAccount\":\"${NAD_ACC}\",
-    \"targetAccount\":\"${EUR_ACC}\",
-    \"amount\":20000.00,
-    \"currency\":\"NAD\",
-    \"fxQuoteId\":\"${FX_ID}\",
-    \"reference\":\"INV-NAWVB-DEHAM-001\"
-  }")
-echo "$XFER_RESP"
-# Expected 201 Created: 4-posting FX_TRANSFER journal entry via FX_POSITION-NAD and FX_POSITION-EUR
-
-XFER_ID=$(json_field "$XFER_RESP" "id")
-curl -fsS "${GATEWAY}/api/v1/transfers/${XFER_ID}"
-# Expected 200 OK
-```
-
-### 3.3 Fetch Journal Entry & Reverse It Once
-
-```bash
-JE_ID=$(json_field "$XFER_RESP" "journalEntryId")
-
-curl -fsS "${GATEWAY}/api/v1/journal-entries/${JE_ID}"
-# Expected 200 OK showing all 4 postings summing to 0.00 per currency
-
-curl -fsS -X POST "${GATEWAY}/api/v1/journal-entries/${JE_ID}/reversals" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: smoke-rev-${RUN_ID}" \
-  -d '{"reason":"Customer amended invoice amount"}'
-# Expected 201 Created: compensating REVERSAL journal entry with reversesEntryId = JE_ID
-```
-
-### 3.4 Keyset-Paginated Statement & Ledger Reconciliation
-
-```bash
-curl -fsS "${GATEWAY}/api/v1/accounts/${NAD_ID}/postings?size=2"
-# Expected 200 OK with items[0..1], runningBalance on each item, and nextCursor
-
-curl -fsS "${GATEWAY}/api/v1/ledger/reconciliation"
-# Expected 200 OK:
-# {
-#   "checkedAt": "2026-...",
-#   "accountsChecked": ...,
-#   "balanced": true,
-#   "discrepancies": [],
-#   "trialBalances": [...]
-# }
-```
-
----
-
-## 4. Freight Quotes, Shipments & Out-of-Order Tracking (`logistics-service`)
-
-### 4.1 Create a Freight Quote (`SEA_LCL` and `AIR`)
-
-```bash
-QUOTE_RESP=$(curl -fsS -X POST "${GATEWAY}/api/v1/quotes" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "origin": "NAWVB",
-    "destination": "DEHAM",
-    "mode": "SEA_LCL",
-    "incoterm": "FCA",
-    "payerRole": "CONSIGNEE",
-    "packages": [
-      {
-        "lengthCm": 120,
-        "widthCm": 100,
-        "heightCm": 150,
-        "weightKg": 500,
-        "quantity": 2,
-        "description": "Frozen hake fillets"
-      }
-    ]
-  }')
-echo "$QUOTE_RESP"
-# Expected 201 Created:
-# volumeCbm = 3.6, actualWeightKg = 1000.0, chargeableUnits = 3.6 (WM_TON),
-# FCA asked by the consignee: main carriage, destination handling and import clearance
-# baseFreightCharge = 342.00, fuelSurcharge = 42.75, destinationHandlingCharge = 85.00,
-# importClearanceCharge = 55.00, totalAmount = 524.75 EUR
-
-QUOTE_ID=$(json_field "$QUOTE_RESP" "id")
-curl -fsS "${GATEWAY}/api/v1/quotes/${QUOTE_ID}"
-```
-
-### 4.2 Book an Idempotent Shipment (`AWAITING_PAYMENT` + `ETag: "0"`)
-
-```bash
-PICKUP_DATE="$(date -u -d '+7 days' +%F 2>/dev/null || date -u -v+7d +%F)"  # GNU date, then BSD date
-SHIP_BODY=$(curl -fsS -X POST "${GATEWAY}/api/v1/shipments" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: smoke-ship-${RUN_ID}" \
-  -d "{
-    \"quoteId\": \"${QUOTE_ID}\",
-    \"shipper\": {
-      \"name\": \"Namib Fisheries (Pty) Ltd\",
-      \"address\": \"Ben Amathila Ave 14, Walvis Bay, Namibia\",
-      \"contact\": \"exports@namibfisheries.na\"
-    },
-    \"consignee\": {
-      \"name\": \"Hanseatic Seafood GmbH\",
-      \"address\": \"Am Sandtorkai 48, 20457 Hamburg, Germany\",
-      \"contact\": \"imports@hanseatic-seafood.de\"
-    },
-    \"payerAccountNumber\": \"${EUR_ACC}\",
-    \"goodsDescription\": \"Frozen hake fillets in 20kg master cartons\",
-    \"declaredValue\": 18500.00,
-    \"declaredValueCurrency\": \"EUR\",
-    \"plannedPickupDate\": \"${PICKUP_DATE}\"
-  }")
-echo "$SHIP_BODY"
-# Expected 201 Created, ETag: "0", status: "AWAITING_PAYMENT", trackingNumber: "FF-........-."
-```
-
-### 4.3 Record In-Order, Duplicate, and Out-of-Order Tracking Events
-
-```bash
-SHIP_ID=$(json_field "$SHIP_BODY" "id")
-TRACK_NO=$(json_field "$SHIP_BODY" "trackingNumber")
-
-# 1. Advance AWAITING_PAYMENT -> BOOKED -> PICKED_UP
-curl -fsS -X POST "${GATEWAY}/api/v1/shipments/${SHIP_ID}/tracking-events" \
-  -H "Content-Type: application/json" \
-  -H 'If-Match: "0"' \
-  -d '{
-    "carrierEventId": "SMOKE-EVT-1",
-    "eventType": "PAYMENT_CONFIRMED",
-    "targetStatus": "BOOKED",
-    "location": "NAWVB",
-    "description": "Booking confirmed at Walvis Bay",
-    "occurredAt": "2026-04-18T09:00:00Z"
-  }'
-
-curl -fsS -X POST "${GATEWAY}/api/v1/shipments/${SHIP_ID}/tracking-events" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "carrierEventId": "SMOKE-EVT-2",
-    "eventType": "CARGO_PICKED_UP",
-    "targetStatus": "PICKED_UP",
-    "location": "NAWVB",
-    "description": "Picked up from Walvis Bay cold store",
-    "occurredAt": "2026-04-19T08:00:00Z"
-  }'
-
-# 2. Out-of-order older event (occurredAt 2026-04-18T12:00:00Z < latestEventAt 2026-04-19T08:00:00Z)
-# Stored in history with appliedToStatus = false; currentShipmentStatus remains PICKED_UP
-curl -fsS -X POST "${GATEWAY}/api/v1/shipments/${SHIP_ID}/tracking-events" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "carrierEventId": "SMOKE-EVT-LATE",
-    "eventType": "DOCUMENTS_VERIFIED",
-    "targetStatus": "BOOKED",
-    "location": "NAWVB",
-    "description": "Late export documentation scan",
-    "occurredAt": "2026-04-18T12:00:00Z"
-  }'
-```
-
-### 4.4 Public Tracking View & Keyset Listing
-
-```bash
-curl -fsS "${GATEWAY}/api/v1/shipments/track/${TRACK_NO}"
-# Expected 200 OK: chronological events with occurredAtUtc + occurredAtLocal (Africa/Windhoek +02:00),
-# and no shipper/consignee/payerAccountNumber/declaredValue fields.
-
-curl -fsS "${GATEWAY}/api/v1/shipments?size=5"
-# Expected 200 OK: keyset-paginated ShipmentPageResponse
-```
+The script also covers idempotent replays, payload mismatches, reversals, a cancellation that releases its hold, a
+payer that cannot pay (`PAYMENT_FAILED`), and every refusal above.

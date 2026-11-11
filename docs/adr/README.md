@@ -20,3 +20,8 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | [0013](0013-http-client-and-resilience-policy.md) | HTTP client and resilience policy for calls to banking-service | Accepted |
 | [0014](0014-api-contract-tests.md) | API contract tests: a committed OpenAPI document on both sides | Accepted |
 | [0015](0015-gateway-edge-policy.md) | Gateway edge policy | Accepted |
+| [0016](0016-identity-provider-organisations-and-roles.md) | Identity provider: Keycloak, organisations and roles | Accepted |
+| [0017](0017-authentication-at-the-gateway-and-in-every-service.md) | Authentication at the gateway and in every service: token relay, not trusted headers | Accepted |
+| [0018](0018-object-level-authorisation.md) | Object-level authorisation and the policy table | Accepted |
+| [0019](0019-service-to-service-credentials.md) | Service-to-service credentials and secrets | Accepted |
+| [0020](0020-caller-scoped-idempotency-and-audit-actors.md) | Caller-scoped idempotency keys and audit actors | Accepted |

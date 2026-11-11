@@ -23,6 +23,9 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/lock-timeout` | `503 Service Unavailable` (`Retry-After: 1`) | Resource busy | — | SQLSTATE `55P03`: a row lock was not granted within its lock timeout. The transaction rolled back; retry the same request with the same `Idempotency-Key` |
 | `https://freightflow.dev/problems/transaction-conflict` | `409 Conflict` (`Retry-After: 1`) | Transaction conflict | — | SQLSTATE `40P01` (deadlock) or `40001` (serialization failure). The transaction rolled back; retry the same request |
 | `https://freightflow.dev/problems/data-conflict` | `409 Conflict` | Conflicting data | — | A database constraint rejected the write (for example two requests racing on a unique key). The constraint name is only in the log |
+| `https://freightflow.dev/problems/unauthenticated` | `401 Unauthorized` (`WWW-Authenticate: Bearer`) | Authentication required | none | No bearer token, or one the service rejects: not RS256 from the realm, wrong issuer, not for this service's audience, expired (ADR 0017) |
+| `https://freightflow.dev/problems/forbidden` | `403 Forbidden` | Forbidden | none | The caller's role may not use this endpoint, or a customer acts for an organisation other than its own (ADR 0018). Someone else's object is a 404 instead |
+| `https://freightflow.dev/problems/issuer-unavailable` | `503 Service Unavailable` (`Retry-After: 5`) | Token cannot be verified right now | none | Keycloak's keys cannot be fetched: retry with the same token |
 | `https://freightflow.dev/problems/internal-error` | `500 Internal Server Error` | Internal error | — | Anything unexpected. The detail is generic; the cause is only in the service log |
 
 ---

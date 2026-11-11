@@ -7,7 +7,7 @@ settles through an internal double-entry ledger with accounts in `NAD`, `ZAR` an
 Java 21, Spring Boot 4.1, Spring Cloud Gateway, PostgreSQL 17, Kafka, Docker. Built in phases; each phase ships
 with tests, CI, architecture decision records and measured numbers.
 
-> **Status:** Phase 2 complete: a booked shipment is paid from the customer's ledger account through an authorise, capture and release saga that survives timeouts, outages and lost responses. Phase 1 built the double-entry ledger, transfers and FX (`banking-service`) and quotes, shipments and tracking (`logistics-service`).
+> **Status:** Phase 3 complete: every request carries a Keycloak identity, the gateway and each service validate it, and every endpoint checks that the caller may touch that specific account, hold or shipment. Phase 2 paid for shipments through an authorise, capture and release saga; Phase 1 built the double-entry ledger, transfers and FX (`banking-service`) and quotes, shipments and tracking (`logistics-service`).
 
 ## Architecture
 
@@ -26,6 +26,77 @@ with tests, CI, architecture decision records and measured numbers.
               └─────────────┘           └─────────────┘
                      │   outbox → Kafka (KRaft) → notification-service :8083   (Phase 4)
 ```
+
+## Phase 3: every request has an identity
+
+Until Phase 3 anyone who could reach the gateway could move money out of any account. Now every request carries a
+Keycloak token, the gateway and each service validate it themselves, and each service checks that this caller may
+touch this specific account, hold or shipment.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as customer-namib-exports
+    participant K as Keycloak
+    participant G as api-gateway
+    participant L as logistics-service
+    participant B as banking-service
+    C->>K: login (code flow + PKCE, organisation member)
+    K-->>C: access token (5 min, RS256, aud gateway/banking/logistics, roles, organisation id)
+    C->>G: POST /api/v1/shipments (Bearer token, Idempotency-Key)
+    G->>G: validate, strip X-User-*/X-Org-*, rate limit per caller
+    G->>L: same token relayed, X-Request-Id
+    L->>L: validate for aud logistics-service; booking org = token's org
+    L->>K: client credentials (logistics-service)
+    K-->>L: token (aud banking-service, scope banking.holds)
+    L->>B: POST /api/v1/holds (payerOrganizationId, onBehalfOfSubject)
+    B->>B: scope banking.holds? payer account owned by that org? else 404
+```
+
+### Personas (realm `freightflow`, ADR 0016)
+
+| Persona | Kind | What it may do |
+| --- | --- | --- |
+| `customer-namib-exports`, `customer-hanseatic-imports` | person, member of one organisation | its organisation's accounts, quotes and shipments only; another organisation's are a 404 |
+| `operator` | person | deposits, reversals, accounts for any organisation, carrier assignment, parked payment retries |
+| `auditor` | person | reads everything, changes nothing |
+| `carrier-walvis-haulage` | client credentials | tracking events and reads for the shipments assigned to it |
+| `logistics-service` | client credentials | holds in banking, and nothing else (scope `banking.holds`) |
+
+```bash
+python scripts/generate_secrets.py                  # once: passwords and client secrets into secrets/
+scripts/token.sh customer-namib-exports             # a real access token on stdout
+scripts/token.sh operator --claims                  # the decoded claims
+TOKEN=$(scripts/token.sh customer-namib-exports)
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/shipments
+```
+
+### What it guarantees, and how it is tested
+- **No endpoint answers without a valid token** except the public tracking view and health; a request sent straight
+  to a service, around the gateway, is refused too: each service validates the token for its own audience (ADR 0017).
+- **Object-level authorisation** (OWASP API1, ADR 0018): the policy table below is data in each service's
+  `AuthorisationMatrixTest`, run for every endpoint, role and own/foreign object (140 cases in banking, 91 in
+  logistics). A foreign object is the same 404 as a missing one.
+- **Service-to-service credentials** (ADR 0019): holds need logistics' own client-credentials token. With Keycloak
+  paused, payment commands stay pending and nothing is lost or duplicated (`BankingFaultInjectionTest`).
+- **Caller-scoped idempotency and audit actors** (ADR 0020): two tenants with the same key never collide; every
+  journal entry, hold, booking, cancellation, tracking event and payment retry records who made it.
+- **The edge**: forgeable identity headers stripped, per-caller rate limits on money-moving routes failing closed,
+  401/403/429/503 problems, security events logged without tokens. **Secrets** only in `secrets/`, compose secrets
+  and the config tree; no default in `application.yml`; only the gateway and Keycloak publish a port.
+- **STRIDE threat model** per trust boundary, each threat mapped to its control and test: [`docs/threat-model.md`](docs/threat-model.md).
+
+| Endpoint | Customer (own / foreign) | Operator | Auditor | Carrier (assigned) | logistics-service | Anonymous |
+| --- | --- | --- | --- | --- | --- | --- |
+| Accounts, statements, transfers, FX quotes, journal entries | own / 404 | all | read | 403 | 403 | 401 |
+| Deposits, reversals | 403 | yes | 403 | 403 | 403 | 401 |
+| Reconciliation, payment commands | 403 | yes | read | 403 | 403 | 401 |
+| Holds (internal) | 403 | 403 | 403 | 403 | yes | 401 |
+| Quotes, shipments, cancellations | own / 404 | all | read | read (assigned) | 403 | 401 |
+| Tracking events | 403 | yes | 403 | assigned only (else 404) | 403 | 401 |
+| Public tracking | yes | yes | yes | yes | yes | yes |
+
+The full table, row by row, is in [ADR 0018](docs/adr/0018-object-level-authorisation.md).
 
 ## Phase 2: paying for a shipment
 
@@ -150,10 +221,13 @@ The full walkthrough is `scripts/smoke_test.sh` (49 calls, run in CI against the
 Needs Docker and JDK 21 (only for running tests outside Docker). No local Maven: every service has a wrapper.
 
 ```bash
-cp .env.example .env              # then change the passwords
+cp .env.example .env              # non-secret settings
+python scripts/generate_secrets.py   # every password and client secret, into the git-ignored secrets/
 docker compose up -d --build --wait
 curl http://127.0.0.1:8085/actuator/health   # the gateway's management port
-./scripts/seed_demo.sh            # seeds NAD/ZAR/EUR accounts, FX transfer & shipment
+./scripts/seed_demo.sh            # as the personas: accounts, FX transfer and a shipment
+./scripts/smoke_test.sh           # the whole flow as every persona, refusals included
+docker compose --profile debug up -d   # optional: publish services and databases on 127.0.0.1 for local tools
 ```
 
 Interactive OpenAPI docs through the gateway:
@@ -163,20 +237,24 @@ Interactive OpenAPI docs through the gateway:
 
 ## Phase 1 API examples (via `:8080`)
 
+Every call below needs `-H "Authorization: Bearer $(scripts/token.sh <persona>)"` since Phase 3: an operator opens
+accounts (`{"currency":"NAD","organizationId":"<organisation id>"}`) and deposits; a customer quotes, transfers and
+books. The examples show the bodies; [`docs/smoke-test.md`](docs/smoke-test.md) has the full, authenticated walkthrough.
+
 ### 1. Open an account, deposit funds & execute a cross-currency FX transfer
 
 ```bash
 # Open a NAD exporter account (ISO 7064 MOD 97-10 check digits)
 curl -s -X POST http://127.0.0.1:8080/api/v1/accounts \
-  -H "Content-Type: application/json" \
-  -d '{"holderReference":"Namib Fisheries (Pty) Ltd","currency":"NAD"}'
+  -H "Authorization: Bearer $(scripts/token.sh operator)" -H "Content-Type: application/json" \
+  -d '{"currency":"NAD","organizationId":"0193a0e0-0000-7000-8000-00000000a001"}'
 ```
 
 ```json
 {
   "id": "01a1ba5f-f074-7e31-a07e-7fb5fead5078",
   "accountNumber": "FF20NAD000001401",
-  "holderReference": "Namib Fisheries (Pty) Ltd",
+  "ownerOrganizationId": "0193a0e0-0000-7000-8000-00000000a001",
   "type": "CUSTOMER",
   "currency": "NAD",
   "status": "ACTIVE",
@@ -259,6 +337,10 @@ Every run ends with a balanced ledger reconciliation. The reports hold the metho
 | [Transfer contention](docs/benchmarks/transfer-contention.md) | `pessimistic` vs `conditional-update` transfers (ADR 0005) | Ranges overlap in every workload on this machine; `pessimistic` stays the default because one ordered lock covers every entry shape, FX included |
 | [Hot system accounts](docs/benchmarks/hot-accounts.md) | `locked` vs `unlocked` vs `sharded` system postings (ADR 0010) | Deposits at 32 VUs: 6.0-10.7/s `locked`, 22.5-24.6/s `unlocked`, no overlap; `unlocked` is the default |
 | [Payment flow](docs/benchmarks/payment-flow.md) | Time from booking to `BOOKED` through the relay (ADR 0012) | Parallel relay at 16 VUs: 11.5 booked/s, p99 5.2 s, up from 1.9/s and 26.3 s with the sequential relay |
+| [System balance read](docs/benchmarks/hot-accounts.md#reading-an-unlocked-balance-at-a-million-postings-phase-3) | Reading an unlocked system balance at 1,000,000 postings (ADR 0010) | 175 ms median without a checkpoint, 0.48 ms with one |
+
+These are laptop numbers. `.github/workflows/benchmarks.yml` runs the same workloads on a GitHub-hosted runner and
+records its CPU and memory; its results lead the reports once it has run.
 
 ## Running the tests
 
@@ -277,11 +359,11 @@ Integration tests start their own PostgreSQL 17 in Testcontainers, so Docker mus
 | 0 | Scaffold: standalone services, compose, CI with scans and SBOMs, first ADRs | Done |
 | 1 | Ledger and shipments core: double-entry ledger, idempotent transfers, FX quotes, freight quotes, shipment state machine | Done |
 | 2 | Settlement across services: holds, payment saga, resilient HTTP client, contract and fault-injection tests, edge policy | Done |
-| 3 | Security: Keycloak, OAuth2 resource server at the gateway, roles, identity headers, service-to-service credentials | Next |
-| 4 | Events: transactional outbox, Kafka, notification service, dead-letter topics, contract tests | Planned |
+| 3 | Security: Keycloak with organisations, token relay validated in every service, object-level authorisation, service-to-service credentials, caller-scoped idempotency, audit actors, threat model | Done |
+| 4 | Events: transactional outbox, Kafka, notification service, dead-letter topics, contract tests | Next |
 | 5 | Observability: OpenTelemetry traces, metrics and logs, Grafana dashboards, SLOs and alerts | Planned |
 | 6 | Real-world data: live exchange rates, customs duties and Incoterms, carrier tracking feeds | Planned |
-| 7 | Hardening: load and chaos tests, threat model, cloud deployment | Planned |
+| 7 | Hardening: load and chaos tests, TLS and mTLS, cloud deployment | Planned |
 
 ## Repository layout
 
@@ -293,7 +375,11 @@ notification-service/   event consumer (:8083, Phase 4)
 benchmarks/             k6 scripts and the Python harness for the transfer, hot-account and payment benchmarks
 scripts/seed_demo.sh    end-to-end demo data seeder through the gateway
 scripts/smoke_test.sh   end-to-end smoke test, stops at the first unexpected status
-docs/adr/               architecture decision records (0001-0015)
+scripts/token.sh        a real token for a demo persona (ADR 0016)
+scripts/generate_secrets.py  every secret, into the git-ignored secrets/ (ADR 0019)
+docs/adr/               architecture decision records (0001-0020)
+docs/threat-model.md    STRIDE per trust boundary, threats mapped to controls and tests
+infra/keycloak/         the Keycloak image and the freightflow realm (ADR 0016)
 docs/api/               banking's committed OpenAPI contract (ADR 0014)
 docs/benchmarks/        measured benchmark reports
 docs/problems.md        RFC 9457 Problem Details type URI registry
