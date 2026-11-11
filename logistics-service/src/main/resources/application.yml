@@ -51,6 +51,8 @@ freightflow:
       max-attempts: ${PAYMENT_MAX_ATTEMPTS:8}
       retry-backoff: ${PAYMENT_RETRY_BACKOFF:1s}
       max-retry-backoff: ${PAYMENT_MAX_RETRY_BACKOFF:5m}
+      # Commands of a batch sent at once; the payments bulkhead allows the same number (ADR 0013)
+      parallelism: ${PAYMENT_RELAY_PARALLELISM:8}
     # In-call retries for payment commands to banking (ADR 0013)
     banking:
       retry:

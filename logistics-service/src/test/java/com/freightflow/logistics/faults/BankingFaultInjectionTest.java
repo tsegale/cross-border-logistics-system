@@ -146,6 +146,8 @@ class BankingFaultInjectionTest {
         }
         proxy.enable();
         breakers.circuitBreaker("banking").reset();
+        // Commands an earlier test left pending must not be claimed by this one and trip its breaker.
+        jdbcTemplate.update("UPDATE shipment_payments SET next_attempt_at = now() + interval '1 day' WHERE status = 'PENDING'");
         JsonNode account = JSON.readTree(banking.post().uri("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON)
                 .body("{\"holderReference\":\"Fault payer\",\"currency\":\"EUR\"}").retrieve().body(String.class));
         payerAccount = account.get("accountNumber").asString();
@@ -251,14 +253,24 @@ class BankingFaultInjectionTest {
         proxy.enable();
         Thread.sleep(2_500);
         assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
-        for (String shipment : shipments) {
-            makeDue(shipment);
+        // Recovery within a bounded number of breaker cycles: the first trial call can still hit a pooled
+        // connection the proxy closed, fail, and re-open the breaker for another wait, which is the breaker doing
+        // its job. Half-open permits two trial calls, so the third shipment waits for the breaker to close.
+        for (int cycle = 0; cycle < 6 && !allBooked(shipments); cycle++) {
+            if (breaker.getState() == CircuitBreaker.State.OPEN) {
+                Thread.sleep(2_200);
+            }
+            for (String shipment : shipments) {
+                makeDue(shipment);
+            }
+            relay.relayOnce();
         }
-        relay.relayOnce();
 
         assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
         for (String shipment : shipments) {
-            assertThat(shipmentStatus(shipment)).isEqualTo("BOOKED");
+            assertThat(shipmentStatus(shipment)).as(() -> jdbcTemplate.queryForMap(
+                    "SELECT status, attempts, next_attempt_at, now() AS db_now, last_error FROM shipment_payments "
+                            + "WHERE shipment_id = ?::uuid", shipment).toString()).isEqualTo("BOOKED");
             assertExactlyOneHoldAndACleanLedger(shipment);
         }
     }
@@ -278,6 +290,15 @@ class BankingFaultInjectionTest {
                                 """.formatted(quote, payerAccount)))
                 .andExpect(status().isCreated()).andReturn());
         return booked.get("id").asString();
+    }
+
+    private boolean allBooked(List<String> shipments) throws Exception {
+        for (String shipment : shipments) {
+            if (!"BOOKED".equals(shipmentStatus(shipment))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String shipmentStatus(String shipment) throws Exception {
