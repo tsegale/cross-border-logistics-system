@@ -11,3 +11,8 @@ services:
       - pg_stat_statements.track=all
       - -c
       - track_io_timing=on
+
+  # Profiling on demand: BANKING_JAVA_TOOL_OPTIONS="-XX:StartFlightRecording=..." recreates banking with JFR.
+  banking-service:
+    environment:
+      JAVA_TOOL_OPTIONS: ${BANKING_JAVA_TOOL_OPTIONS:-}

@@ -132,17 +132,29 @@ def create_account(holder: str, deposit: str, currency: str = "EUR") -> str:
     if status != 201:
         raise RuntimeError(f"create account failed ({status}): {acc}")
     if deposit != "0":
-        status, dep = http_json("POST", f"{GATEWAY_URL}/api/v1/accounts/{acc['id']}/deposits",
-                                {"amount": deposit, "currency": currency, "reference": f"BENCH-FUND-{acc['accountNumber']}"},
-                                {"Idempotency-Key": f"bench-fund-{acc['id']}"})
-        if status != 201:
-            raise RuntimeError(f"deposit failed ({status}): {dep}")
+        # Deposits are idempotent: on a timeout the same key is sent again and can never fund the account twice.
+        for attempt in range(5):
+            try:
+                status, dep = http_json("POST", f"{GATEWAY_URL}/api/v1/accounts/{acc['id']}/deposits",
+                                        {"amount": deposit, "currency": currency,
+                                         "reference": f"BENCH-FUND-{acc['accountNumber']}"},
+                                        {"Idempotency-Key": f"bench-fund-{acc['id']}"}, timeout=120)
+            except (TimeoutError, urllib.error.URLError):
+                time.sleep(2)
+                continue
+            if status == 201:
+                break
+            if status not in (409, 503):
+                raise RuntimeError(f"deposit failed ({status}): {dep}")
+            time.sleep(1)
+        else:
+            raise RuntimeError(f"deposit into {acc['accountNumber']} did not succeed after 5 attempts")
     return acc["accountNumber"]
 
 
 def setup_accounts(max_vus: int) -> Path:
     print(f"==> Creating accounts for up to {max_vus} VUs")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         hot_source = create_account("Bench Hot Source", "90000000.00")
         sinks = list(pool.map(lambda i: create_account(f"Bench Sink {i}", "0"), range(max_vus)))
         sources = list(pool.map(lambda i: create_account(f"Bench Pair Source {i}", "1000000.00"), range(max_vus)))
@@ -216,10 +228,10 @@ class CpuSampler(threading.Thread):
     def __init__(self) -> None:
         super().__init__(daemon=True)
         self.samples: dict[str, list[float]] = {}
-        self._stop = threading.Event()
+        self._halt = threading.Event()
 
     def run(self) -> None:
-        while not self._stop.is_set():
+        while not self._halt.is_set():
             try:
                 out = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.Name}}|{{.CPUPerc}}"],
                                      capture_output=True, text=True, timeout=20).stdout
@@ -232,7 +244,7 @@ class CpuSampler(threading.Thread):
                 pass
 
     def stop(self) -> dict[str, float]:
-        self._stop.set()
+        self._halt.set()
         self.join(timeout=30)
         return {k: round(statistics.mean(v), 1) for k, v in self.samples.items() if v}
 
