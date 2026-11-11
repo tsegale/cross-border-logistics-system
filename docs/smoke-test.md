@@ -1,6 +1,13 @@
 # Phase 1 End-to-End Smoke Test (`api-gateway` `:8080`)
 
-This walkthrough verifies every Phase 1 endpoint across `banking-service` and `logistics-service` through `api-gateway` (`http://127.0.0.1:8080`).
+This walkthrough verifies every endpoint across `banking-service` and `logistics-service` through `api-gateway` (`http://127.0.0.1:8080`).
+
+The same calls run as a script, which CI executes in the `default-stack` job after `seed_demo.sh` and which stops at the first unexpected HTTP status:
+
+```bash
+docker compose up -d --build --wait
+./scripts/smoke_test.sh
+```
 
 ## Prerequisites
 
