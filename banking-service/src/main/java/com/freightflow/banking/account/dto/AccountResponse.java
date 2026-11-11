@@ -24,8 +24,10 @@ public record AccountResponse(
         String currency,
         @Schema(description = "Account lifecycle status", example = "ACTIVE")
         AccountStatus status,
-        @Schema(description = "Materialised balance rounded to currency minor units (HALF_EVEN)", example = "12500.00")
-        BigDecimal balance,
+        @Schema(description = "Ledger balance: the sum of the account's postings, rounded HALF_EVEN", example = "12500.00")
+        BigDecimal ledgerBalance,
+        @Schema(description = "Ledger balance minus active holds: what a transfer or a new hold may use", example = "11975.25")
+        BigDecimal availableBalance,
         @Schema(description = "Creation timestamp (UTC)", example = "2026-11-07T18:00:00Z")
         Instant createdAt,
         @Schema(description = "Last balance update timestamp (UTC)", example = "2026-11-07T18:05:00Z")
@@ -36,8 +38,9 @@ public record AccountResponse(
         return from(account, account.getBalance());
     }
 
-    /** {@code balance} is passed in for system accounts, whose balance is derived (ADR 0010). */
+    /** {@code balance} is passed in for system accounts, whose balance is derived (ADR 0010). They hold nothing. */
     public static AccountResponse from(Account account, BigDecimal balance) {
+        BigDecimal held = account.getHeldAmount() == null ? BigDecimal.ZERO : account.getHeldAmount();
         return new AccountResponse(
                 account.getId(),
                 account.getAccountNumber(),
@@ -46,6 +49,7 @@ public record AccountResponse(
                 account.getCurrency(),
                 account.getStatus(),
                 MoneyRounding.roundToMinorUnits(balance, account.getCurrency()),
+                MoneyRounding.roundToMinorUnits(balance.subtract(held), account.getCurrency()),
                 account.getCreatedAt(),
                 account.getUpdatedAt()
         );

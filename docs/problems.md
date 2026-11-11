@@ -29,7 +29,7 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | --- | --- | --- | --- | --- |
 | `https://freightflow.dev/problems/account-not-found` | `404 Not Found` | Account not found | `identifier` | Account UUID or account number does not exist |
 | `https://freightflow.dev/problems/account-not-active` | `409 Conflict` | Account is not active | `accountNumber`, `status` | Attempted posting or status change on a `FROZEN` or `CLOSED` account |
-| `https://freightflow.dev/problems/insufficient-funds` | `409 Conflict` | Insufficient funds | `accountNumber` | Debit would cause a `CUSTOMER` account balance to go negative |
+| `https://freightflow.dev/problems/insufficient-funds` | `409 Conflict` | Insufficient funds | `accountNumber`, `currency`, `availableBalance`, `requestedAmount` | A debit or a new hold exceeds the `CUSTOMER` account's available balance (ledger balance minus active holds) |
 | `https://freightflow.dev/problems/unbalanced-journal-entry` | `422 Unprocessable Content` | Journal entry is not balanced | `currency`, `debits`, `credits` | Per-currency sum of `DEBIT` postings does not equal sum of `CREDIT` postings |
 | `https://freightflow.dev/problems/currency-mismatch` | `422 Unprocessable Content` | Currency mismatch | — | Posting currency does not match account currency, or cross-currency transfer lacks a matching FX quote |
 | `https://freightflow.dev/problems/same-account-transfer` | `422 Unprocessable Content` | Source and destination accounts must differ | — | Transfer source and destination resolve to the same account |
@@ -38,6 +38,11 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/transfer-not-found` | `404 Not Found` | Transfer not found | `transferId` | Transfer UUID does not exist |
 | `https://freightflow.dev/problems/fx-quote-not-found` | `404 Not Found` | FX quote not found | `quoteId` | FX quote UUID does not exist |
 | `https://freightflow.dev/problems/fx-quote-expired` | `409 Conflict` | FX quote has expired | `quoteId`, `expiresAt` | FX quote `expiresAt` is not after `clock.instant()` |
+| `https://freightflow.dev/problems/hold-not-found` | `404 Not Found` | Hold not found | `holdId` | Hold UUID does not exist (internal API) |
+| `https://freightflow.dev/problems/hold-not-active` | `409 Conflict` | Hold is not active | `holdId`, `status` | Capture or release of a hold that is already `CAPTURED`, `RELEASED` or `EXPIRED` |
+| `https://freightflow.dev/problems/hold-expired` | `409 Conflict` | Hold has expired | `holdId`, `expiresAt` | Capture after `expiresAt`; the sweeper releases the hold |
+| `https://freightflow.dev/problems/capture-exceeds-hold` | `422 Unprocessable Content` | Capture exceeds the hold | `holdId`, `holdAmount`, `requestedAmount` | Capture amount above the authorised amount |
+| `https://freightflow.dev/problems/invalid-hold` | `422 Unprocessable Content` | Invalid hold | — | Payer is not a customer account, or `expiresAt` is not in the future or more than 30 days away |
 | `https://freightflow.dev/problems/fx-quote-already-consumed` | `409 Conflict` | FX quote has already been consumed | `quoteId` | FX quote was already used by a prior cross-currency transfer |
 
 ---

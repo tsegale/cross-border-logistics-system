@@ -7,6 +7,11 @@ import com.freightflow.banking.account.InvalidAccountNumberException;
 import com.freightflow.banking.fx.FxQuoteNotFoundException;
 import com.freightflow.banking.fx.FxQuoteUnavailableException;
 import com.freightflow.banking.fx.InvalidFxQuoteRequestException;
+import com.freightflow.banking.hold.HoldExceptions.CaptureExceedsHoldException;
+import com.freightflow.banking.hold.HoldExceptions.HoldExpiredException;
+import com.freightflow.banking.hold.HoldExceptions.HoldNotActiveException;
+import com.freightflow.banking.hold.HoldExceptions.HoldNotFoundException;
+import com.freightflow.banking.hold.HoldExceptions.InvalidHoldException;
 import com.freightflow.banking.idempotency.IdempotencyKeyInFlightException;
 import com.freightflow.banking.idempotency.IdempotencyPayloadMismatchException;
 import com.freightflow.banking.idempotency.MissingIdempotencyKeyException;
@@ -164,6 +169,44 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         );
         problem.setProperty("transferId", ex.getTransferId());
         return problem;
+    }
+
+    @ExceptionHandler(HoldNotFoundException.class)
+    public ProblemDetail handleHoldNotFound(HoldNotFoundException ex) {
+        ProblemDetail problem = problem(HttpStatus.NOT_FOUND, "hold-not-found", "Hold not found", ex.getMessage());
+        problem.setProperty("holdId", ex.getHoldId());
+        return problem;
+    }
+
+    @ExceptionHandler(HoldNotActiveException.class)
+    public ProblemDetail handleHoldNotActive(HoldNotActiveException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "hold-not-active", "Hold is not active", ex.getMessage());
+        problem.setProperty("holdId", ex.getHoldId());
+        problem.setProperty("status", ex.getStatus());
+        return problem;
+    }
+
+    @ExceptionHandler(HoldExpiredException.class)
+    public ProblemDetail handleHoldExpired(HoldExpiredException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "hold-expired", "Hold has expired", ex.getMessage());
+        problem.setProperty("holdId", ex.getHoldId());
+        problem.setProperty("expiresAt", ex.getExpiresAt());
+        return problem;
+    }
+
+    @ExceptionHandler(CaptureExceedsHoldException.class)
+    public ProblemDetail handleCaptureExceedsHold(CaptureExceedsHoldException ex) {
+        ProblemDetail problem = problem(HttpStatus.UNPROCESSABLE_CONTENT, "capture-exceeds-hold",
+                "Capture exceeds the hold", ex.getMessage());
+        problem.setProperty("holdId", ex.getHoldId());
+        problem.setProperty("holdAmount", ex.getHoldAmount());
+        problem.setProperty("requestedAmount", ex.getRequested());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidHoldException.class)
+    public ProblemDetail handleInvalidHold(InvalidHoldException ex) {
+        return problem(HttpStatus.UNPROCESSABLE_CONTENT, "invalid-hold", "Invalid hold", ex.getMessage());
     }
 
     @ExceptionHandler(InvalidTransferException.class)

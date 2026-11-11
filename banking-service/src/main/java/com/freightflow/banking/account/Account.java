@@ -44,6 +44,10 @@ public class Account {
     @Column(name = "balance", precision = 19, scale = 4, nullable = false)
     private BigDecimal balance;
 
+    /** Sum of this account's active holds (ADR 0011); updated under the same row lock as the balance. */
+    @Column(name = "held_amount", precision = 19, scale = 4, nullable = false)
+    private BigDecimal heldAmount;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -61,6 +65,7 @@ public class Account {
         account.currency = Objects.requireNonNull(currency, "currency").trim().toUpperCase(Locale.ROOT);
         account.status = AccountStatus.ACTIVE;
         account.balance = MoneyRounding.toStorageScale(BigDecimal.ZERO);
+        account.heldAmount = MoneyRounding.toStorageScale(BigDecimal.ZERO);
         account.createdAt = Objects.requireNonNull(now, "now");
         account.updatedAt = now;
         return account;
@@ -73,22 +78,61 @@ public class Account {
     }
 
     /**
-     * Applies a signed posting amount to this account's balance, enforcing that customer accounts
-     * never go negative.
+     * Applies a signed posting amount to this account's balance. A customer debit may not take the balance below
+     * the amount held for active holds: debits are checked against the available balance (ADR 0011).
      *
      * @return the updated account balance (at scale 4)
      */
     public BigDecimal applyPosting(BigDecimal signedAmount, Instant now) {
         assertActive();
-        BigDecimal nextBalance = this.balance.add(MoneyRounding.toStorageScale(signedAmount));
-        if (this.accountType.isCustomer() && nextBalance.compareTo(BigDecimal.ZERO) < 0) {
-            throw new InsufficientFundsException(this.accountNumber, this.currency,
-                    MoneyRounding.roundToMinorUnits(this.balance, this.currency),
-                    MoneyRounding.roundToMinorUnits(signedAmount.abs(), this.currency));
+        BigDecimal posting = MoneyRounding.toStorageScale(signedAmount);
+        BigDecimal nextBalance = this.balance.add(posting);
+        if (this.accountType.isCustomer() && posting.signum() < 0 && nextBalance.compareTo(this.heldAmount) < 0) {
+            throw insufficientFunds(posting.abs());
         }
         this.balance = nextBalance;
         this.updatedAt = Objects.requireNonNull(now, "now");
         return this.balance;
+    }
+
+    /** Ledger balance minus active holds: what a debit or a new hold may use. */
+    public BigDecimal getAvailableBalance() {
+        return this.balance.subtract(this.heldAmount);
+    }
+
+    /** Reserves {@code amount} for a new hold; the ledger balance does not change. Caller holds the row lock. */
+    public void reserve(BigDecimal amount, Instant now) {
+        assertActive();
+        if (!this.accountType.isCustomer()) {
+            throw new IllegalStateException("Only customer accounts can be held: " + this.accountNumber);
+        }
+        BigDecimal reserve = MoneyRounding.toStorageScale(amount);
+        if (getAvailableBalance().compareTo(reserve) < 0) {
+            throw insufficientFunds(reserve);
+        }
+        this.heldAmount = this.heldAmount.add(reserve);
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    /** Frees a reservation made by {@link #reserve}. Caller holds the row lock. */
+    public void releaseReservation(BigDecimal amount, Instant now) {
+        BigDecimal release = MoneyRounding.toStorageScale(amount);
+        if (this.heldAmount.compareTo(release) < 0) {
+            throw new IllegalStateException("Account " + this.accountNumber + " holds " + this.heldAmount
+                    + ", cannot release " + release);
+        }
+        this.heldAmount = this.heldAmount.subtract(release);
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    private InsufficientFundsException insufficientFunds(BigDecimal requested) {
+        return new InsufficientFundsException(this.accountNumber, this.currency,
+                MoneyRounding.roundToMinorUnits(getAvailableBalance(), this.currency),
+                MoneyRounding.roundToMinorUnits(requested, this.currency));
+    }
+
+    public BigDecimal getHeldAmount() {
+        return heldAmount;
     }
 
     public UUID getId() {

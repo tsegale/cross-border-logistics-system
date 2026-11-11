@@ -126,9 +126,9 @@ class FxTransferIntegrationTest extends IntegrationTest {
         assertThat(eurNet).isEqualByComparingTo("0.0000");
 
         // Verify customer balances
-        assertThat(accountService.getAccount(nadAccount.id().toString()).balance())
+        assertThat(accountService.getAccount(nadAccount.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("5979.90");
-        assertThat(accountService.getAccount(eurAccount.id().toString()).balance())
+        assertThat(accountService.getAccount(eurAccount.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("200.00");
 
         // Quote is now marked used; attempting a second transfer with the same fxQuoteId fails with 409 fx-quote-already-used

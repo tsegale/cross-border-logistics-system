@@ -55,7 +55,7 @@ abstract class SystemPostingModeContract extends IntegrationTest {
 
     @Test
     void concurrentDepositsAgainstOneClearingRowStayExact() throws Exception {
-        BigDecimal clearingBefore = accountService.getAccount(CLEARING_EUR.toString()).balance();
+        BigDecimal clearingBefore = accountService.getAccount(CLEARING_EUR.toString()).ledgerBalance();
         int deposits = 48;
         List<AccountResponse> customers = new ArrayList<>();
         for (int i = 0; i < deposits; i++) {
@@ -78,10 +78,10 @@ abstract class SystemPostingModeContract extends IntegrationTest {
             }
         }
 
-        assertThat(accountService.getAccount(CLEARING_EUR.toString()).balance())
+        assertThat(accountService.getAccount(CLEARING_EUR.toString()).ledgerBalance())
                 .isEqualByComparingTo(clearingBefore.subtract(new BigDecimal("480.00")));
         for (AccountResponse customer : customers) {
-            assertThat(accountService.getAccount(customer.id().toString()).balance()).isEqualByComparingTo("10.00");
+            assertThat(accountService.getAccount(customer.id().toString()).ledgerBalance()).isEqualByComparingTo("10.00");
         }
         ReconciliationReportResponse report = reconciliationService.reconcile();
         assertThat(report.discrepancies()).isEmpty();

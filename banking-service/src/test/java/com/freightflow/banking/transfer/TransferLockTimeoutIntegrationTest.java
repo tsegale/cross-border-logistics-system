@@ -73,7 +73,7 @@ class TransferLockTimeoutIntegrationTest extends IntegrationTest {
         }
         long waitedMillis = Duration.ofNanos(System.nanoTime() - started).toMillis();
         assertThat(waitedMillis).isGreaterThanOrEqualTo(hold.toMillis() - 50);
-        assertThat(accountService.getAccount(source.id().toString()).balance()).isEqualByComparingTo("90.00");
+        assertThat(accountService.getAccount(source.id().toString()).ledgerBalance()).isEqualByComparingTo("90.00");
     }
 
     @Test
@@ -92,7 +92,7 @@ class TransferLockTimeoutIntegrationTest extends IntegrationTest {
         }
 
         mockMvc.perform(transfer(source, target, key)).andExpect(status().isCreated());
-        assertThat(accountService.getAccount(source.id().toString()).balance()).isEqualByComparingTo("90.00");
+        assertThat(accountService.getAccount(source.id().toString()).ledgerBalance()).isEqualByComparingTo("90.00");
     }
 
     private AccountResponse fundedAccount() {

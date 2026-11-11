@@ -54,7 +54,7 @@ class AccountIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.type").value("CUSTOMER"))
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.currency").value("NAD"))
-                .andExpect(jsonPath("$.balance").value(0.00))
+                .andExpect(jsonPath("$.ledgerBalance").value(0.00))
                 .andReturn();
 
         JsonNode body = JSON.readTree(first.getResponse().getContentAsByteArray());

@@ -285,7 +285,7 @@ class JournalIntegrationTest extends IntegrationTest {
         // Account materialised balance is now 500.00 NAD
         mockMvc.perform(get("/api/v1/accounts/" + accountId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.balance").value(500.00));
+                .andExpect(jsonPath("$.ledgerBalance").value(500.00));
 
         // Walk keyset-paginated statement 1 item per page (newest first: -1000 -> 500, +500 -> 1500, +1000 -> 1000)
         List<BigDecimal> amounts = new ArrayList<>();

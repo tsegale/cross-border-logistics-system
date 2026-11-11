@@ -43,7 +43,7 @@ class AccountControllerTest {
         Instant now = Instant.parse("2026-11-07T18:00:00Z");
         given(accountService.createCustomerAccount(any())).willReturn(
                 new AccountResponse(id, "FF83NAD000001000", "CUST-NAM-01",
-                        AccountType.CUSTOMER, "NAD", AccountStatus.ACTIVE, new BigDecimal("0.00"), now, now)
+                        AccountType.CUSTOMER, "NAD", AccountStatus.ACTIVE, new BigDecimal("0.00"), new BigDecimal("0.00"), now, now)
         );
 
         mockMvc.perform(post("/api/v1/accounts")
@@ -59,7 +59,7 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.accountNumber").value("FF83NAD000001000"))
                 .andExpect(jsonPath("$.currency").value("NAD"))
-                .andExpect(jsonPath("$.balance").value(0.00));
+                .andExpect(jsonPath("$.ledgerBalance").value(0.00));
     }
 
     @Test

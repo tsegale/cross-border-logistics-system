@@ -292,7 +292,7 @@ public class TransferService {
                     SET balance = balance - ?, updated_at = ?
                     WHERE id = ?
                       AND status = 'ACTIVE'
-                      AND (account_type <> 'CUSTOMER' OR balance >= ?)
+                      AND (account_type <> 'CUSTOMER' OR balance - held_amount >= ?)
                     RETURNING balance
                     """,
                     (rs, rowNum) -> rs.getBigDecimal("balance"),

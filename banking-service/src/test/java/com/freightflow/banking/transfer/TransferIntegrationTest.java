@@ -132,10 +132,10 @@ class TransferIntegrationTest extends IntegrationTest {
         // Verify updated balances: source = 3,749.50, target = 1,250.50
         mockMvc.perform(get("/api/v1/accounts/" + sourceNumber))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.balance").value(3749.50));
+                .andExpect(jsonPath("$.ledgerBalance").value(3749.50));
         mockMvc.perform(get("/api/v1/accounts/" + targetNumber))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.balance").value(1250.50));
+                .andExpect(jsonPath("$.ledgerBalance").value(1250.50));
 
         // Insufficient funds -> 409
         mockMvc.perform(post("/api/v1/transfers")

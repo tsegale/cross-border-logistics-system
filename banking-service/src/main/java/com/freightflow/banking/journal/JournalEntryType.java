@@ -4,5 +4,7 @@ public enum JournalEntryType {
     DEPOSIT,
     TRANSFER,
     FX_TRANSFER,
-    REVERSAL
+    REVERSAL,
+    /** Capture of a hold: payer to FREIGHT_REVENUE, through FX_POSITION when the currencies differ. */
+    CAPTURE
 }

@@ -97,6 +97,30 @@ public class ReconciliationService {
                             MoneyRounding.roundToMinorUnits(shardBalance.subtract(computed), currency)));
                 });
 
+        // Holds (ADR 0011): an account's cached held amount must equal the sum of its active holds.
+        jdbcTemplate.query(
+                """
+                SELECT a.id, a.account_number, a.currency, a.held_amount,
+                       COALESCE(SUM(h.payer_amount), 0.0000) AS active_holds
+                FROM accounts a
+                LEFT JOIN holds h ON h.payer_account_id = a.id AND h.status = 'ACTIVE'
+                GROUP BY a.id, a.account_number, a.currency, a.held_amount
+                HAVING a.held_amount <> COALESCE(SUM(h.payer_amount), 0.0000)
+                ORDER BY a.account_number
+                """,
+                rs -> {
+                    String currency = rs.getString("currency");
+                    BigDecimal held = rs.getBigDecimal("held_amount");
+                    BigDecimal active = rs.getBigDecimal("active_holds");
+                    discrepancies.add(new AccountDiscrepancy(
+                            rs.getObject("id", UUID.class),
+                            rs.getString("account_number") + "#held",
+                            currency,
+                            MoneyRounding.roundToMinorUnits(held, currency),
+                            MoneyRounding.roundToMinorUnits(active, currency),
+                            MoneyRounding.roundToMinorUnits(held.subtract(active), currency)));
+                });
+
         List<CurrencyTrialBalance> trialBalances = jdbcTemplate.query(
                 """
                 SELECT c.currency,
