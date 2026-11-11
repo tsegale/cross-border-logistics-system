@@ -23,6 +23,11 @@ updates:
   - package-ecosystem: docker-compose
     directory: "/"
     schedule: { interval: weekly }
+    # A Postgres major can't open the previous major's data directory, and the tests pin their own image.
+    # Upgrading is a deliberate change with a migration plan, not a bot PR.
+    ignore:
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
     groups:
       compose: { patterns: ["*"] }
 
