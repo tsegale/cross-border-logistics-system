@@ -1,9 +1,11 @@
 package com.freightflow.logistics.payment;
 
+import com.freightflow.logistics.common.RequestIdFilter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -62,7 +64,11 @@ public class PaymentCommandRelay {
             if (command == null || command.getStatus() != PaymentCommandStatus.PENDING) {
                 continue;
             }
-            PaymentOutcome outcome = banking.send(command);
+            PaymentOutcome outcome;
+            // The command's idempotency key is its request id in both services' logs (ADR 0015).
+            try (MDC.MDCCloseable ignored = MDC.putCloseable(RequestIdFilter.MDC_KEY, command.getIdempotencyKey())) {
+                outcome = banking.send(command);
+            }
             if (outcome instanceof PaymentOutcome.Unknown unknown && !unknown.reachedBanking()) {
                 // Circuit open or bulkhead full: nothing was sent, so this does not count as an attempt.
                 outbox.refundAttempt(id, clock.instant().plus(properties.retryBackoff()));
