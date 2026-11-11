@@ -1,6 +1,9 @@
 package com.freightflow.logistics.quote;
 
 import com.freightflow.logistics.banking.BankingApi;
+import com.freightflow.logistics.banking.BankingCalls;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import com.freightflow.logistics.banking.FxRates;
 import com.freightflow.logistics.common.MoneyRounding;
 import org.slf4j.Logger;
@@ -23,9 +26,11 @@ public class IndicativePricing {
     private static final Logger log = LoggerFactory.getLogger(IndicativePricing.class);
 
     private final BankingApi banking;
+    private final BankingCalls calls;
 
-    public IndicativePricing(BankingApi banking) {
+    public IndicativePricing(BankingApi banking, BankingCalls calls) {
         this.banking = banking;
+        this.calls = calls;
     }
 
     public record Indicative(BigDecimal totalAmount, BigDecimal rate, Instant asOf, String source) {
@@ -37,7 +42,7 @@ public class IndicativePricing {
      */
     public Optional<Indicative> convert(BigDecimal amount, String chargeCurrency, String payCurrency) {
         try {
-            FxRates rates = banking.fxRates(payCurrency);
+            FxRates rates = calls.fxRate(() -> banking.fxRates(payCurrency));
             Optional<FxRates.Rate> rate = rates == null ? Optional.empty() : rates.to(chargeCurrency);
             if (rate.isEmpty() || rate.get().customerRate() == null || rate.get().customerRate().signum() <= 0) {
                 log.warn("banking-service returned no {} -> {} rate; quote issued without an indicative total",
@@ -51,7 +56,7 @@ public class IndicativePricing {
                     customerRate,
                     rates.asOf(),
                     rates.source()));
-        } catch (RestClientException ex) {
+        } catch (RestClientException | CallNotPermittedException | BulkheadFullException ex) {
             log.warn("Indicative {} total unavailable, banking-service did not answer: {}", payCurrency, ex.getMessage());
             return Optional.empty();
         }

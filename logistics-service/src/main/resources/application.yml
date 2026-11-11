@@ -51,10 +51,46 @@ freightflow:
       max-attempts: ${PAYMENT_MAX_ATTEMPTS:8}
       retry-backoff: ${PAYMENT_RETRY_BACKOFF:1s}
       max-retry-backoff: ${PAYMENT_MAX_RETRY_BACKOFF:5m}
+    # In-call retries for payment commands to banking (ADR 0013)
+    banking:
+      retry:
+        max-retries: ${BANKING_RETRY_MAX:2}
+        delay: ${BANKING_RETRY_DELAY:100ms}
+        multiplier: 2
+        jitter: ${BANKING_RETRY_JITTER:50ms}
+        max-delay: ${BANKING_RETRY_MAX_DELAY:400ms}
+        budget: ${BANKING_CALL_BUDGET:5s}
     idempotency:
       ttl: ${IDEMPOTENCY_TTL:24h}
       cleanup-interval: ${IDEMPOTENCY_CLEANUP_INTERVAL:15m}
       lock-timeout: ${IDEMPOTENCY_LOCK_TIMEOUT:5s}
+
+# Circuit breaker and bulkheads around banking-service (ADR 0013)
+resilience4j:
+  circuitbreaker:
+    instances:
+      banking:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: ${BANKING_SLOW_CALL_THRESHOLD:2s}
+        slow-call-rate-threshold: 50
+        wait-duration-in-open-state: ${BANKING_BREAKER_OPEN_WAIT:10s}
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        # A business refusal (4xx) is banking working, not failing; a full bulkhead never reached banking.
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+          - io.github.resilience4j.bulkhead.BulkheadFullException
+  bulkhead:
+    instances:
+      banking-payments:
+        max-concurrent-calls: ${BANKING_PAYMENTS_CONCURRENCY:8}
+        max-wait-duration: 0
+      banking-fx:
+        max-concurrent-calls: ${BANKING_FX_CONCURRENCY:4}
+        max-wait-duration: 0
 
 # Served under the path the gateway publishes them at, so Swagger UI works through the gateway unchanged.
 springdoc:

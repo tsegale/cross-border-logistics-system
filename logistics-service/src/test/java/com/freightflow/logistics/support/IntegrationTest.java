@@ -1,6 +1,8 @@
 package com.freightflow.logistics.support;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.AfterEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -15,7 +17,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         // Tests drive PaymentCommandRelay.relayOnce() themselves and do not wait for real backoff.
         "freightflow.logistics.payments.relay-enabled=false",
         "freightflow.logistics.payments.retry-backoff=1ms",
-        "freightflow.logistics.payments.max-retry-backoff=2ms"
+        "freightflow.logistics.payments.max-retry-backoff=2ms",
+        // Tests that stub failures must not trip the shared breaker for the next test; the fault tests set their own.
+        "resilience4j.circuitbreaker.instances.banking.minimum-number-of-calls=1000",
+        "resilience4j.circuitbreaker.instances.banking.sliding-window-size=1000"
 })
 @AutoConfigureMockMvc
 @ImportTestcontainers(SharedContainers.class)
@@ -27,8 +32,13 @@ public abstract class IntegrationTest {
         registry.add("spring.http.serviceclient.banking.base-url", BankingStub::baseUrl);
     }
 
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakers;
+
+    /** Stubs and the breaker are shared by every test in the context: leave both as found. */
     @AfterEach
     void resetBankingStubs() {
         BankingStub.SERVER.resetAll();
+        circuitBreakers.circuitBreaker("banking").reset();
     }
 }

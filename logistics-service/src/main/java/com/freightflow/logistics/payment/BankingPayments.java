@@ -1,7 +1,10 @@
 package com.freightflow.logistics.payment;
 
 import com.freightflow.logistics.banking.BankingApi;
+import com.freightflow.logistics.banking.BankingCalls;
 import com.freightflow.logistics.banking.Holds;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -27,22 +30,27 @@ public class BankingPayments {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final BankingApi banking;
+    private final BankingCalls calls;
 
-    public BankingPayments(BankingApi banking) {
+    public BankingPayments(BankingApi banking, BankingCalls calls) {
         this.banking = banking;
+        this.calls = calls;
     }
 
     public PaymentOutcome send(PaymentCommand command) {
         try {
-            Holds.Hold hold = switch (command.getCommand()) {
+            Holds.Hold hold = calls.payment(() -> switch (command.getCommand()) {
                 case AUTHORISE -> banking.createHold(command.getIdempotencyKey(), new Holds.CreateHold(
                         command.getPayerAccountNumber(), command.roundedAmount(), command.getCurrency(),
                         "SHIPMENT " + command.getShipmentId(), null));
                 case CAPTURE -> banking.capture(command.getHoldId(), command.getIdempotencyKey(),
                         new Holds.CaptureHold(command.roundedAmount()));
                 case RELEASE -> banking.release(command.getHoldId(), command.getIdempotencyKey());
-            };
+            });
             return new PaymentOutcome.Succeeded(hold == null ? command.getHoldId() : hold.id());
+        } catch (CallNotPermittedException | BulkheadFullException ex) {
+            // The breaker is open or the bulkhead full: the request was never sent.
+            return new PaymentOutcome.Unknown(ex.getClass().getSimpleName() + ": " + ex.getMessage(), false);
         } catch (HttpStatusCodeException ex) {
             return classify(command, ex);
         } catch (RestClientException ex) {
