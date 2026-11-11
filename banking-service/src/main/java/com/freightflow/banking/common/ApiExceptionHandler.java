@@ -115,7 +115,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 ex.getMessage()
         );
         problem.setProperty("accountNumber", ex.getAccountNumber());
-        problem.setProperty("status", ex.getStatus().name());
+        // Not "status": RFC 9457 reserves that member for the HTTP status code.
+        problem.setProperty("accountStatus", ex.getStatus().name());
         return problem;
     }
 
@@ -182,7 +183,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleHoldNotActive(HoldNotActiveException ex) {
         ProblemDetail problem = problem(HttpStatus.CONFLICT, "hold-not-active", "Hold is not active", ex.getMessage());
         problem.setProperty("holdId", ex.getHoldId());
-        problem.setProperty("status", ex.getStatus());
+        problem.setProperty("holdStatus", ex.getStatus());
         return problem;
     }
 

@@ -470,6 +470,7 @@
         "type" : "object"
       },
       "ProblemDetail" : {
+        "additionalProperties" : true,
         "properties" : {
           "detail" : {
             "type" : "string"
@@ -477,10 +478,6 @@
           "instance" : {
             "format" : "uri",
             "type" : "string"
-          },
-          "properties" : {
-            "additionalProperties" : { },
-            "type" : "object"
           },
           "status" : {
             "format" : "int32",

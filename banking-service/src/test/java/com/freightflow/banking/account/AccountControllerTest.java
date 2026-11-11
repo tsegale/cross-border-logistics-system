@@ -129,7 +129,7 @@ class AccountControllerTest {
         mockMvc.perform(get("/api/v1/accounts/FF87NAD000000001"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/account-not-active"))
-                .andExpect(jsonPath("$.status").value("FROZEN"));
+                .andExpect(jsonPath("$.accountStatus").value("FROZEN"));
 
         mockMvc.perform(get("/api/v1/accounts/FF87NAD000000001"))
                 .andExpect(status().isServiceUnavailable())

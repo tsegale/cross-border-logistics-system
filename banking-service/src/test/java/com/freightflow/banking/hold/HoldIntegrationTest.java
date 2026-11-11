@@ -161,7 +161,7 @@ class HoldIntegrationTest extends IntegrationTest {
         mockMvc.perform(capture(id, "100.00", key()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/hold-not-active"))
-                .andExpect(jsonPath("$.status").value("CAPTURED"));
+                .andExpect(jsonPath("$.holdStatus").value("CAPTURED"));
         assertClean();
     }
 
