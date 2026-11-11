@@ -61,7 +61,8 @@ jobs:
       - run: docker compose up -d --wait --build
       - name: Every service is ready, the gateway included
         run: |
-          for port in 8080 8081 8082; do
+          # The gateway's actuator is on its management port (8085); /actuator on 8080 is a 404 (ADR 0015).
+          for port in 8085 8081 8082; do
             curl -fsS "http://127.0.0.1:$port/actuator/health/readiness"; echo
           done
       - name: Seed demo data

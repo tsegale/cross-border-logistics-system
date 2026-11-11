@@ -9,6 +9,26 @@ spring:
     gateway:
       server:
         webflux:
+          # Edge policy (ADR 0015): connect 2 s; 15 s for an answer, longer than the ledger's 10 s account-lock
+          # timeout, so a lock-timeout 503 from banking is not cut off by the gateway.
+          httpclient:
+            connect-timeout: ${GATEWAY_CONNECT_TIMEOUT_MS:2000}
+            response-timeout: ${GATEWAY_RESPONSE_TIMEOUT:15s}
+          default-filters:
+            # Only idempotent reads are retried at the edge. A POST is never retried here, even with an
+            # Idempotency-Key: the client owns that retry.
+            - name: Retry
+              args:
+                retries: 2
+                methods: GET,HEAD
+                series: []
+                statuses: BAD_GATEWAY,SERVICE_UNAVAILABLE,GATEWAY_TIMEOUT
+                exceptions: java.io.IOException,java.util.concurrent.TimeoutException
+                backoff:
+                  firstBackoff: 50ms
+                  maxBackoff: 500ms
+                  factor: 2
+                  basedOnPreviousValue: false
           # Defaults reach services started from the IDE; compose points them at the containers.
           routes:
             - id: banking
@@ -24,7 +44,16 @@ spring:
               filters:
                 - PreserveHostHeader
 
+freightflow:
+  gateway:
+    max-request-size: ${GATEWAY_MAX_REQUEST_SIZE:1MB}
+    # Answered 404 at the edge whatever the routes say (ADR 0015).
+    internal-path-prefixes: /api/v1/holds,/api/v1/payment-commands,/actuator
+
 management:
+  # Health and metrics on their own port, published on 127.0.0.1 only; /actuator on 8080 is a 404 (ADR 0015).
+  server:
+    port: ${MANAGEMENT_PORT:8085}
   endpoints:
     web:
       exposure:

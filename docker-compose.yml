@@ -90,13 +90,15 @@ services:
       LOGISTICS_SERVICE_URI: http://logistics-service:8082
     ports:
       - "127.0.0.1:8080:8080"
+      # Management port: health and Prometheus, not reachable through the public port (ADR 0015).
+      - "127.0.0.1:8085:8085"
     depends_on:
       banking-service:
         condition: service_healthy
       logistics-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health/readiness > /dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8085/actuator/health/readiness > /dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12

@@ -76,6 +76,25 @@ expect() {
   fi
 }
 
+# wait_for <path> <json path> <value> : polls GET <path> (every 0.5 s, up to 30 s) until the field has the value.
+# The payment saga is asynchronous (ADR 0012): a booking is paid by the relay a moment later.
+wait_for() {
+  local path="$1" json_path="$2" wanted="$3" actual=""
+  for _ in $(seq 1 60); do
+    BODY="$(curl -sS "${GATEWAY}${path}")"
+    actual="$(field "$json_path")"
+    if [[ "$actual" == "$wanted" ]]; then
+      STEP=$((STEP + 1))
+      echo "ok   ${STEP}: GET ${path} -> ${json_path} = ${wanted}"
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "FAIL: ${path} ${json_path} stayed '${actual}', expected '${wanted}' within 30 s" >&2
+  echo "$BODY" >&2
+  exit 1
+}
+
 # expect_header <name> <value> : the last response must carry the header with this value
 expect_header() {
   if ! grep -qi "^$1: $2"$'\r'"\?$" <<<"$HEADERS"; then
@@ -91,10 +110,19 @@ trap 'rm -f "$TMP_BODY" "$TMP_HEADERS"' EXIT
 
 echo "==> FreightFlow smoke test against ${GATEWAY} (run ${RUN_ID})"
 
-# ---------------------------------------------------------------- edge
-call 200 GET /actuator/health
+# ---------------------------------------------------------------- edge (ADR 0015)
+MANAGEMENT="${GATEWAY_MANAGEMENT_URL:-http://127.0.0.1:8085}"
+curl -fsS "${MANAGEMENT}/actuator/health/readiness" >/dev/null
+STEP=$((STEP + 1)); echo "ok   ${STEP}: gateway readiness on the management port"
 call 200 GET /docs/banking/v3/api-docs
+expect_header X-Request-Id "[0-9a-f-]\{36\}"
 call 200 GET /docs/logistics/v3/api-docs
+# Internal endpoints are not reachable through the gateway.
+call 404 GET /actuator/health
+expect .type https://freightflow.dev/problems/not-found
+call 404 POST /api/v1/holds '{"payerAccount":"FF14EUR000000001","amount":1.00,"currency":"EUR","reference":"x"}'   "Idempotency-Key: smoke-internal-${RUN_ID}"
+expect .type https://freightflow.dev/problems/not-found
+call 404 GET /api/v1/payment-commands
 
 # ---------------------------------------------------------------- accounts
 call 201 POST /api/v1/accounts "{\"holderReference\":\"SMOKE-NAD-${RUN_ID}\",\"currency\":\"NAD\"}"
@@ -166,16 +194,59 @@ expect_header Idempotent-Replayed true
 event() {
   echo "{\"carrierEventId\":\"$1\",\"eventType\":\"SCAN\",\"targetStatus\":\"$2\",\"location\":\"NAWVB\",\"description\":\"Smoke $2\",\"occurredAt\":\"$3\"}"
 }
-call 201 POST "/api/v1/shipments/${SHIP_ID}/tracking-events" "$(event SMOKE-1 BOOKED 2026-04-18T09:00:00Z)"
-expect .currentShipmentStatus BOOKED
-call 200 POST "/api/v1/shipments/${SHIP_ID}/tracking-events" "$(event SMOKE-1 BOOKED 2026-04-18T09:00:00Z)"
-expect .duplicateIgnored True
-call 201 POST "/api/v1/shipments/${SHIP_ID}/tracking-events" "$(event SMOKE-2 IN_TRANSIT 2026-04-21T06:00:00Z)"
+
+# ---------------------------------------------------------------- payment saga (ADR 0011, 0012)
+# 1. The relay authorises a hold: the shipment is BOOKED and the payer's available balance drops by 524.75.
+wait_for "/api/v1/shipments/${SHIP_ID}" .status BOOKED
+expect .payment.status AUTHORISED
+call 200 GET "/api/v1/accounts/${EUR_ACC}"
+expect .ledgerBalance 5000.00
+expect .availableBalance 4475.25
+# Only the payment books a shipment: a carrier event to BOOKED is stored but rejected.
+call 201 POST "/api/v1/shipments/${SHIP_ID}/tracking-events" "$(event SMOKE-0 BOOKED 2026-04-18T08:00:00Z)"
+expect .outcome REJECTED
+
+# 2. The pickup scan is missed: the vessel departure skips two milestones, applies, and captures the hold.
+call 201 POST "/api/v1/shipments/${SHIP_ID}/tracking-events" "$(event SMOKE-1 IN_TRANSIT 2026-04-21T06:00:00Z)"
 expect .outcome APPLIED
 expect .skippedStatuses '["PICKED_UP", "AT_ORIGIN_PORT"]'
+call 200 POST "/api/v1/shipments/${SHIP_ID}/tracking-events" "$(event SMOKE-1 IN_TRANSIT 2026-04-21T06:00:00Z)"
+expect .duplicateIgnored True
 call 201 POST "/api/v1/shipments/${SHIP_ID}/tracking-events" "$(event SMOKE-LATE AT_ORIGIN_PORT 2026-04-20T08:30:00Z)"
 expect .outcome OUT_OF_ORDER
 expect .currentShipmentStatus IN_TRANSIT
+wait_for "/api/v1/shipments/${SHIP_ID}" .payment.status CAPTURED
+call 200 GET "/api/v1/accounts/${EUR_ACC}"
+expect .ledgerBalance 4475.25
+expect .availableBalance 4475.25
+
+# 3. A second shipment is booked and cancelled before pickup: its hold is released.
+call 201 POST /api/v1/quotes   "{\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"mode\":\"SEA_LCL\",\"incoterm\":\"FCA\",\"payerRole\":\"CONSIGNEE\",\"packages\":${PACKAGES}}"
+QUOTE2_ID="$(field .id)"
+call 201 POST /api/v1/shipments "${SHIPMENT/${QUOTE_ID}/${QUOTE2_ID}}" "Idempotency-Key: smoke-ship2-${RUN_ID}"
+SHIP2_ID="$(field .id)"
+wait_for "/api/v1/shipments/${SHIP2_ID}" .payment.status AUTHORISED
+call 200 GET "/api/v1/accounts/${EUR_ACC}"
+expect .availableBalance 3950.50
+call 200 POST "/api/v1/shipments/${SHIP2_ID}/cancellation" '{"reason":"Smoke test cancellation"}'
+expect .status CANCELLED
+wait_for "/api/v1/shipments/${SHIP2_ID}" .payment.status RELEASED
+call 200 GET "/api/v1/accounts/${EUR_ACC}"
+expect .availableBalance 4475.25
+
+# 4. A shipment whose payer cannot cover the freight fails its payment and is never booked.
+call 201 POST /api/v1/accounts "{\"holderReference\":\"SMOKE-POOR-${RUN_ID}\",\"currency\":\"EUR\"}"
+POOR_ACC="$(field .accountNumber)"
+call 201 POST /api/v1/quotes   "{\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"mode\":\"SEA_LCL\",\"incoterm\":\"FCA\",\"payerRole\":\"CONSIGNEE\",\"packages\":${PACKAGES}}"
+QUOTE3_ID="$(field .id)"
+POOR_SHIPMENT="${SHIPMENT/${QUOTE_ID}/${QUOTE3_ID}}"
+call 201 POST /api/v1/shipments "${POOR_SHIPMENT/${EUR_ACC}/${POOR_ACC}}" "Idempotency-Key: smoke-ship3-${RUN_ID}"
+SHIP3_ID="$(field .id)"
+wait_for "/api/v1/shipments/${SHIP3_ID}" .status PAYMENT_FAILED
+expect .payment.failureType https://freightflow.dev/problems/insufficient-funds
+
+call 200 GET /api/v1/ledger/reconciliation
+expect .balanced True
 
 call 200 GET "/api/v1/shipments/track/${TRACK_NO}"
 expect .status IN_TRANSIT
