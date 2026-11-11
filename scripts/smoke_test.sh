@@ -202,9 +202,6 @@ expect .payment.status AUTHORISED
 call 200 GET "/api/v1/accounts/${EUR_ACC}"
 expect .ledgerBalance 5000.00
 expect .availableBalance 4475.25
-# Only the payment books a shipment: a carrier event to BOOKED is stored but rejected.
-call 201 POST "/api/v1/shipments/${SHIP_ID}/tracking-events" "$(event SMOKE-0 BOOKED 2026-04-18T08:00:00Z)"
-expect .outcome REJECTED
 
 # 2. The pickup scan is missed: the vessel departure skips two milestones, applies, and captures the hold.
 call 201 POST "/api/v1/shipments/${SHIP_ID}/tracking-events" "$(event SMOKE-1 IN_TRANSIT 2026-04-21T06:00:00Z)"

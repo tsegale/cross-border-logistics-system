@@ -48,7 +48,7 @@ freightflow:
   gateway:
     max-request-size: ${GATEWAY_MAX_REQUEST_SIZE:1MB}
     # Answered 404 at the edge whatever the routes say (ADR 0015).
-    internal-path-prefixes: /api/v1/holds,/api/v1/payment-commands,/actuator
+    internal-path-prefixes: /api/v1/holds,/api/v1/payment-commands
 
 management:
   # Health and metrics on their own port, published on 127.0.0.1 only; /actuator on 8080 is a 404 (ADR 0015).

@@ -13,16 +13,19 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Internal endpoints answer 404 at the edge whatever the routes say (ADR 0015): banking's holds, logistics' payment
- * commands, and any service's actuator. No route matches them today; this is the second line of defence against a
- * future wildcard route. The gateway's own actuator is on the management port, not here.
+ * Internal endpoints answer 404 at the edge whatever the routes say (ADR 0015): banking's holds and logistics'
+ * payment commands. No route matches them today; this is the second line of defence against a future wildcard route.
+ *
+ * <p>{@code /actuator} is not listed: the gateway's own actuator is on the management port, and a WebFilter also
+ * runs there, so listing it would hide the health checks. On the public port {@code /actuator} has no handler and no
+ * route, so it is a 404 problem anyway (covered by GatewayEdgeTest).
  */
 @Component
 public class InternalPathFilter implements WebFilter, Ordered {
 
     private final List<String> internalPrefixes;
 
-    public InternalPathFilter(@Value("${freightflow.gateway.internal-path-prefixes:/api/v1/holds,/api/v1/payment-commands,/actuator}")
+    public InternalPathFilter(@Value("${freightflow.gateway.internal-path-prefixes:/api/v1/holds,/api/v1/payment-commands}")
                               List<String> internalPrefixes) {
         this.internalPrefixes = internalPrefixes.stream().map(p -> p.toLowerCase(Locale.ROOT)).toList();
     }
