@@ -9,7 +9,7 @@ name: freightflow
 services:
   # ---------------- Databases: one per service ----------------
   banking-db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: banking
       POSTGRES_USER: ${BANKING_DB_USER:?set in .env}
@@ -25,7 +25,7 @@ services:
       retries: 12
 
   logistics-db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: logistics
       POSTGRES_USER: ${LOGISTICS_DB_USER:?set in .env}
@@ -108,7 +108,7 @@ services:
   # Single-node Kafka 4 in KRaft mode: no ZooKeeper (removed in Kafka 4.0).
   kafka:
     profiles: [events, notifications]
-    image: apache/kafka:4.1.1
+    image: apache/kafka:4.3.1
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
