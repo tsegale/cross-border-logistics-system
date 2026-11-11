@@ -27,6 +27,10 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+      # logistics' fault-injection tests run the real banking-service image behind Toxiproxy (ADR 0013).
+      - name: Build the banking-service image for logistics' fault-injection tests
+        if: matrix.service == 'logistics-service'
+        run: docker build -t freightflow-banking-service:latest banking-service
       # Unit tests plus Testcontainers integration tests (Docker is available on GitHub-hosted runners).
       - run: ./mvnw -B -ntp verify
         working-directory: ${{ matrix.service }}
