@@ -269,6 +269,18 @@
         "required" : [ "amount", "currency", "reference" ],
         "type" : "object"
       },
+      "ExtendHoldRequest" : {
+        "description" : "Move an active hold's expiry later; the amount and any locked FX rate stay as they are",
+        "properties" : {
+          "expiresAt" : {
+            "description" : "The new expiry: later than the current one, at most holds.max-ttl from now and holds.max-lifetime from the hold's creation",
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "required" : [ "expiresAt" ],
+        "type" : "object"
+      },
       "FxQuoteResponse" : {
         "properties" : {
           "buyAmount" : {
@@ -1282,6 +1294,102 @@
           }
         },
         "summary" : "Capture a hold, fully or in part, once: payer to FREIGHT_REVENUE at the locked rate",
+        "tags" : [ "Holds (internal)" ]
+      }
+    },
+    "/api/v1/holds/{id}/extension" : {
+      "post" : {
+        "operationId" : "extend",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        }, {
+          "description" : "Idempotency-Key header",
+          "in" : "header",
+          "name" : "Idempotency-Key",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ExtendHoldRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/HoldResponse"
+                }
+              }
+            },
+            "description" : "Extended"
+          },
+          "400" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Validation error or missing Idempotency-Key"
+          },
+          "404" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Hold not found"
+          },
+          "409" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Hold not active or already expired, key in flight"
+          },
+          "422" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "expiresAt not later, or beyond max-ttl or max-lifetime; key reused with another body"
+          },
+          "503" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Database unavailable or account lock timeout: retry with the same Idempotency-Key"
+          }
+        },
+        "summary" : "Extend an active hold: move its expiry later, keep its amount and locked rate",
         "tags" : [ "Holds (internal)" ]
       }
     },

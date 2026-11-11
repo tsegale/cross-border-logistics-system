@@ -43,10 +43,10 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/fx-quote-not-found` | `404 Not Found` | FX quote not found | `quoteId` | FX quote UUID does not exist |
 | `https://freightflow.dev/problems/fx-quote-expired` | `409 Conflict` | FX quote has expired | `quoteId`, `expiresAt` | FX quote `expiresAt` is not after `clock.instant()` |
 | `https://freightflow.dev/problems/hold-not-found` | `404 Not Found` | Hold not found | `holdId` | Hold UUID does not exist (internal API) |
-| `https://freightflow.dev/problems/hold-not-active` | `409 Conflict` | Hold is not active | `holdId`, `holdStatus` | Capture or release of a hold that is already `CAPTURED`, `RELEASED` or `EXPIRED` |
-| `https://freightflow.dev/problems/hold-expired` | `409 Conflict` | Hold has expired | `holdId`, `expiresAt` | Capture after `expiresAt`; the sweeper releases the hold |
+| `https://freightflow.dev/problems/hold-not-active` | `409 Conflict` | Hold is not active | `holdId`, `holdStatus` | Capture, release or extension of a hold that is already `CAPTURED`, `RELEASED` or `EXPIRED` |
+| `https://freightflow.dev/problems/hold-expired` | `409 Conflict` | Hold has expired | `holdId`, `expiresAt` | Capture or extension after `expiresAt`; the sweeper releases the hold |
 | `https://freightflow.dev/problems/capture-exceeds-hold` | `422 Unprocessable Content` | Capture exceeds the hold | `holdId`, `holdAmount`, `requestedAmount` | Capture amount above the authorised amount |
-| `https://freightflow.dev/problems/invalid-hold` | `422 Unprocessable Content` | Invalid hold | — | Payer is not a customer account, or `expiresAt` is not in the future or more than 30 days away |
+| `https://freightflow.dev/problems/invalid-hold` | `422 Unprocessable Content` | Invalid hold | — | Payer is not a customer account; `expiresAt` is not in the future or more than `max-ttl` (30 days) away; an extension's `expiresAt` is not later than the current one or beyond `max-lifetime` (120 days from the hold's creation) |
 | `https://freightflow.dev/problems/fx-quote-already-consumed` | `409 Conflict` | FX quote has already been consumed | `quoteId` | FX quote was already used by a prior cross-currency transfer |
 
 ---

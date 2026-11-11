@@ -41,6 +41,8 @@ freightflow:
     holds:
       default-ttl: ${HOLD_DEFAULT_TTL:7d}
       max-ttl: ${HOLD_MAX_TTL:30d}
+      # However often a hold is extended, it never outlives this from its creation (ADR 0011)
+      max-lifetime: ${HOLD_MAX_LIFETIME:120d}
       sweep-interval: ${HOLD_SWEEP_INTERVAL:60s}
       sweep-batch: ${HOLD_SWEEP_BATCH:100}
     # locked | unlocked | sharded (ADR 0010). The benchmark switches it by recreating the container.

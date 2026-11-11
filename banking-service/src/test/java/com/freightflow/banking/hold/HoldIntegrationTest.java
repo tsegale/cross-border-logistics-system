@@ -19,7 +19,9 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -29,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -320,6 +323,89 @@ class HoldIntegrationTest extends IntegrationTest {
     }
 
     @Test
+    void extensionMovesTheExpiryLaterKeepsTheReservationAndIsRecorded() throws Exception {
+        AccountResponse payer = funded("EUR", "1000.00");
+        String id = holdId(payer, "250.00", "EUR");
+        Instant later = Instant.now().plus(Duration.ofDays(20)).truncatedTo(ChronoUnit.SECONDS);
+        String key = key();
+
+        mockMvc.perform(extend(id, later, key))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.expiresAt").value(later.toString()))
+                .andExpect(jsonPath("$.payerAmount").value(250.00));
+        // A lost response is retried with the same key: replayed, not a second extension.
+        mockMvc.perform(extend(id, later, key))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.expiresAt").value(later.toString()));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM hold_extensions WHERE hold_id = ?::uuid", Integer.class, id)).isEqualTo(1);
+        assertBalances(payer, "1000.00", "750.00");
+        mockMvc.perform(capture(id, null, key())).andExpect(status().isOk());
+        assertClean();
+    }
+
+    @Test
+    void extensionHistoryIsAppendOnly() throws Exception {
+        AccountResponse payer = funded("EUR", "100.00");
+        String id = holdId(payer, "10.00", "EUR");
+        mockMvc.perform(extend(id, Instant.now().plus(Duration.ofDays(10)), key())).andExpect(status().isOk());
+
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "UPDATE hold_extensions SET new_expires_at = new_expires_at + interval '1 day' WHERE hold_id = ?::uuid", id))
+                .hasMessageContaining("append-only");
+        assertThatThrownBy(() -> jdbcTemplate.update("DELETE FROM hold_extensions WHERE hold_id = ?::uuid", id))
+                .hasMessageContaining("append-only");
+    }
+
+    @Test
+    void extensionMustBeLaterAndWithinMaxTtlAndMaxLifetime() throws Exception {
+        AccountResponse payer = funded("EUR", "100.00");
+        String id = holdId(payer, "10.00", "EUR");
+        Instant current = Instant.parse(json(mockMvc.perform(get("/api/v1/holds/{id}", id)).andReturn())
+                .get("expiresAt").asString());
+
+        mockMvc.perform(extend(id, current, key()))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/invalid-hold"));
+        mockMvc.perform(extend(id, Instant.now().plus(Duration.ofDays(31)), key()))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/invalid-hold"));
+
+        // A hold made 119 days ago may not be pushed past its 120-day lifetime, even to a time within max-ttl
+        // from now and later than its current 7-day expiry.
+        jdbcTemplate.update("UPDATE holds SET created_at = now() - interval '119 days' WHERE id = ?::uuid", id);
+        mockMvc.perform(extend(id, Instant.now().plus(Duration.ofDays(8)), key()))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("120 days")));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM hold_extensions WHERE hold_id = ?::uuid", Integer.class, id)).isZero();
+    }
+
+    @Test
+    void closedOrExpiredHoldsCannotBeExtended() throws Exception {
+        AccountResponse payer = funded("EUR", "100.00");
+        String released = holdId(payer, "10.00", "EUR");
+        mockMvc.perform(release(released, key())).andExpect(status().isOk());
+        mockMvc.perform(extend(released, Instant.now().plus(Duration.ofDays(10)), key()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/hold-not-active"))
+                .andExpect(jsonPath("$.holdStatus").value("RELEASED"));
+
+        String expiring = json(mockMvc.perform(post("/api/v1/holds").header("Idempotency-Key", key())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"payerAccount":"%s","amount":5.00,"currency":"EUR","reference":"EXP","expiresAt":"%s"}
+                                """.formatted(payer.accountNumber(), Instant.now().plusMillis(1500))))
+                .andExpect(status().isCreated()).andReturn()).get("id").asString();
+        Thread.sleep(1_700);
+        mockMvc.perform(extend(expiring, Instant.now().plus(Duration.ofDays(10)), key()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/hold-expired"));
+    }
+
+    @Test
     void holdsAreFoundByTheirReference() throws Exception {
         AccountResponse payer = funded("EUR", "1000.00");
         String reference = "SHIPMENT " + UUID.randomUUID();
@@ -368,6 +454,11 @@ class HoldIntegrationTest extends IntegrationTest {
         var builder = post("/api/v1/holds/{id}/capture", holdId).header("Idempotency-Key", key);
         return amount == null ? builder
                 : builder.contentType(MediaType.APPLICATION_JSON).content("{\"amount\":" + amount + "}");
+    }
+
+    private static RequestBuilder extend(String holdId, Instant expiresAt, String key) {
+        return post("/api/v1/holds/{id}/extension", holdId).header("Idempotency-Key", key)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"expiresAt\":\"" + expiresAt + "\"}");
     }
 
     private static RequestBuilder release(String holdId, String key) {

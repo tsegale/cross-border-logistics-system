@@ -17,6 +17,7 @@ import com.freightflow.banking.hold.HoldExceptions.HoldNotFoundException;
 import com.freightflow.banking.hold.HoldExceptions.InvalidHoldException;
 import com.freightflow.banking.hold.dto.CaptureHoldRequest;
 import com.freightflow.banking.hold.dto.CreateHoldRequest;
+import com.freightflow.banking.hold.dto.ExtendHoldRequest;
 import com.freightflow.banking.hold.dto.HoldResponse;
 import com.freightflow.banking.idempotency.IdempotencyService;
 import com.freightflow.banking.idempotency.IdempotencyService.IdempotentResult;
@@ -192,6 +193,46 @@ public class HoldService {
                 """, captured, payerDebit, entry.id(), Timestamp.from(now), holdId);
         assertOneRow(updated, holdId);
         log.info("Hold {} captured: {} {} (journal entry {})", holdId, captured, hold.getCurrency(), entry.id());
+        return reload(holdId);
+    }
+
+    // ------------------------------------------------------------------ extension
+
+    /**
+     * Moves an active hold's expiry later (ADR 0011). The reservation, the amount and a locked FX rate are unchanged;
+     * the extension is recorded in {@code hold_extensions}. Same lock order as every other hold change.
+     */
+    @Transactional
+    public HoldResponse extend(UUID holdId, ExtendHoldRequest request, String idempotencyKey) {
+        Map<String, Object> canonical = Map.of("holdId", holdId.toString(), "expiresAt", request.expiresAt().toString());
+        return idempotencyService.execute("hold-extension:" + holdId, idempotencyKey, canonical, 200,
+                HoldResponse.class, () -> doExtend(holdId, request.expiresAt())).body();
+    }
+
+    private HoldResponse doExtend(UUID holdId, Instant requested) {
+        Instant now = clock.instant();
+        Locked locked = lockPayerThenHold(holdId);
+        Hold hold = locked.hold();
+        assertActive(hold, now);
+        Instant latestFromNow = now.plus(holdProperties.maxTtl());
+        Instant latestEver = hold.getCreatedAt().plus(holdProperties.maxLifetime());
+        if (!requested.isAfter(hold.getExpiresAt())) {
+            throw new InvalidHoldException("expiresAt must be later than the current expiry " + hold.getExpiresAt());
+        }
+        if (requested.isAfter(latestFromNow) || requested.isAfter(latestEver)) {
+            Instant latest = latestFromNow.isBefore(latestEver) ? latestFromNow : latestEver;
+            throw new InvalidHoldException("expiresAt must be at most " + holdProperties.maxTtl().toDays()
+                    + " days from now and " + holdProperties.maxLifetime().toDays()
+                    + " days from the hold's creation (latest allowed: " + latest + ")");
+        }
+        jdbcTemplate.update("""
+                INSERT INTO hold_extensions (id, hold_id, previous_expires_at, new_expires_at, created_at)
+                VALUES (gen_random_uuid(), ?, ?, ?, ?)
+                """, holdId, Timestamp.from(hold.getExpiresAt()), Timestamp.from(requested), Timestamp.from(now));
+        assertOneRow(jdbcTemplate.update(
+                "UPDATE holds SET expires_at = ? WHERE id = ? AND status = 'ACTIVE'",
+                Timestamp.from(requested), holdId), holdId);
+        log.info("Hold {} extended from {} to {}", holdId, hold.getExpiresAt(), requested);
         return reload(holdId);
     }
 

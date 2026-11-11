@@ -2,6 +2,7 @@ package com.freightflow.banking.hold;
 
 import com.freightflow.banking.hold.dto.CaptureHoldRequest;
 import com.freightflow.banking.hold.dto.CreateHoldRequest;
+import com.freightflow.banking.hold.dto.ExtendHoldRequest;
 import com.freightflow.banking.hold.dto.HoldResponse;
 import com.freightflow.banking.idempotency.IdempotencyService.IdempotentResult;
 import io.swagger.v3.oas.annotations.Operation;
@@ -109,6 +110,30 @@ public class HoldController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody(required = false) CaptureHoldRequest request) {
         return holdService.capture(id, request, idempotencyKey);
+    }
+
+    @PostMapping("/{id}/extension")
+    @Operation(summary = "Extend an active hold: move its expiry later, keep its amount and locked rate",
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Extended",
+                            content = @Content(schema = @Schema(implementation = HoldResponse.class))),
+                    @ApiResponse(responseCode = "400", description = "Validation error or missing Idempotency-Key",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "404", description = "Hold not found",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "409", description = "Hold not active or already expired, key in flight",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "422", description = "expiresAt not later, or beyond max-ttl or max-lifetime; key reused with another body",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "503", description = "Database unavailable or account lock timeout: retry with the same Idempotency-Key",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+            })
+    public HoldResponse extend(
+            @PathVariable("id") UUID id,
+            @Parameter(description = "Idempotency-Key header", required = true)
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody ExtendHoldRequest request) {
+        return holdService.extend(id, request, idempotencyKey);
     }
 
     @PostMapping("/{id}/release")
