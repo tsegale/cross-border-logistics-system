@@ -24,6 +24,7 @@
         <wiremock.version>3.13.2</wiremock.version>
         <resilience4j.version>2.4.0</resilience4j.version>
         <swagger-request-validator.version>3.0.0</swagger-request-validator.version>
+        <testcontainers-keycloak.version>4.4.0</testcontainers-keycloak.version>
     </properties>
 
     <dependencies>
@@ -31,6 +32,16 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!-- Validates the relayed token itself, its own audience (ADR 0017) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+        </dependency>
+        <!-- Its own client-credentials token for banking (ADR 0019) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-client</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -98,6 +109,11 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
             <scope>test</scope>
@@ -122,6 +138,13 @@
             <artifactId>testcontainers-toxiproxy</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- The realm and the client-credentials path against a real Keycloak (ADR 0016, ADR 0019) -->
+        <dependency>
+            <groupId>com.github.dasniko</groupId>
+            <artifactId>testcontainers-keycloak</artifactId>
+            <version>${testcontainers-keycloak.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-testcontainers</artifactId>
@@ -140,6 +163,16 @@
     </dependencies>
 
     <build>
+        <testResources>
+            <testResource>
+                <directory>src/test/resources</directory>
+            </testResource>
+            <!-- The realm the stack imports, so the Keycloak tests import exactly that file -->
+            <testResource>
+                <directory>../infra/keycloak/realm</directory>
+                <targetPath>keycloak</targetPath>
+            </testResource>
+        </testResources>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

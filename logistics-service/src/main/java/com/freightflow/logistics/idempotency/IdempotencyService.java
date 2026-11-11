@@ -2,6 +2,7 @@ package com.freightflow.logistics.idempotency;
 
 import com.freightflow.logistics.common.LockTimeouts;
 import com.freightflow.logistics.config.LogisticsProperties;
+import com.freightflow.logistics.security.Caller;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -50,6 +51,7 @@ public class IdempotencyService {
     @Transactional
     public <T> IdempotentResult<T> execute(
             String scope,
+            Caller caller,
             String rawKey,
             Object canonicalPayload,
             int successHttpStatus,
@@ -58,10 +60,12 @@ public class IdempotencyService {
         String key = validateKey(rawKey);
         String requestHash = sha256Hex(scope, canonicalPayload);
 
-        acquireAdvisoryLock(scope, key);
+        // Keys are scoped to the caller (ADR 0020): two tenants with the same key are two keys.
+        String partition = caller.idempotencyPartition();
+        acquireAdvisoryLock(scope, partition + "|" + key);
 
         Instant now = clock.instant();
-        IdempotencyKeyId id = new IdempotencyKeyId(scope, key);
+        IdempotencyKeyId id = new IdempotencyKeyId(scope, partition, key);
         Optional<IdempotencyRecord> existingOpt = repository.findById(id);
 
         if (existingOpt.isPresent()) {
@@ -84,7 +88,7 @@ public class IdempotencyService {
         String responseJson = CANONICAL_JSON.writeValueAsString(result);
         Instant expiresAt = now.plus(properties.idempotency().ttl());
         repository.save(IdempotencyRecord.completed(
-                scope, key, requestHash, successHttpStatus, responseJson, now, expiresAt));
+                scope, partition, key, requestHash, successHttpStatus, responseJson, now, expiresAt));
         return new IdempotentResult<>(successHttpStatus, result, false);
     }
 

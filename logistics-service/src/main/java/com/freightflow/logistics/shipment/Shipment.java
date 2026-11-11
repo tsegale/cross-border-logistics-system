@@ -1,5 +1,7 @@
 package com.freightflow.logistics.shipment;
 
+import com.freightflow.logistics.security.Actor;
+import com.freightflow.logistics.security.Caller;
 import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.quote.FreightQuote;
 import com.freightflow.logistics.quote.Incoterm;
@@ -125,6 +127,35 @@ public class Shipment {
     /** When the authorised hold expires, as banking last reported it. */
     @Column(name = "hold_expires_at")
     private Instant holdExpiresAt;
+
+    // Ownership (ADR 0018): who booked, who pays, which carrier reports its tracking events.
+    @Column(name = "booking_organization_id", nullable = false, updatable = false)
+    private UUID bookingOrganizationId;
+
+    @Column(name = "payer_organization_id", nullable = false, updatable = false)
+    private UUID payerOrganizationId;
+
+    @Column(name = "carrier_id", length = 64)
+    private String carrierId;
+
+    // Who did it (ADR 0020).
+    @Column(name = "booked_by_subject", length = 64, updatable = false)
+    private String bookedBySubject;
+
+    @Column(name = "booked_by_client_id", length = 64, updatable = false)
+    private String bookedByClientId;
+
+    @Column(name = "booking_request_id", length = 64, updatable = false)
+    private String bookingRequestId;
+
+    @Column(name = "cancelled_by_subject", length = 64)
+    private String cancelledBySubject;
+
+    @Column(name = "cancelled_by_client_id", length = 64)
+    private String cancelledByClientId;
+
+    @Column(name = "cancellation_request_id", length = 64)
+    private String cancellationRequestId;
 
     @Version
     @Column(name = "version", nullable = false)
@@ -259,6 +290,58 @@ public class Shipment {
         NONE,
         CAPTURE,
         RELEASE
+    }
+
+    /** Who booked and for which organisations; must be called before the shipment is saved (ADR 0018, 0020). */
+    public Shipment bookedBy(Actor actor, UUID bookingOrganizationId, UUID payerOrganizationId) {
+        this.bookedBySubject = actor.subject();
+        this.bookedByClientId = actor.clientId();
+        this.bookingRequestId = actor.requestId();
+        this.bookingOrganizationId = Objects.requireNonNull(bookingOrganizationId, "bookingOrganizationId");
+        this.payerOrganizationId = Objects.requireNonNull(payerOrganizationId, "payerOrganizationId");
+        return this;
+    }
+
+    /** True if the caller may see this shipment: its organisations, its carrier, operators and auditors. */
+    public boolean visibleTo(Caller caller) {
+        if (caller.seesEverything()) {
+            return true;
+        }
+        if (caller.isCarrier()) {
+            return carrierId != null && carrierId.equals(caller.clientId());
+        }
+        return caller.mayAccess(bookingOrganizationId) || caller.mayAccess(payerOrganizationId);
+    }
+
+    public void assignCarrier(String carrierId, Instant now) {
+        this.carrierId = Objects.requireNonNull(carrierId, "carrierId");
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    public void cancelledBy(Actor actor) {
+        this.cancelledBySubject = actor.subject();
+        this.cancelledByClientId = actor.clientId();
+        this.cancellationRequestId = actor.requestId();
+    }
+
+    public UUID getBookingOrganizationId() {
+        return bookingOrganizationId;
+    }
+
+    public UUID getPayerOrganizationId() {
+        return payerOrganizationId;
+    }
+
+    public String getCarrierId() {
+        return carrierId;
+    }
+
+    public Actor getBookedBy() {
+        return bookedByClientId == null ? null : new Actor(bookedBySubject, bookedByClientId, bookingOrganizationId, bookingRequestId);
+    }
+
+    public Actor getCancelledBy() {
+        return cancelledByClientId == null ? null : new Actor(cancelledBySubject, cancelledByClientId, null, cancellationRequestId);
     }
 
     public void cancel(String reason, Instant now) {

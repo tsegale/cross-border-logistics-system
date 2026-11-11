@@ -126,7 +126,21 @@ public class FreightQuote {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /** The organisation that asked for the quote (ADR 0018); null for an operator's. */
+    @Column(name = "owner_organization_id", updatable = false)
+    private UUID ownerOrganizationId;
+
     protected FreightQuote() {
+    }
+
+    /** Sets the owner; must be called before the quote is saved. */
+    public FreightQuote ownedBy(UUID organizationId) {
+        this.ownerOrganizationId = organizationId;
+        return this;
+    }
+
+    public UUID getOwnerOrganizationId() {
+        return ownerOrganizationId;
     }
 
     public static FreightQuote create(

@@ -1,5 +1,7 @@
 package com.freightflow.logistics.shipment.dto;
 
+import com.freightflow.logistics.security.Actor;
+import com.freightflow.logistics.security.Caller;
 import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.quote.Incoterm;
 import com.freightflow.logistics.quote.TransportMode;
@@ -35,6 +37,12 @@ public record ShipmentResponse(
         LocalDate plannedPickupDate,
         String cancellationReason,
         PaymentDto payment,
+        UUID bookingOrganizationId,
+        UUID payerOrganizationId,
+        String carrierId,
+        @io.swagger.v3.oas.annotations.media.Schema(description = "Who booked and who cancelled (ADR 0020); operators and auditors only",
+                nullable = true)
+        AuditDto audit,
         Instant latestEventAt,
         long version,
         Instant createdAt,
@@ -44,6 +52,24 @@ public record ShipmentResponse(
     /** Where paying for the shipment stands (ADR 0012). failureType is a problem type URI from banking-service. */
     public record PaymentDto(PaymentStatus status, UUID holdId, Instant holdExpiresAt, BigDecimal amount,
                              String currency, String failureType, String failureDetail) {
+    }
+
+    public record AuditDto(Actor bookedBy, Actor cancelledBy) {
+    }
+
+    /** What this caller sees: who did what only for operators and auditors. */
+    public static ShipmentResponse from(Shipment s, Caller caller) {
+        ShipmentResponse full = from(s);
+        if (caller.seesEverything()) {
+            return full;
+        }
+        return new ShipmentResponse(full.id(), full.trackingNumber(), full.quoteId(), full.origin(), full.destination(),
+                full.mode(), full.incoterm(), full.status(), full.shipper(), full.consignee(), full.payerAccountNumber(),
+                full.goodsDescription(), full.declaredValue(), full.declaredValueCurrency(), full.quotedTotalAmount(),
+                full.quotedCurrency(), full.actualWeightKg(), full.volumeCbm(), full.chargeableWeightKg(),
+                full.plannedPickupDate(), full.cancellationReason(), full.payment(), full.bookingOrganizationId(),
+                full.payerOrganizationId(), full.carrierId(), null, full.latestEventAt(), full.version(), full.createdAt(),
+                full.updatedAt());
     }
 
     public static ShipmentResponse from(Shipment s) {
@@ -72,6 +98,10 @@ public record ShipmentResponse(
                 new PaymentDto(s.getPaymentStatus(), s.getHoldId(), s.getHoldExpiresAt(),
                         MoneyRounding.roundToMinorUnits(s.getQuotedTotalAmount(), s.getQuotedCurrency()),
                         s.getQuotedCurrency(), s.getPaymentFailureType(), s.getPaymentFailureDetail()),
+                s.getBookingOrganizationId(),
+                s.getPayerOrganizationId(),
+                s.getCarrierId(),
+                new AuditDto(s.getBookedBy(), s.getCancelledBy()),
                 s.getLatestEventAt(),
                 s.getVersion(),
                 s.getCreatedAt(),

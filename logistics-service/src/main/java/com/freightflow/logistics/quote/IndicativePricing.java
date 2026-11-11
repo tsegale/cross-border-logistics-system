@@ -56,7 +56,8 @@ public class IndicativePricing {
                     customerRate,
                     rates.asOf(),
                     rates.source()));
-        } catch (RestClientException | CallNotPermittedException | BulkheadFullException ex) {
+        } catch (RestClientException | CallNotPermittedException | BulkheadFullException
+                 | org.springframework.security.oauth2.core.OAuth2AuthorizationException ex) {
             log.warn("Indicative {} total unavailable, banking-service did not answer: {}", payCurrency, ex.getMessage());
             return Optional.empty();
         }

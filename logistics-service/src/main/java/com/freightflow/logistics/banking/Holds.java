@@ -14,7 +14,7 @@ public final class Holds {
     }
 
     public record CreateHold(String payerAccount, BigDecimal amount, String currency, String reference,
-                             Instant expiresAt) {
+                             Instant expiresAt, UUID payerOrganizationId, String onBehalfOfSubject) {
     }
 
     public record CaptureHold(BigDecimal amount) {

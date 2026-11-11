@@ -7,6 +7,7 @@ import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
@@ -42,7 +43,8 @@ public class BankingPayments {
             Holds.Hold hold = calls.payment(() -> switch (command.getCommand()) {
                 case AUTHORISE -> banking.createHold(command.getIdempotencyKey(), new Holds.CreateHold(
                         command.getPayerAccountNumber(), command.roundedAmount(), command.getCurrency(),
-                        "SHIPMENT " + command.getShipmentId(), command.getExpiresAt()));
+                        "SHIPMENT " + command.getShipmentId(), command.getExpiresAt(),
+                        command.getPayerOrganizationId(), command.getOnBehalfOfSubject()));
                 case CAPTURE -> banking.capture(command.getHoldId(), command.getIdempotencyKey(),
                         new Holds.CaptureHold(command.roundedAmount()));
                 case RELEASE -> banking.release(command.getHoldId(), command.getIdempotencyKey());
@@ -53,8 +55,9 @@ public class BankingPayments {
                 return new PaymentOutcome.Succeeded(command.getHoldId(), null);
             }
             return new PaymentOutcome.Succeeded(hold.id(), hold.expiresAt());
-        } catch (CallNotPermittedException | BulkheadFullException ex) {
-            // The breaker is open or the bulkhead full: the request was never sent.
+        } catch (CallNotPermittedException | BulkheadFullException | OAuth2AuthorizationException ex) {
+            // The breaker is open, the bulkhead full, or no token could be obtained from Keycloak (ADR 0019): the
+            // request was never sent to banking, so this is not an attempt and the command stays PENDING.
             return new PaymentOutcome.Unknown(ex.getClass().getSimpleName() + ": " + ex.getMessage(), false);
         } catch (HttpStatusCodeException ex) {
             return classify(command, ex);

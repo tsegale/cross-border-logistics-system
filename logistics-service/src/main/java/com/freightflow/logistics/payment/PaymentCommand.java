@@ -52,6 +52,23 @@ public class PaymentCommand {
     @Column(name = "hold_id")
     private UUID holdId;
 
+    /** The organisation banking charges: the payer account must belong to it (ADR 0018). */
+    @Column(name = "payer_organization_id", nullable = false, updatable = false)
+    private UUID payerOrganizationId;
+
+    /** Who booked, recorded on the hold (ADR 0020). */
+    @Column(name = "on_behalf_of_subject", length = 64, updatable = false)
+    private String onBehalfOfSubject;
+
+    @Column(name = "retried_by_subject", length = 64)
+    private String retriedBySubject;
+
+    @Column(name = "retried_by_client_id", length = 64)
+    private String retriedByClientId;
+
+    @Column(name = "retried_at")
+    private Instant retriedAt;
+
     /** The expiry an AUTHORISE or EXTEND asks for; null for other commands and for shipments booked before V7. */
     @Column(name = "expires_at", updatable = false)
     private Instant expiresAt;
@@ -117,8 +134,11 @@ public class PaymentCommand {
         this.updatedAt = now;
     }
 
-    /** Operator retry of a parked command: a fresh set of attempts, same idempotency key. */
-    public void unpark(Instant now) {
+    /** Operator retry of a parked command: a fresh set of attempts, same idempotency key, and who retried it. */
+    public void unpark(com.freightflow.logistics.security.Actor actor, Instant now) {
+        this.retriedBySubject = actor.subject();
+        this.retriedByClientId = actor.clientId();
+        this.retriedAt = now;
         if (this.status != PaymentCommandStatus.PARKED) {
             throw new IllegalStateException("Only a PARKED command can be retried; " + id + " is " + status);
         }
@@ -170,6 +190,18 @@ public class PaymentCommand {
 
     public UUID getHoldId() {
         return holdId;
+    }
+
+    public UUID getPayerOrganizationId() {
+        return payerOrganizationId;
+    }
+
+    public String getOnBehalfOfSubject() {
+        return onBehalfOfSubject;
+    }
+
+    public String getRetriedBySubject() {
+        return retriedBySubject;
     }
 
     public Instant getExpiresAt() {

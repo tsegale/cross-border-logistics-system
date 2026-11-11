@@ -1,5 +1,6 @@
 package com.freightflow.logistics.common;
 
+import com.freightflow.logistics.support.TestCallers;
 import com.freightflow.logistics.quote.QuoteController;
 import com.freightflow.logistics.quote.QuoteService;
 import org.junit.jupiter.api.Test;
@@ -22,7 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(QuoteController.class)
-@Import(ApiExceptionHandler.class)
+@Import({ApiExceptionHandler.class, com.freightflow.logistics.support.TestSecurity.class})
 class TransientDatabaseErrorMappingTest {
 
     private static final UUID QUOTE = UUID.fromString("01950000-0000-7000-8000-000000000999");
@@ -40,7 +41,7 @@ class TransientDatabaseErrorMappingTest {
             "40001, 409, transaction-conflict"
     })
     void transientSqlStatesAreRetryableProblems(String sqlState, int httpStatus, String slug) throws Exception {
-        given(quoteService.getQuote(QUOTE)).willThrow(
+        given(quoteService.getQuote(TestCallers.OPERATOR, QUOTE)).willThrow(
                 new PessimisticLockingFailureException("db", new SQLException("db", sqlState)));
 
         mockMvc.perform(get("/api/v1/quotes/" + QUOTE))
@@ -51,7 +52,7 @@ class TransientDatabaseErrorMappingTest {
 
     @Test
     void unexpectedExceptionIsAnInternalErrorProblem() throws Exception {
-        given(quoteService.getQuote(QUOTE)).willThrow(new IllegalStateException("secret internals"));
+        given(quoteService.getQuote(TestCallers.OPERATOR, QUOTE)).willThrow(new IllegalStateException("secret internals"));
 
         mockMvc.perform(get("/api/v1/quotes/" + QUOTE))
                 .andExpect(status().isInternalServerError())
@@ -61,7 +62,7 @@ class TransientDatabaseErrorMappingTest {
 
     @Test
     void constraintViolationIsA409WithoutSchemaDetails() throws Exception {
-        given(quoteService.getQuote(QUOTE)).willThrow(new org.springframework.dao.DataIntegrityViolationException(
+        given(quoteService.getQuote(TestCallers.OPERATOR, QUOTE)).willThrow(new org.springframework.dao.DataIntegrityViolationException(
                 "duplicate key value violates unique constraint \"uq_secret_index\""));
 
         mockMvc.perform(get("/api/v1/quotes/" + QUOTE))

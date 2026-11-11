@@ -37,6 +37,12 @@ public record CreateShipmentRequest(
 
         /** The day the cargo is due to be picked up (UTC): the hold must last until then (ADR 0011). */
         @NotNull(message = "plannedPickupDate is required")
-        LocalDate plannedPickupDate
+        LocalDate plannedPickupDate,
+
+        /**
+         * The customer organisation the shipment is booked for and charged to (ADR 0018). A customer leaves it out or
+         * gives its own; an operator booking for a customer must give it.
+         */
+        UUID bookingOrganizationId
 ) {
 }

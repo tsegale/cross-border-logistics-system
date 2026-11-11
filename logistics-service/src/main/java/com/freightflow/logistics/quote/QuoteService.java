@@ -1,5 +1,6 @@
 package com.freightflow.logistics.quote;
 
+import com.freightflow.logistics.security.Caller;
 import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.config.LogisticsProperties;
 import com.freightflow.logistics.location.Location;
@@ -51,7 +52,7 @@ public class QuoteService {
     }
 
     @Transactional
-    public QuoteResponse createQuote(CreateQuoteRequest request) {
+    public QuoteResponse createQuote(Caller caller, CreateQuoteRequest request) {
         String indicativeCurrency = request.indicativeCurrency() == null || request.indicativeCurrency().isBlank()
                 ? null
                 : MoneyRounding.validateSupportedCurrency(
@@ -140,7 +141,7 @@ public class QuoteService {
                 tariff.getTransitDaysMax(),
                 validUntil,
                 now
-        ).withIndicative(shownCurrency, indicative));
+        ).ownedBy(caller.isCustomer() ? caller.requireOrganization() : null).withIndicative(shownCurrency, indicative));
 
         List<QuotePackage> savedPackages = new ArrayList<>(request.packages().size());
         for (int i = 0; i < request.packages().size(); i++) {
@@ -163,8 +164,9 @@ public class QuoteService {
     }
 
     @Transactional(readOnly = true)
-    public QuoteResponse getQuote(UUID id) {
+    public QuoteResponse getQuote(Caller caller, UUID id) {
         FreightQuote quote = quotes.findById(id)
+                .filter(found -> caller.mayAccess(found.getOwnerOrganizationId()))
                 .orElseThrow(() -> new QuoteNotFoundException(id));
         List<QuotePackage> pkgs = quotePackages.findByQuoteIdOrderByLineNumberAsc(id);
         return QuoteResponse.from(quote, pkgs);

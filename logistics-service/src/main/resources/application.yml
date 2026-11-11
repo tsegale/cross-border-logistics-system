@@ -4,13 +4,32 @@ server:
   forward-headers-strategy: framework
 
 spring:
+  # Compose secrets are files under /run/secrets; each file name becomes a property (ADR 0019).
+  config:
+    import: optional:configtree:/run/secrets/
+  # logistics-service's own token for banking: client credentials, scope banking.holds (ADR 0019). The secret comes
+  # from a file (compose secret logistics_client_secret, read through the config tree), never from this file.
+  security:
+    oauth2:
+      client:
+        registration:
+          banking:
+            provider: keycloak
+            client-id: logistics-service
+            client-secret: ${logistics_client_secret:${KEYCLOAK_LOGISTICS_CLIENT_SECRET:}}
+            authorization-grant-type: client_credentials
+            scope: banking.holds
+        provider:
+          keycloak:
+            token-uri: ${KEYCLOAK_TOKEN_URI:http://127.0.0.1:8180/realms/freightflow/protocol/openid-connect/token}
   application:
     name: logistics-service
   datasource:
     # Defaults match docker compose's published port, so the service also runs from the IDE.
     url: ${LOGISTICS_DB_URL:jdbc:postgresql://127.0.0.1:5442/logistics}
     username: ${LOGISTICS_DB_USER:logistics}
-    password: ${LOGISTICS_DB_PASSWORD:change-me-logistics}
+    # From the compose secret logistics_db_password (config tree below) or the environment; no default (ADR 0019).
+    password: ${logistics_db_password:${LOGISTICS_DB_PASSWORD:}}
     # With the database down, fail a request in about 2 s instead of Hikari's default 30 s.
     hikari:
       connection-timeout: ${LOGISTICS_DB_CONNECTION_TIMEOUT:2000}
@@ -39,6 +58,11 @@ spring:
       thread-name-prefix: logistics-sched-
 
 freightflow:
+  # Who signs the tokens logistics accepts (ADRs 0016, 0017). No default issuer: logistics does not start without one.
+  security:
+    issuer-uri: ${KEYCLOAK_ISSUER_URI:}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
+    audience: logistics-service
   logistics:
     supported-currencies: ${LOGISTICS_SUPPORTED_CURRENCIES:NAD,ZAR,EUR}
     quote-validity: ${LOGISTICS_QUOTE_VALIDITY:24h}

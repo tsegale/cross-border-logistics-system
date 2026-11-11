@@ -1,0 +1,16 @@
+# Test-only additions, loaded on top of src/main/resources/application.yml. MockMvc tests build validated tokens
+# with spring-security-test; logistics' own token for banking comes from a /token stub on the banking WireMock.
+freightflow:
+  # Testcontainers provides the connections; RequiredSecretsTest checks the real rule.
+  secrets:
+    required: false
+  security:
+    issuer-uri: http://keycloak.test/realms/freightflow
+    jwk-set-uri: http://127.0.0.1:1/certs
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          banking:
+            client-secret: test-only-secret

@@ -1,5 +1,6 @@
 package com.freightflow.logistics.quote;
 
+import com.freightflow.logistics.security.Caller;
 import com.freightflow.logistics.quote.dto.CreateQuoteRequest;
 import com.freightflow.logistics.quote.dto.QuoteResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,8 +31,8 @@ public class QuoteController {
 
     @PostMapping
     @Operation(summary = "Calculate and persist a freight quote with chargeable weight")
-    public ResponseEntity<QuoteResponse> createQuote(@Valid @RequestBody CreateQuoteRequest request) {
-        QuoteResponse created = quoteService.createQuote(request);
+    public ResponseEntity<QuoteResponse> createQuote(Caller caller, @Valid @RequestBody CreateQuoteRequest request) {
+        QuoteResponse created = quoteService.createQuote(caller, request);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
                 .buildAndExpand(created.id())
@@ -41,7 +42,7 @@ public class QuoteController {
 
     @GetMapping("/{id}")
     @Operation(summary = "Fetch a freight quote by ID")
-    public QuoteResponse getQuote(@PathVariable UUID id) {
-        return quoteService.getQuote(id);
+    public QuoteResponse getQuote(Caller caller, @PathVariable UUID id) {
+        return quoteService.getQuote(caller, id);
     }
 }

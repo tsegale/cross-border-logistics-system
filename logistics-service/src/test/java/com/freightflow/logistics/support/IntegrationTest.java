@@ -24,6 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "resilience4j.circuitbreaker.instances.banking.sliding-window-size=1000"
 })
 @AutoConfigureMockMvc
+@org.springframework.context.annotation.Import(TestSecurity.class)
 @ImportTestcontainers(SharedContainers.class)
 @Testcontainers(disabledWithoutDocker = true)
 public abstract class IntegrationTest {
@@ -31,10 +32,17 @@ public abstract class IntegrationTest {
     @DynamicPropertySource
     static void bankingStub(DynamicPropertyRegistry registry) {
         registry.add("spring.http.serviceclient.banking.base-url", BankingStub::baseUrl);
+        registry.add("KEYCLOAK_TOKEN_URI", () -> BankingStub.baseUrl() + "/token");
     }
 
     @Autowired
     private CircuitBreakerRegistry circuitBreakers;
+
+    /** logistics' client-credentials token for banking (ADR 0019), from a stand-in token endpoint. */
+    @org.junit.jupiter.api.BeforeEach
+    void tokenEndpoint() {
+        BankingStubs.stubTokenEndpoint();
+    }
 
     /** Stubs and the breaker are shared by every test in the context: leave both as found. */
     @AfterEach

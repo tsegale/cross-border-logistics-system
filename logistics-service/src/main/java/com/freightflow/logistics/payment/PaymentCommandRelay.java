@@ -105,7 +105,9 @@ public class PaymentCommandRelay {
             outcome = banking.send(command);
         }
         if (outcome instanceof PaymentOutcome.Unknown unknown && !unknown.reachedBanking()) {
-            // Circuit open or bulkhead full: nothing was sent, so this does not count as an attempt.
+            // Circuit open, bulkhead full or no token: nothing was sent, so this does not count as an attempt.
+            log.warn("{} for shipment {} not sent, retrying later: {}", command.getCommand(), command.getShipmentId(),
+                    unknown.reason());
             outbox.refundAttempt(id, clock.instant().plus(properties.retryBackoff()));
             return;
         }

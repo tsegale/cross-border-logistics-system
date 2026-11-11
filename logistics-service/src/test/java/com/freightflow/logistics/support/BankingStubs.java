@@ -62,7 +62,8 @@ public final class BankingStubs {
     }
 
     public static final String HOLD_REQUEST =
-            "{\"payerAccount\":\"FF49EUR000001002\",\"amount\":524.75,\"currency\":\"EUR\",\"reference\":\"SHIPMENT x\"}";
+            "{\"payerAccount\":\"FF49EUR000001002\",\"amount\":524.75,\"currency\":\"EUR\",\"reference\":\"SHIPMENT x\","
+                    + "\"payerOrganizationId\":\"0193a0e0-0000-7000-8000-00000000a001\",\"onBehalfOfSubject\":\"test-operator\"}";
 
     public static final Interaction HOLD_CREATED = new Interaction("hold created", "POST", "/api/v1/holds",
             HOLD_REQUEST, 201, "application/json", hold("ACTIVE", "null"));
@@ -123,6 +124,14 @@ public final class BankingStubs {
     }
 
     /** POST /api/v1/holds, matching the headers banking requires. */
+    /** Keycloak's token endpoint, as logistics' OAuth2 client calls it for client credentials. */
+    public static void stubTokenEndpoint() {
+        BankingStub.SERVER.stubFor(post(urlPathEqualTo("/token")).willReturn(aResponse().withStatus(200)
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"access_token\":\"test-logistics-token\",\"token_type\":\"Bearer\",\"expires_in\":300,"
+                        + "\"scope\":\"banking.holds\"}")));
+    }
+
     public static MappingBuilder createHold() {
         return post(urlPathEqualTo("/api/v1/holds"))
                 .withHeader("Idempotency-Key", matching("shipment-.+-authorise"))

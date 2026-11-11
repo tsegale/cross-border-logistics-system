@@ -72,13 +72,14 @@ public class PaymentCommands {
         return jdbcTemplate.update("""
                 INSERT INTO shipment_payments (id, shipment_id, command, status, amount, currency, payer_account_number,
                                                idempotency_key, hold_id, expires_at, attempts, next_attempt_at,
-                                               created_at, updated_at)
-                VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                                               created_at, updated_at, payer_organization_id, on_behalf_of_subject)
+                SELECT ?, s.id, ?, 'PENDING', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, s.payer_organization_id, s.booked_by_subject
+                FROM shipments s WHERE s.id = ?
                 ON CONFLICT DO NOTHING
                 """,
-                UuidV7.next(clock), shipmentId, command.name(), amount, currency, payerAccountNumber, key, holdId,
+                UuidV7.next(clock), command.name(), amount, currency, payerAccountNumber, key, holdId,
                 expiresAt == null ? null : Timestamp.from(expiresAt),
-                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now));
+                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now), shipmentId);
     }
 
     /**

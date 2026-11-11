@@ -18,11 +18,11 @@ class IdempotencyCleanupIntegrationTest extends IntegrationTest {
     @Test
     void expiredKeysArePurgedAndLiveOnesKept() {
         jdbcTemplate.update("""
-                INSERT INTO idempotency_keys (scope, idempotency_key, request_hash, status, http_status, response_body,
+                INSERT INTO idempotency_keys (scope, caller, idempotency_key, request_hash, status, http_status, response_body,
                                               created_at, expires_at)
-                VALUES ('cleanup-test', 'expired', repeat('a', 64), 'COMPLETED', 201, '{}', now() - interval '2 days',
+                VALUES ('cleanup-test', 'test', 'expired', repeat('a', 64), 'COMPLETED', 201, '{}', now() - interval '2 days',
                         now() - interval '1 day'),
-                       ('cleanup-test', 'live', repeat('a', 64), 'COMPLETED', 201, '{}', now(), now() + interval '1 day')
+                       ('cleanup-test', 'test', 'live', repeat('a', 64), 'COMPLETED', 201, '{}', now(), now() + interval '1 day')
                 """);
 
         cleanupJob.purgeExpiredKeys();

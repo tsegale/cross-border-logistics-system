@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(QuoteController.class)
-@Import(ApiExceptionHandler.class)
+@Import({ApiExceptionHandler.class, com.freightflow.logistics.support.TestSecurity.class})
 class QuoteControllerTest {
 
     @Autowired
@@ -61,7 +61,7 @@ class QuoteControllerTest {
 
         // Unknown location -> 422 unknown-location
         doThrow(new UnknownLocationException("origin", "XXXXX"))
-                .when(quoteService).createQuote(any());
+                .when(quoteService).createQuote(any(), any());
         mockMvc.perform(post("/api/v1/quotes")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -80,7 +80,7 @@ class QuoteControllerTest {
 
         // Unsupported currency -> 400 unsupported-currency
         doThrow(new UnsupportedCurrencyException("USD", Set.of("NAD", "ZAR", "EUR")))
-                .when(quoteService).createQuote(any());
+                .when(quoteService).createQuote(any(), any());
         mockMvc.perform(post("/api/v1/quotes")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -100,7 +100,7 @@ class QuoteControllerTest {
         // Database unavailable -> 503 with Retry-After: 5
         UUID id = UUID.randomUUID();
         doThrow(new DataAccessResourceFailureException("DB down"))
-                .when(quoteService).getQuote(id);
+                .when(quoteService).getQuote(any(), org.mockito.ArgumentMatchers.eq(id));
         mockMvc.perform(get("/api/v1/quotes/{id}", id))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Retry-After", "5"))

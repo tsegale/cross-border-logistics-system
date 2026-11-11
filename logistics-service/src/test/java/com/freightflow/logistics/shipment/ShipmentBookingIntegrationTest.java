@@ -160,7 +160,7 @@ class ShipmentBookingIntegrationTest extends IntegrationTest {
         return """
                 {"quoteId":"%s","shipper":{"name":"a","address":"b","contact":"c"},
                  "consignee":{"name":"a","address":"b","contact":"c"},"payerAccountNumber":"%s",
-                 "goodsDescription":"fish","declaredValue":100.00,"plannedPickupDate":"%s"}
+                 "goodsDescription":"fish","declaredValue":100.00,"plannedPickupDate":"%s","bookingOrganizationId":"0193a0e0-0000-7000-8000-00000000a001"}
                 """.formatted(quoteId, payerAccount, LogisticsFixtures.defaultPickup());
     }
 }

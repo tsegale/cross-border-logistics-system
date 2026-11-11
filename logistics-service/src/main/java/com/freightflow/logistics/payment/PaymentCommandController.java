@@ -1,5 +1,6 @@
 package com.freightflow.logistics.payment;
 
+import com.freightflow.logistics.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.PageRequest;
@@ -66,12 +67,12 @@ public class PaymentCommandController {
     @PostMapping("/{id}/retry")
     @Operation(summary = "Send a parked command again, with the same idempotency key and a fresh set of attempts")
     @Transactional
-    public PaymentCommandResponse retry(@PathVariable("id") UUID id) {
+    public PaymentCommandResponse retry(Caller caller, @PathVariable("id") UUID id) {
         PaymentCommand command = find(id);
         if (command.getStatus() != PaymentCommandStatus.PARKED) {
             throw new PaymentCommandNotParkedException(id, command.getStatus());
         }
-        command.unpark(clock.instant());
+        command.unpark(caller.actor(), clock.instant());
         return PaymentCommandResponse.from(command);
     }
 

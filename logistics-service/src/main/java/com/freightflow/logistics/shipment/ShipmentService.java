@@ -1,5 +1,6 @@
 package com.freightflow.logistics.shipment;
 
+import com.freightflow.logistics.security.Caller;
 import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.config.LogisticsProperties;
 import com.freightflow.logistics.idempotency.IdempotencyService;
@@ -32,6 +33,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.resilience.annotation.Retryable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -99,11 +101,14 @@ public class ShipmentService {
             String goodsDescription,
             BigDecimal declaredValue,
             String declaredValueCurrency,
-            LocalDate plannedPickupDate
+            LocalDate plannedPickupDate,
+            UUID bookingOrganizationId
     ) {
     }
 
-    public IdempotentResult<ShipmentResponse> createShipment(CreateShipmentRequest request, String idempotencyKey) {
+    public IdempotentResult<ShipmentResponse> createShipment(Caller caller, CreateShipmentRequest request,
+                                                            String idempotencyKey) {
+        UUID bookingOrganization = bookingOrganization(caller, request.bookingOrganizationId());
         String normalizedAccount = AccountNumberValidator.validate(request.payerAccountNumber());
         String requestedCurrency = request.declaredValueCurrency() != null && !request.declaredValueCurrency().isBlank()
                 ? MoneyRounding.validateSupportedCurrency(request.declaredValueCurrency(), properties.normalizedCurrencies()).getCurrencyCode()
@@ -131,24 +136,51 @@ public class ShipmentService {
                 request.goodsDescription().trim(),
                 request.declaredValue().stripTrailingZeros(),
                 requestedCurrency,
-                request.plannedPickupDate()
+                request.plannedPickupDate(),
+                bookingOrganization
         );
 
         return idempotency.execute(
                 IDEMPOTENCY_SCOPE,
+                caller,
                 idempotencyKey,
                 payload,
                 201,
                 ShipmentResponse.class,
-                () -> createShipmentInternal(request, normalizedAccount, requestedCurrency)
+                () -> createShipmentInternal(caller, bookingOrganization, request, normalizedAccount, requestedCurrency)
         );
     }
 
+    /**
+     * The organisation a booking is for (ADR 0018): a customer's own, or the one an operator names. A customer naming
+     * another organisation is refused.
+     */
+    private static UUID bookingOrganization(Caller caller, UUID requested) {
+        if (caller.isCustomer()) {
+            UUID own = caller.requireOrganization();
+            if (requested != null && !requested.equals(own)) {
+                throw new AccessDeniedException("A customer books shipments for its own organisation only");
+            }
+            return own;
+        }
+        if (caller.isOperator()) {
+            if (requested == null) {
+                throw new IllegalArgumentException("bookingOrganizationId is required when an operator books a shipment");
+            }
+            return requested;
+        }
+        throw new AccessDeniedException("Only customers and operators book shipments");
+    }
+
     private ShipmentResponse createShipmentInternal(
+            Caller caller,
+            UUID bookingOrganization,
             CreateShipmentRequest request,
             String normalizedAccount,
             String requestedCurrency) {
+        // A customer books its own organisation's quotes; an operator any (ADR 0018).
         FreightQuote quote = quotes.findById(request.quoteId())
+                .filter(found -> caller.mayAccess(found.getOwnerOrganizationId()))
                 .orElseThrow(() -> new QuoteNotFoundException(request.quoteId()));
         Instant now = clock.instant();
         if (!now.isBefore(quote.getValidUntil())) {
@@ -180,7 +212,7 @@ public class ShipmentService {
                 declaredValueCurrency,
                 request.plannedPickupDate(),
                 now
-        );
+        ).bookedBy(caller.actor(), bookingOrganization, bookingOrganization);
         Shipment saved = shipments.saveAndFlush(shipment);
         // Same transaction as the booking: the AUTHORISE command exists if and only if the shipment does (ADR 0012).
         // The hold is asked to last until after the planned pickup, as far as one request may reach (ADR 0011).
@@ -193,14 +225,30 @@ public class ShipmentService {
     }
 
     @Transactional(readOnly = true)
-    public ShipmentResponse getShipment(UUID id) {
-        Shipment shipment = shipments.findById(id)
+    public ShipmentResponse getShipment(Caller caller, UUID id) {
+        return ShipmentResponse.from(visible(caller, id), caller);
+    }
+
+    /** The shipment if this caller may see it; otherwise the same 404 as one that does not exist (ADR 0018). */
+    private Shipment visible(Caller caller, UUID id) {
+        return shipments.findById(id)
+                .filter(found -> found.visibleTo(caller))
                 .orElseThrow(() -> new ShipmentNotFoundException(id.toString()));
-        return ShipmentResponse.from(shipment);
+    }
+
+    /** Operators assign the carrier whose integration reports the shipment's tracking events (ADR 0018). */
+    @Transactional
+    public ShipmentResponse assignCarrier(Caller caller, UUID id, String carrierId, String ifMatchHeader) {
+        Shipment shipment = visible(caller, id);
+        ETags.assertMatches(ifMatchHeader, shipment.getVersion());
+        shipment.assignCarrier(carrierId, clock.instant());
+        Shipment saved = shipments.saveAndFlush(shipment);
+        log.info("Assigned carrier {} to shipment {}", carrierId, id);
+        return ShipmentResponse.from(saved, caller);
     }
 
     @Transactional(readOnly = true)
-    public ShipmentPageResponse listShipments(ShipmentStatus status, String rawCursor, int size) {
+    public ShipmentPageResponse listShipments(Caller caller, ShipmentStatus status, String rawCursor, int size) {
         if (size < 1 || size > 100) {
             throw new InvalidShipmentCursorException("Page size must be between 1 and 100");
         }
@@ -210,21 +258,27 @@ public class ShipmentService {
                 : null;
 
         Pageable pageable = PageRequest.of(0, size + 1);
+        // Only what this caller may see (ADR 0018): its organisation's shipments, a carrier's assigned ones, or all.
+        boolean everything = caller.seesEverything();
+        UUID organization = caller.isCustomer() ? caller.requireOrganization() : null;
+        String carrier = caller.isCarrier() ? caller.clientId() : null;
         List<Shipment> rows;
         if (status == null) {
             rows = cursor == null
-                    ? shipments.findFirstPage(pageable)
-                    : shipments.findPageAfter(cursor.createdAt(), cursor.shipmentId(), pageable);
+                    ? shipments.findFirstPage(everything, organization, carrier, pageable)
+                    : shipments.findPageAfter(everything, organization, carrier, cursor.createdAt(), cursor.shipmentId(),
+                    pageable);
         } else {
             rows = cursor == null
-                    ? shipments.findFirstPageByStatus(status, pageable)
-                    : shipments.findPageByStatusAfter(status, cursor.createdAt(), cursor.shipmentId(), pageable);
+                    ? shipments.findFirstPageByStatus(everything, organization, carrier, status, pageable)
+                    : shipments.findPageByStatusAfter(everything, organization, carrier, status, cursor.createdAt(),
+                    cursor.shipmentId(), pageable);
         }
 
         boolean hasMore = rows.size() > size;
         List<Shipment> pageRows = hasMore ? rows.subList(0, size) : rows;
         List<ShipmentResponse> items = pageRows.stream()
-                .map(ShipmentResponse::from)
+                .map(row -> ShipmentResponse.from(row, caller))
                 .toList();
 
         String nextCursor = null;
@@ -236,18 +290,22 @@ public class ShipmentService {
     }
 
     @Transactional
-    public ShipmentResponse cancelShipment(UUID id, CancelShipmentRequest request, String ifMatchHeader) {
-        Shipment shipment = shipments.findById(id)
-                .orElseThrow(() -> new ShipmentNotFoundException(id.toString()));
+    public ShipmentResponse cancelShipment(Caller caller, UUID id, CancelShipmentRequest request, String ifMatchHeader) {
+        Shipment shipment = visible(caller, id);
+        // The payer's organisation sees the shipment but did not book it: only the booking organisation cancels.
+        if (caller.isCustomer() && !caller.requireOrganization().equals(shipment.getBookingOrganizationId())) {
+            throw new AccessDeniedException("Only the organisation that booked the shipment may cancel it");
+        }
         ETags.assertMatches(ifMatchHeader, shipment.getVersion());
 
         String reason = request != null ? request.reason() : null;
         shipment.cancel(reason, clock.instant());
+        shipment.cancelledBy(caller.actor());
         settlePayment(shipment);
         Shipment saved = shipments.saveAndFlush(shipment);
         log.info("Cancelled shipment {} (trackingNumber={}, version={})",
                 saved.getId(), saved.getTrackingNumber(), saved.getVersion());
-        return ShipmentResponse.from(saved);
+        return ShipmentResponse.from(saved, caller);
     }
 
     /**
@@ -267,11 +325,12 @@ public class ShipmentService {
             maxRetries = 6, delay = 20, jitter = 20, multiplier = 2, maxDelay = 500)
     @Transactional
     public TrackingEventResponse recordTrackingEvent(
+            Caller caller,
             UUID shipmentId,
             RecordTrackingEventRequest request,
             String ifMatchHeader) {
-        Shipment shipment = shipments.findById(shipmentId)
-                .orElseThrow(() -> new ShipmentNotFoundException(shipmentId.toString()));
+        // Only the assigned carrier, or an operator (ADR 0018): another carrier gets the 404 of a missing shipment.
+        Shipment shipment = visible(caller, shipmentId);
 
         String normalizedLoc = request.location().trim().toUpperCase(Locale.ROOT);
         Location location = locations.findById(normalizedLoc)
@@ -295,15 +354,16 @@ public class ShipmentService {
         List<UUID> inserted = jdbcTemplate.queryForList("""
                 INSERT INTO tracking_events (id, shipment_id, carrier_event_id, event_type, target_status,
                     location_unlocode, description, occurred_at, recorded_at, applied_to_status,
-                    outcome, outcome_reason, skipped_statuses)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    outcome, outcome_reason, skipped_statuses, recorded_by_subject, recorded_by_client_id, request_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (shipment_id, carrier_event_id) WHERE carrier_event_id IS NOT NULL DO NOTHING
                 RETURNING id
                 """, UUID.class,
                 eventId, shipmentId, carrierEventId, request.eventType().trim(), request.targetStatus().name(),
                 location.getUnlocode(), request.description().trim(), Timestamp.from(request.occurredAt()),
                 Timestamp.from(now), decision.isApplied(), decision.outcome().name(), decision.reason(),
-                TrackingEvent.joinSkipped(decision.skipped()));
+                TrackingEvent.joinSkipped(decision.skipped()),
+                caller.subject(), caller.clientId(), caller.actor().requestId());
 
         if (inserted.isEmpty()) {
             // A concurrent request with the same carrierEventId committed first: its event stands, ours is dropped.

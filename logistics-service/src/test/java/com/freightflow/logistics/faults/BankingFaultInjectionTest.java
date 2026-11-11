@@ -51,6 +51,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>Not an {@code IntegrationTest}: that base class points banking at WireMock, and this one needs the real thing.
  *
+ * <p>Since Phase 3 banking validates every token (ADR 0017) and logistics fetches its own from Keycloak (ADR 0019),
+ * so a real Keycloak with the repository's realm runs on the same network. Every call needs a fresh token here
+ * (refresh skew 299 s on 300 s tokens), so the Keycloak-down test exercises the token request on every attempt.
+ *
  * <p>Needs the banking image: {@code docker compose build banking-service} (or {@code -Dbanking.image=...}).
  */
 @SpringBootTest(properties = {
@@ -64,9 +68,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "resilience4j.circuitbreaker.instances.banking.sliding-window-size=4",
         "resilience4j.circuitbreaker.instances.banking.minimum-number-of-calls=4",
         "resilience4j.circuitbreaker.instances.banking.wait-duration-in-open-state=2s",
-        "resilience4j.circuitbreaker.instances.banking.permitted-number-of-calls-in-half-open-state=2"
+        "resilience4j.circuitbreaker.instances.banking.permitted-number-of-calls-in-half-open-state=2",
+        "freightflow.logistics.banking.token.refresh-skew=299s"
 })
 @AutoConfigureMockMvc
+@org.springframework.context.annotation.Import(com.freightflow.logistics.support.TestSecurity.class)
 @ImportTestcontainers(SharedContainers.class)
 @Testcontainers(disabledWithoutDocker = true)
 class BankingFaultInjectionTest {
@@ -74,6 +80,11 @@ class BankingFaultInjectionTest {
     private static final String BANKING_IMAGE = System.getProperty("banking.image", "freightflow-banking-service:latest");
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final Network NETWORK = Network.newNetwork();
+    private static final String TEST_OPERATOR = "fault-test-operator";
+    private static final String TEST_OPERATOR_SECRET = "fault-test-operator-secret";
+
+    static final dasniko.testcontainers.keycloak.KeycloakContainer KEYCLOAK =
+            com.freightflow.logistics.support.RealmKeycloak.container(NETWORK);
 
     static final PostgreSQLContainer BANKING_DB = new PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"))
             .withNetwork(NETWORK)
@@ -94,11 +105,15 @@ class BankingFaultInjectionTest {
     private static Proxy proxy;
 
     static {
+        KEYCLOAK.start();
+        com.freightflow.logistics.support.RealmKeycloak.addOperatorTestClient(KEYCLOAK, TEST_OPERATOR, TEST_OPERATOR_SECRET);
         BANKING_DB.start();
         BANKING.withEnv(Map.of(
                 "BANKING_DB_URL", "jdbc:postgresql://banking-db:5432/banking",
                 "BANKING_DB_USER", BANKING_DB.getUsername(),
-                "BANKING_DB_PASSWORD", BANKING_DB.getPassword()));
+                "BANKING_DB_PASSWORD", BANKING_DB.getPassword(),
+                "KEYCLOAK_ISSUER_URI", com.freightflow.logistics.support.RealmKeycloak.ISSUER,
+                "KEYCLOAK_JWK_SET_URI", "http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs"));
         BANKING.start();
         TOXIPROXY.start();
         try {
@@ -113,6 +128,9 @@ class BankingFaultInjectionTest {
     static void bankingBehindToxiproxy(DynamicPropertyRegistry registry) {
         registry.add("spring.http.serviceclient.banking.base-url",
                 () -> "http://" + TOXIPROXY.getHost() + ":" + TOXIPROXY.getMappedPort(8666));
+        registry.add("KEYCLOAK_TOKEN_URI", () -> com.freightflow.logistics.support.RealmKeycloak.tokenUri(KEYCLOAK));
+        registry.add("spring.security.oauth2.client.registration.banking.client-secret",
+                () -> com.freightflow.logistics.support.RealmKeycloak.LOGISTICS_SECRET);
     }
 
     @AfterAll
@@ -120,6 +138,7 @@ class BankingFaultInjectionTest {
         TOXIPROXY.stop();
         BANKING.stop();
         BANKING_DB.stop();
+        KEYCLOAK.stop();
     }
 
     @Autowired
@@ -134,8 +153,25 @@ class BankingFaultInjectionTest {
     @Autowired
     private CircuitBreakerRegistry breakers;
 
-    /** Talks to banking directly, around the proxy, to set up accounts and to check the outcome. */
-    private final RestClient banking = RestClient.create("http://" + BANKING.getHost() + ":" + BANKING.getMappedPort(8081));
+    /** Talks to banking directly, around the proxy, as an operator: sets accounts up and checks the ledger. */
+    private final RestClient banking = RestClient.builder()
+            .baseUrl("http://" + BANKING.getHost() + ":" + BANKING.getMappedPort(8081))
+            .requestInterceptor((request, body, execution) -> {
+                request.getHeaders().setBearerAuth(com.freightflow.logistics.support.RealmKeycloak.clientToken(
+                        KEYCLOAK, TEST_OPERATOR, TEST_OPERATOR_SECRET));
+                return execution.execute(request, body);
+            })
+            .build();
+
+    /** Holds are logistics' to read (ADR 0019): its own token. */
+    private final RestClient bankingAsLogistics = RestClient.builder()
+            .baseUrl("http://" + BANKING.getHost() + ":" + BANKING.getMappedPort(8081))
+            .requestInterceptor((request, body, execution) -> {
+                request.getHeaders().setBearerAuth(com.freightflow.logistics.support.RealmKeycloak.clientToken(
+                        KEYCLOAK, "logistics-service", com.freightflow.logistics.support.RealmKeycloak.LOGISTICS_SECRET));
+                return execution.execute(request, body);
+            })
+            .build();
 
     private String payerAccount;
 
@@ -149,7 +185,8 @@ class BankingFaultInjectionTest {
         // Commands an earlier test left pending must not be claimed by this one and trip its breaker.
         jdbcTemplate.update("UPDATE shipment_payments SET next_attempt_at = now() + interval '1 day' WHERE status = 'PENDING'");
         JsonNode account = JSON.readTree(banking.post().uri("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON)
-                .body("{\"holderReference\":\"Fault payer\",\"currency\":\"EUR\"}").retrieve().body(String.class));
+                .body("{\"currency\":\"EUR\",\"organizationId\":\"0193a0e0-0000-7000-8000-00000000a001\"}")
+                .retrieve().body(String.class));
         payerAccount = account.get("accountNumber").asString();
         banking.post().uri("/api/v1/accounts/{id}/deposits", account.get("id").asString())
                 .header("Idempotency-Key", "fault-fund-" + UUID.randomUUID())
@@ -275,6 +312,33 @@ class BankingFaultInjectionTest {
         }
     }
 
+    @Test
+    void keycloakDownWhileLogisticsNeedsAFreshTokenKeepsTheCommandPendingAndLosesNothing() throws Exception {
+        String shipment = book();
+        var docker = KEYCLOAK.getDockerClient();
+        docker.pauseContainerCmd(KEYCLOAK.getContainerId()).exec();
+        try {
+            for (int run = 0; run < 3; run++) {
+                makeDue(shipment);
+                relay.relayOnce();
+            }
+            // No token, so nothing was sent: still pending, and no attempt used up (ADR 0019).
+            assertThat(commandStatus(shipment)).isEqualTo("PENDING");
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT attempts FROM shipment_payments WHERE shipment_id = ?::uuid AND command = 'AUTHORISE'",
+                    Integer.class, shipment)).isZero();
+            assertThat(shipmentStatus(shipment)).isEqualTo("AWAITING_PAYMENT");
+        } finally {
+            docker.unpauseContainerCmd(KEYCLOAK.getContainerId()).exec();
+        }
+        breakers.circuitBreaker("banking").reset();
+        makeDue(shipment);
+        relay.relayOnce();
+
+        assertThat(shipmentStatus(shipment)).isEqualTo("BOOKED");
+        assertExactlyOneHoldAndACleanLedger(shipment);
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /** Books a shipment paid from the funded payer: its AUTHORISE command is the only one this test adds. */
@@ -287,7 +351,7 @@ class BankingFaultInjectionTest {
                                 {"quoteId":"%s","shipper":{"name":"Namib Fisheries","address":"Walvis Bay","contact":"x"},
                                  "consignee":{"name":"Hanseatic Seafood","address":"Hamburg","contact":"y"},
                                  "payerAccountNumber":"%s","goodsDescription":"Frozen hake","declaredValue":1000.00,
-                                 "plannedPickupDate":"%s"}
+                                 "plannedPickupDate":"%s","bookingOrganizationId":"0193a0e0-0000-7000-8000-00000000a001"}
                                 """.formatted(quote, payerAccount, LogisticsFixtures.defaultPickup())))
                 .andExpect(status().isCreated()).andReturn());
         return booked.get("id").asString();
@@ -324,7 +388,7 @@ class BankingFaultInjectionTest {
     }
 
     private List<JsonNode> holds(String shipment) {
-        JsonNode list = JSON.readTree(banking.get().uri("/api/v1/holds?reference={ref}", "SHIPMENT " + shipment)
+        JsonNode list = JSON.readTree(bankingAsLogistics.get().uri("/api/v1/holds?reference={ref}", "SHIPMENT " + shipment)
                 .retrieve().body(String.class));
         List<JsonNode> holds = new ArrayList<>();
         list.forEach(holds::add);

@@ -19,38 +19,53 @@ public interface ShipmentRepository extends JpaRepository<Shipment, UUID> {
 
     @Query("""
             SELECT s FROM Shipment s
+            WHERE (:everything = true OR s.bookingOrganizationId = :org OR s.payerOrganizationId = :org OR s.carrierId = :carrier)
             ORDER BY s.createdAt DESC, s.id DESC
             """)
-    List<Shipment> findFirstPage(Pageable pageable);
+    List<Shipment> findFirstPage(
+            @Param("everything") boolean everything,
+            @Param("org") UUID org,
+            @Param("carrier") String carrier,
+            Pageable pageable);
 
     @Query("""
             SELECT s FROM Shipment s
-            WHERE s.createdAt < :cursorCreatedAt
-               OR (s.createdAt = :cursorCreatedAt AND s.id < :cursorId)
+            WHERE (:everything = true OR s.bookingOrganizationId = :org OR s.payerOrganizationId = :org OR s.carrierId = :carrier)
+              AND (s.createdAt < :cursorCreatedAt
+                   OR (s.createdAt = :cursorCreatedAt AND s.id < :cursorId))
             ORDER BY s.createdAt DESC, s.id DESC
             """)
     List<Shipment> findPageAfter(
+            @Param("everything") boolean everything,
+            @Param("org") UUID org,
+            @Param("carrier") String carrier,
             @Param("cursorCreatedAt") Instant cursorCreatedAt,
             @Param("cursorId") UUID cursorId,
             Pageable pageable);
 
     @Query("""
             SELECT s FROM Shipment s
-            WHERE s.status = :status
+            WHERE s.status = :status AND (:everything = true OR s.bookingOrganizationId = :org OR s.payerOrganizationId = :org OR s.carrierId = :carrier)
             ORDER BY s.createdAt DESC, s.id DESC
             """)
     List<Shipment> findFirstPageByStatus(
+            @Param("everything") boolean everything,
+            @Param("org") UUID org,
+            @Param("carrier") String carrier,
             @Param("status") ShipmentStatus status,
             Pageable pageable);
 
     @Query("""
             SELECT s FROM Shipment s
-            WHERE s.status = :status
+            WHERE s.status = :status AND (:everything = true OR s.bookingOrganizationId = :org OR s.payerOrganizationId = :org OR s.carrierId = :carrier)
               AND (s.createdAt < :cursorCreatedAt
                    OR (s.createdAt = :cursorCreatedAt AND s.id < :cursorId))
             ORDER BY s.createdAt DESC, s.id DESC
             """)
     List<Shipment> findPageByStatusAfter(
+            @Param("everything") boolean everything,
+            @Param("org") UUID org,
+            @Param("carrier") String carrier,
             @Param("status") ShipmentStatus status,
             @Param("cursorCreatedAt") Instant cursorCreatedAt,
             @Param("cursorId") UUID cursorId,

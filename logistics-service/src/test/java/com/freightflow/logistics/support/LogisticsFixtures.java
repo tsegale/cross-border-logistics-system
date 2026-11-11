@@ -94,9 +94,10 @@ public final class LogisticsFixtures {
                           "goodsDescription": "Chilled Atlantic kingklip fillets",
                           "declaredValue": 42000.00,
                           "declaredValueCurrency": "EUR",
-                          "plannedPickupDate": "%s"
+                          "plannedPickupDate": "%s",
+                          "bookingOrganizationId": "%s"
                         }
-                        """.formatted(quoteId, PAYER_ACCOUNT, plannedPickup));
+                        """.formatted(quoteId, PAYER_ACCOUNT, plannedPickup, TestCallers.NAMIB));
     }
 
     public JsonNode bookShipment() throws Exception {

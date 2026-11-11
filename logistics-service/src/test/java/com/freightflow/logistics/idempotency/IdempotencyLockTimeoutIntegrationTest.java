@@ -1,5 +1,6 @@
 package com.freightflow.logistics.idempotency;
 
+import com.freightflow.logistics.support.TestCallers;
 import com.freightflow.logistics.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,8 +21,7 @@ class IdempotencyLockTimeoutIntegrationTest extends IntegrationTest {
 
     @Test
     void idempotencyLockTimeoutDoesNotLeakIntoTheRestOfTheTransaction() {
-        String seenInsideAction = idempotencyService.execute(
-                "lock-timeout-test",
+        String seenInsideAction = idempotencyService.execute("lock-timeout-test", TestCallers.OPERATOR,
                 "key-" + UUID.randomUUID(),
                 Map.of("k", "v"),
                 201,

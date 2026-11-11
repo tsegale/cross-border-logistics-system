@@ -20,6 +20,11 @@ public class IdempotencyRecord {
     @Column(name = "scope", length = 64, nullable = false, updatable = false)
     private String scope;
 
+    /** Whose key it is (ADR 0020): client id plus organisation or subject. */
+    @Id
+    @Column(name = "caller", length = 200, nullable = false, updatable = false)
+    private String caller;
+
     @Id
     @Column(name = "idempotency_key", length = 128, nullable = false, updatable = false)
     private String idempotencyKey;
@@ -48,6 +53,7 @@ public class IdempotencyRecord {
 
     public static IdempotencyRecord completed(
             String scope,
+            String caller,
             String idempotencyKey,
             String requestHash,
             int httpStatus,
@@ -56,6 +62,7 @@ public class IdempotencyRecord {
             Instant expiresAt) {
         IdempotencyRecord record = new IdempotencyRecord();
         record.scope = Objects.requireNonNull(scope, "scope");
+        record.caller = Objects.requireNonNull(caller, "caller");
         record.idempotencyKey = Objects.requireNonNull(idempotencyKey, "idempotencyKey");
         record.requestHash = Objects.requireNonNull(requestHash, "requestHash");
         record.status = IdempotencyStatus.COMPLETED;
