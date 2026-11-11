@@ -1,0 +1,122 @@
+name: Benchmarks
+
+# Runs the benchmark workloads on a GitHub-hosted runner, so the numbers describe the system on a machine doing
+# nothing else, not a busy laptop. Started by hand (Actions > Benchmarks > Run workflow); never on push.
+# The runner's CPU, core count and memory are measured in the first step and uploaded with the results.
+
+on:
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: "Comma-separated: transfers, hot-accounts, payment-flow, system-balance"
+        default: "transfers,hot-accounts,payment-flow,system-balance"
+        required: true
+      rounds:
+        description: "Rounds per mode for transfers and hot-accounts (order rotates between rounds)"
+        default: "3"
+        required: true
+
+concurrency:
+  group: benchmarks
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  K6_VERSION: v2.3.0
+  COMPOSE: docker compose -f docker-compose.yml -f benchmarks/compose.bench.yml
+
+jobs:
+  benchmarks:
+    name: Benchmarks on a hosted runner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Record the runner
+        run: |
+          mkdir -p benchmarks/out
+          cpu="$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
+          vcpus="$(nproc)"
+          mem_mib="$(free -m | awk '/^Mem:/ {print $2}')"
+          printf '{"runner":"%s","image":"%s","cpu":"%s","vcpus":%s,"memory_mib":%s,"docker":"%s"}\n' \
+            "${RUNNER_NAME}" "${ImageOS:-ubuntu}-${ImageVersion:-unknown}" "$cpu" "$vcpus" "$mem_mib" \
+            "$(docker version --format '{{.Server.Version}}')" | tee benchmarks/out/runner.json
+          {
+            echo "## Runner"
+            echo
+            echo "| CPU | vCPUs | Memory | Image |"
+            echo "| --- | ---: | ---: | --- |"
+            echo "| $cpu | $vcpus | ${mem_mib} MiB | ${ImageOS:-ubuntu} ${ImageVersion:-} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install k6 ${{ env.K6_VERSION }}
+        run: |
+          curl -fsSL "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/k6-${K6_VERSION}-linux-amd64" >> "$GITHUB_PATH"
+
+      - name: Start the stack with the benchmark overrides
+        run: |
+          sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
+          $COMPOSE up -d --wait --build
+
+      - name: Transfers (ADR 0005)
+        if: contains(inputs.suites, 'transfers')
+        env:
+          BENCH_ROUNDS: ${{ inputs.rounds }}
+        run: |
+          python3 benchmarks/run_transfer_contention.py 2>&1 | tee benchmarks/out/transfers.log
+          mkdir -p benchmarks/out/transfers
+          find benchmarks/out -maxdepth 1 -name '*.json' ! -name runner.json -exec mv {} benchmarks/out/transfers/ \;
+
+      - name: Hot system accounts (ADR 0010)
+        if: contains(inputs.suites, 'hot-accounts')
+        env:
+          BENCH_ROUNDS: ${{ inputs.rounds }}
+          BENCH_SWITCH_ENV: SYSTEM_ACCOUNT_POSTING_MODE
+          BENCH_SWITCH_INFO: transfer.systemPostingMode
+          BENCH_STRATEGIES: locked,unlocked,sharded
+          BENCH_WORKLOADS: deposits,fx_transfers
+        run: |
+          python3 benchmarks/run_transfer_contention.py 2>&1 | tee benchmarks/out/hot-accounts.log
+          mkdir -p benchmarks/out/hot-accounts
+          find benchmarks/out -maxdepth 1 -name '*.json' ! -name runner.json -exec mv {} benchmarks/out/hot-accounts/ \;
+          # Back to the default mode for the suites that follow.
+          $COMPOSE up -d --wait --force-recreate banking-service
+
+      - name: Payment flow (ADR 0012)
+        if: contains(inputs.suites, 'payment-flow')
+        run: |
+          mkdir -p benchmarks/out/payment-flow
+          # Warm-up, discarded: the first run after a start measures the JIT, not the relay.
+          k6 run -q -e VUS=4 -e ITERATIONS_PER_VU=10 -e RUN_TAG="warmup-$GITHUB_RUN_ID" benchmarks/k6/payment_flow.js
+          for vus in 8 16; do
+            k6 run -q -e VUS=$vus -e ITERATIONS_PER_VU=25 -e RUN_TAG="run-$GITHUB_RUN_ID-$vus" \
+              -e SUMMARY_FILE="benchmarks/out/payment-flow/payment-$vus.json" benchmarks/k6/payment_flow.js
+          done
+          curl -fsS http://127.0.0.1:8080/api/v1/ledger/reconciliation | tee benchmarks/out/payment-flow/reconciliation.json
+          grep -q '"balanced":true' benchmarks/out/payment-flow/reconciliation.json
+
+      - name: System account balance read at a million postings (ADR 0010)
+        if: contains(inputs.suites, 'system-balance')
+        run: |
+          python3 benchmarks/system_balance_read.py --postings 1000000 --after 1000 --runs 30 \
+            | tee benchmarks/out/system-balance.log
+          { echo; echo "## System account balance read"; echo; cat benchmarks/out/system-balance.log; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Container memory at the end of the run
+        if: always()
+        run: docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' | tee benchmarks/out/docker-stats.txt
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: benchmarks-${{ github.run_id }}
+          path: benchmarks/out/
+          retention-days: 90
+
+      - if: failure()
+        run: $COMPOSE logs --tail 300
