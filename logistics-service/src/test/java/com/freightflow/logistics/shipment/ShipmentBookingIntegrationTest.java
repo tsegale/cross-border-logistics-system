@@ -139,11 +139,28 @@ class ShipmentBookingIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/quote-expired"));
     }
 
+    @Test
+    void plannedPickupIsRequiredAndMustBeBetweenTodayAndTheHorizon() throws Exception {
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        for (String pickup : new String[] {null, today.minusDays(1).toString(), today.plusDays(91).toString()}) {
+            String body = body(PAYER_ACCOUNT).replace("\"plannedPickupDate\":\"" + LogisticsFixtures.defaultPickup() + "\"",
+                    pickup == null ? "\"plannedPickupDate\":null" : "\"plannedPickupDate\":\"" + pickup + "\"");
+            mockMvc.perform(post("/api/v1/shipments")
+                            .header("Idempotency-Key", "pickup-" + UUID.randomUUID())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(bookShipmentRequest(quoteId, "pickup-ok-" + UUID.randomUUID(), today.plusDays(90)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plannedPickupDate").value(today.plusDays(90).toString()));
+    }
+
     private String body(String payerAccount) {
         return """
                 {"quoteId":"%s","shipper":{"name":"a","address":"b","contact":"c"},
                  "consignee":{"name":"a","address":"b","contact":"c"},"payerAccountNumber":"%s",
-                 "goodsDescription":"fish","declaredValue":100.00}
-                """.formatted(quoteId, payerAccount);
+                 "goodsDescription":"fish","declaredValue":100.00,"plannedPickupDate":"%s"}
+                """.formatted(quoteId, payerAccount, LogisticsFixtures.defaultPickup());
     }
 }

@@ -20,7 +20,10 @@ public final class Holds {
     public record CaptureHold(BigDecimal amount) {
     }
 
+    public record ExtendHold(Instant expiresAt) {
+    }
+
     public record Hold(UUID id, String status, BigDecimal amount, String currency, BigDecimal payerAmount,
-                       String payerCurrency, BigDecimal fxRate, BigDecimal capturedAmount) {
+                       String payerCurrency, BigDecimal fxRate, BigDecimal capturedAmount, Instant expiresAt) {
     }
 }

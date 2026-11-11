@@ -16,6 +16,7 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -117,6 +118,14 @@ public class Shipment {
     @Column(name = "payment_failure_detail", length = 1000)
     private String paymentFailureDetail;
 
+    /** Null for shipments booked before planned pickups existed (V7). */
+    @Column(name = "planned_pickup_date", updatable = false)
+    private LocalDate plannedPickupDate;
+
+    /** When the authorised hold expires, as banking last reported it. */
+    @Column(name = "hold_expires_at")
+    private Instant holdExpiresAt;
+
     @Version
     @Column(name = "version", nullable = false)
     private long version;
@@ -139,8 +148,10 @@ public class Shipment {
             String goodsDescription,
             BigDecimal declaredValue,
             String declaredValueCurrency,
+            LocalDate plannedPickupDate,
             Instant now) {
         Shipment s = new Shipment();
+        s.plannedPickupDate = Objects.requireNonNull(plannedPickupDate, "plannedPickupDate");
         s.trackingNumber = Objects.requireNonNull(trackingNumber, "trackingNumber");
         s.quoteId = quote.getId();
         s.originUnlocode = quote.getOriginUnlocode();
@@ -175,8 +186,9 @@ public class Shipment {
      *
      * @return true if the hold must be released
      */
-    public boolean paymentAuthorised(UUID holdId, Instant now) {
+    public boolean paymentAuthorised(UUID holdId, Instant holdExpiresAt, Instant now) {
         this.holdId = Objects.requireNonNull(holdId, "holdId");
+        this.holdExpiresAt = holdExpiresAt;
         this.updatedAt = Objects.requireNonNull(now, "now");
         if (this.status == ShipmentStatus.AWAITING_PAYMENT) {
             this.status = ShipmentStatus.BOOKED;
@@ -204,6 +216,14 @@ public class Shipment {
         this.paymentFailureType = problemType;
         this.paymentFailureDetail = detail;
         this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    /** banking moved the hold's expiry later. An older answer arriving late never moves it back. */
+    public void holdExtended(Instant holdExpiresAt, Instant now) {
+        if (this.holdExpiresAt == null || holdExpiresAt.isAfter(this.holdExpiresAt)) {
+            this.holdExpiresAt = holdExpiresAt;
+            this.updatedAt = Objects.requireNonNull(now, "now");
+        }
     }
 
     public void paymentCaptured(Instant now) {
@@ -388,6 +408,14 @@ public class Shipment {
 
     public String getPaymentFailureDetail() {
         return paymentFailureDetail;
+    }
+
+    public LocalDate getPlannedPickupDate() {
+        return plannedPickupDate;
+    }
+
+    public Instant getHoldExpiresAt() {
+        return holdExpiresAt;
     }
 
     public long getVersion() {

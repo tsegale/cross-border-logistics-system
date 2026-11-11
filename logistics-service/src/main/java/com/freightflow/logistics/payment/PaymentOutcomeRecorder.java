@@ -68,14 +68,19 @@ public class PaymentOutcomeRecorder {
         Shipment shipment = shipment(command);
         switch (command.getCommand()) {
             case AUTHORISE -> {
-                if (shipment.paymentAuthorised(ok.holdId(), now)) {
+                if (shipment.paymentAuthorised(ok.holdId(), ok.holdExpiresAt(), now)) {
                     // Cancelled while the hold was in flight: give the money back.
                     outbox.enqueue(shipment.getId(), PaymentCommandType.RELEASE, command.getAmount(),
-                            command.getCurrency(), command.getPayerAccountNumber(), ok.holdId());
+                            command.getCurrency(), command.getPayerAccountNumber(), ok.holdId(), null);
                 }
             }
             case CAPTURE -> shipment.paymentCaptured(now);
             case RELEASE -> shipment.paymentReleased(now);
+            case EXTEND -> {
+                if (ok.holdExpiresAt() != null) {
+                    shipment.holdExtended(ok.holdExpiresAt(), now);
+                }
+            }
         }
         log.info("{} for shipment {} succeeded (hold {}, attempt {})", command.getCommand(), shipment.getId(),
                 ok.holdId(), command.getAttempts());

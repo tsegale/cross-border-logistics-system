@@ -52,6 +52,10 @@ public class PaymentCommand {
     @Column(name = "hold_id")
     private UUID holdId;
 
+    /** The expiry an AUTHORISE or EXTEND asks for; null for other commands and for shipments booked before V7. */
+    @Column(name = "expires_at", updatable = false)
+    private Instant expiresAt;
+
     @Column(name = "attempts", nullable = false)
     private int attempts;
 
@@ -166,6 +170,10 @@ public class PaymentCommand {
 
     public UUID getHoldId() {
         return holdId;
+    }
+
+    public Instant getExpiresAt() {
+        return expiresAt;
     }
 
     public int getAttempts() {

@@ -89,6 +89,16 @@ public final class BankingStubs {
             "/api/v1/holds/" + HOLD_ID + "/capture", "{\"amount\":524.75}", 409, "application/problem+json",
             problem(409, "hold-expired", "Hold has expired",
                     "\"holdId\":\"" + HOLD_ID + "\",\"expiresAt\":\"2026-11-18T10:00:00Z\""));
+    public static final Interaction EXTENDED = new Interaction("hold extended", "POST",
+            "/api/v1/holds/" + HOLD_ID + "/extension", "{\"expiresAt\":\"2026-12-10T00:00:00Z\"}", 200,
+            "application/json", hold("ACTIVE", "null").replace("2026-11-18T10:00:00Z", "2026-12-10T00:00:00Z"));
+    public static final Interaction EXTEND_AFTER_CAPTURE = new Interaction("extension of a captured hold", "POST",
+            "/api/v1/holds/" + HOLD_ID + "/extension", "{\"expiresAt\":\"2026-12-10T00:00:00Z\"}", 409,
+            "application/problem+json",
+            problem(409, "hold-not-active", "Hold is not active", "\"holdId\":\"" + HOLD_ID + "\",\"holdStatus\":\"CAPTURED\""));
+    public static final Interaction EXTEND_BEYOND_LIFETIME = new Interaction("extension beyond the hold's lifetime",
+            "POST", "/api/v1/holds/" + HOLD_ID + "/extension", "{\"expiresAt\":\"2026-12-10T00:00:00Z\"}", 422,
+            "application/problem+json", problem(422, "invalid-hold", "Invalid hold", null));
     public static final Interaction RELEASED = new Interaction("hold released", "POST",
             "/api/v1/holds/" + HOLD_ID + "/release", null, 200, "application/json", hold("RELEASED", "null"));
     public static final Interaction FX_RATES_NAD = new Interaction("indicative rates from NAD", "GET",
@@ -100,7 +110,8 @@ public final class BankingStubs {
 
     public static List<Interaction> all() {
         return List.of(HOLD_CREATED, HOLD_INSUFFICIENT_FUNDS, HOLD_ACCOUNT_NOT_FOUND, HOLD_IN_FLIGHT,
-                BANKING_UNAVAILABLE, CAPTURED, CAPTURE_ALREADY_DONE, CAPTURE_HOLD_EXPIRED, RELEASED, FX_RATES_NAD);
+                BANKING_UNAVAILABLE, CAPTURED, CAPTURE_ALREADY_DONE, CAPTURE_HOLD_EXPIRED, EXTENDED,
+                EXTEND_AFTER_CAPTURE, EXTEND_BEYOND_LIFETIME, RELEASED, FX_RATES_NAD);
     }
 
     // ------------------------------------------------------------------ WireMock mappings
@@ -121,6 +132,12 @@ public final class BankingStubs {
     public static MappingBuilder capture() {
         return post(urlPathMatching("/api/v1/holds/[0-9a-f-]+/capture"))
                 .withHeader("Idempotency-Key", matching("shipment-.+-capture"));
+    }
+
+    public static MappingBuilder extend() {
+        return post(urlPathMatching("/api/v1/holds/[0-9a-f-]+/extension"))
+                .withHeader("Idempotency-Key", matching("shipment-.+-extend-[0-9]+"))
+                .withHeader("Content-Type", matching("application/json.*"));
     }
 
     public static MappingBuilder release() {

@@ -115,6 +115,7 @@ echo "   Freight Quote ID: ${QUOTE_ID} (Total: ${QUOTE_TOTAL} EUR, the tariff cu
 
 # 6. Book a shipment from the quote (starts in AWAITING_PAYMENT)
 echo "6. Booking shipment in AWAITING_PAYMENT status..."
+PICKUP_DATE="$(date -u -d '+7 days' +%F 2>/dev/null || date -u -v+7d +%F)"  # GNU date, then BSD date
 SHIP_RESP="$(curl -fsS -X POST "${GATEWAY_URL}/api/v1/shipments" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: seed-ship-${RUN_TAG}" \
@@ -133,7 +134,8 @@ SHIP_RESP="$(curl -fsS -X POST "${GATEWAY_URL}/api/v1/shipments" \
     \"payerAccountNumber\": \"${EUR_ACC}\",
     \"goodsDescription\": \"Frozen Merluccius capensis hake fillets (2 pallets)\",
     \"declaredValue\": 18500.00,
-    \"declaredValueCurrency\": \"EUR\"
+    \"declaredValueCurrency\": \"EUR\",
+    \"plannedPickupDate\": \"${PICKUP_DATE}\"
   }")"
 SHIP_ID="$(extract_json_field "$SHIP_RESP" "id")"
 TRACK_NUM="$(extract_json_field "$SHIP_RESP" "trackingNumber")"

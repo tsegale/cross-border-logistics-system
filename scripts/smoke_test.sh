@@ -182,7 +182,8 @@ call 422 POST /api/v1/quotes \
 expect .type https://freightflow.dev/problems/nothing-to-quote
 
 # ---------------------------------------------------------------- shipments and tracking
-SHIPMENT="{\"quoteId\":\"${QUOTE_ID}\",\"shipper\":{\"name\":\"Namib Fisheries\",\"address\":\"Walvis Bay\",\"contact\":\"exports@example.na\"},\"consignee\":{\"name\":\"Hanseatic Seafood\",\"address\":\"Hamburg\",\"contact\":\"imports@example.de\"},\"payerAccountNumber\":\"${EUR_ACC}\",\"goodsDescription\":\"Frozen hake fillets\",\"declaredValue\":18500.00,\"declaredValueCurrency\":\"EUR\"}"
+PICKUP_DATE="$(date -u -d '+7 days' +%F 2>/dev/null || date -u -v+7d +%F)"  # GNU date, then BSD date
+SHIPMENT="{\"quoteId\":\"${QUOTE_ID}\",\"shipper\":{\"name\":\"Namib Fisheries\",\"address\":\"Walvis Bay\",\"contact\":\"exports@example.na\"},\"consignee\":{\"name\":\"Hanseatic Seafood\",\"address\":\"Hamburg\",\"contact\":\"imports@example.de\"},\"payerAccountNumber\":\"${EUR_ACC}\",\"goodsDescription\":\"Frozen hake fillets\",\"declaredValue\":18500.00,\"declaredValueCurrency\":\"EUR\",\"plannedPickupDate\":\"${PICKUP_DATE}\"}"
 call 201 POST /api/v1/shipments "$SHIPMENT" "Idempotency-Key: smoke-ship-${RUN_ID}"
 SHIP_ID="$(field .id)"; TRACK_NO="$(field .trackingNumber)"
 expect .status AWAITING_PAYMENT

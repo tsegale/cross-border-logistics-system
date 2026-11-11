@@ -18,6 +18,8 @@ const ITERATIONS_PER_VU = parseInt(__ENV.ITERATIONS_PER_VU || '25', 10);
 const SUMMARY_FILE = __ENV.SUMMARY_FILE || '';
 const RUN_TAG = __ENV.RUN_TAG || `${Date.now()}`;
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
+// A week ahead: the first hold covers it, so the benchmark measures authorisation, not extensions.
+const PICKUP_DATE = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
 
 export const options = {
   setupTimeout: '10m',
@@ -66,6 +68,7 @@ export default function (data) {
     payerAccountNumber: data.payers[vu],
     goodsDescription: 'Frozen hake fillets',
     declaredValue: '18500.00',
+    plannedPickupDate: PICKUP_DATE,
   }, { 'Idempotency-Key': `payment-bench-${RUN_TAG}-${vu}-${exec.vu.iterationInScenario}` });
   bookingDuration.add(res.timings.duration);
   if (!check(res, { 'booking accepted (201)': (r) => r.status === 201 })) {

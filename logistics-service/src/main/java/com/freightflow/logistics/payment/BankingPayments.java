@@ -42,12 +42,17 @@ public class BankingPayments {
             Holds.Hold hold = calls.payment(() -> switch (command.getCommand()) {
                 case AUTHORISE -> banking.createHold(command.getIdempotencyKey(), new Holds.CreateHold(
                         command.getPayerAccountNumber(), command.roundedAmount(), command.getCurrency(),
-                        "SHIPMENT " + command.getShipmentId(), null));
+                        "SHIPMENT " + command.getShipmentId(), command.getExpiresAt()));
                 case CAPTURE -> banking.capture(command.getHoldId(), command.getIdempotencyKey(),
                         new Holds.CaptureHold(command.roundedAmount()));
                 case RELEASE -> banking.release(command.getHoldId(), command.getIdempotencyKey());
+                case EXTEND -> banking.extend(command.getHoldId(), command.getIdempotencyKey(),
+                        new Holds.ExtendHold(command.getExpiresAt()));
             });
-            return new PaymentOutcome.Succeeded(hold == null ? command.getHoldId() : hold.id());
+            if (hold == null) {
+                return new PaymentOutcome.Succeeded(command.getHoldId(), null);
+            }
+            return new PaymentOutcome.Succeeded(hold.id(), hold.expiresAt());
         } catch (CallNotPermittedException | BulkheadFullException ex) {
             // The breaker is open or the bulkhead full: the request was never sent.
             return new PaymentOutcome.Unknown(ex.getClass().getSimpleName() + ": " + ex.getMessage(), false);
@@ -68,18 +73,20 @@ public class BankingPayments {
             return new PaymentOutcome.Unknown("HTTP " + status + " " + type, true);
         }
         // A capture or release that already happened (its first response was lost and the idempotency record has
-        // since expired) reports the hold as no longer active: that is the outcome we wanted.
+        // since expired) reports the hold as no longer active: that is the outcome we wanted. An extension of a
+        // hold that was captured or released meanwhile has nothing left to do.
         if ((PROBLEMS + "hold-not-active").equals(type)) {
             String holdStatus = problem.path("holdStatus").asString("");
             boolean done = switch (command.getCommand()) {
                 case CAPTURE -> "CAPTURED".equals(holdStatus);
                 case RELEASE -> "RELEASED".equals(holdStatus) || "EXPIRED".equals(holdStatus);
+                case EXTEND -> "CAPTURED".equals(holdStatus) || "RELEASED".equals(holdStatus);
                 case AUTHORISE -> false;
             };
             if (done) {
-                log.info("{} for shipment {} was already applied (hold {})", command.getCommand(),
+                log.info("{} for shipment {} was already applied or is moot (hold {})", command.getCommand(),
                         command.getShipmentId(), holdStatus);
-                return new PaymentOutcome.Succeeded(command.getHoldId());
+                return new PaymentOutcome.Succeeded(command.getHoldId(), null);
             }
         }
         return new PaymentOutcome.Refused(type.isEmpty() ? "HTTP " + status : type, detail);

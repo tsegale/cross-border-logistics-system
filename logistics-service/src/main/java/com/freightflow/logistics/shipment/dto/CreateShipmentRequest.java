@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
 public record CreateShipmentRequest(
@@ -32,6 +33,10 @@ public record CreateShipmentRequest(
         @Positive(message = "declaredValue must be positive")
         BigDecimal declaredValue,
 
-        String declaredValueCurrency
+        String declaredValueCurrency,
+
+        /** The day the cargo is due to be picked up (UTC): the hold must last until then (ADR 0011). */
+        @NotNull(message = "plannedPickupDate is required")
+        LocalDate plannedPickupDate
 ) {
 }

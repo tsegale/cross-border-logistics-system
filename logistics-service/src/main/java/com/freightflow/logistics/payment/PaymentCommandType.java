@@ -4,5 +4,7 @@ package com.freightflow.logistics.payment;
 public enum PaymentCommandType {
     AUTHORISE,
     CAPTURE,
-    RELEASE
+    RELEASE,
+    /** Move the hold's expiry later while the shipment waits for pickup (ADR 0011). */
+    EXTEND
 }

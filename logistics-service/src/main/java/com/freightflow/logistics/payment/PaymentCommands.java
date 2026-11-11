@@ -18,9 +18,9 @@ import java.util.UUID;
  * Writes and claims payment commands (ADR 0012).
  *
  * <p>Enqueueing must join the caller's transaction, so the command commits or rolls back with the shipment change
- * that needs it: that is what makes this an outbox. Each shipment has at most one command of each type and its
- * idempotency key is derived from the shipment id, so enqueueing twice is a no-op and every retry of a command
- * carries the same key.
+ * that needs it: that is what makes this an outbox. Each shipment has at most one AUTHORISE, CAPTURE and RELEASE and
+ * at most one open EXTEND, and every key is derived from the shipment id (and an extension's target expiry), so
+ * enqueueing twice is a no-op and every retry of a command carries the same key.
  */
 @Component
 public class PaymentCommands {
@@ -37,18 +37,48 @@ public class PaymentCommands {
         return "shipment-" + shipmentId + "-" + command.name().toLowerCase(java.util.Locale.ROOT);
     }
 
+    /** The key of one extension: the target expiry makes it unique per extension and stable across retries. */
+    public static String extensionKey(UUID shipmentId, Instant expiresAt) {
+        return "shipment-" + shipmentId + "-extend-" + expiresAt.getEpochSecond();
+    }
+
+    /** AUTHORISE, CAPTURE or RELEASE; {@code expiresAt} only for AUTHORISE (null leaves banking's default). */
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(UUID shipmentId, PaymentCommandType command, BigDecimal amount, String currency,
-                        String payerAccountNumber, UUID holdId) {
+                        String payerAccountNumber, UUID holdId, Instant expiresAt) {
+        if (command == PaymentCommandType.EXTEND) {
+            throw new IllegalArgumentException("Use enqueueExtension for EXTEND");
+        }
+        insert(shipmentId, command, amount, currency, payerAccountNumber, holdId, expiresAt,
+                idempotencyKey(shipmentId, command));
+    }
+
+    /**
+     * An EXTEND for the shipment's hold. Returns false if the shipment already has an open extension: the unique
+     * index keeps it to one, also when several instances run the renewal job at once.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean enqueueExtension(UUID shipmentId, UUID holdId, BigDecimal amount, String currency,
+                                    String payerAccountNumber, Instant expiresAt) {
+        return insert(shipmentId, PaymentCommandType.EXTEND, amount, currency, payerAccountNumber, holdId, expiresAt,
+                extensionKey(shipmentId, expiresAt)) == 1;
+    }
+
+    private int insert(UUID shipmentId, PaymentCommandType command, BigDecimal amount, String currency,
+                       String payerAccountNumber, UUID holdId, Instant expiresAt, String key) {
         Instant now = clock.instant();
-        jdbcTemplate.update("""
+        // No conflict target: any of the unique indexes (one command per type, one open extension, the key) means
+        // the command already exists.
+        return jdbcTemplate.update("""
                 INSERT INTO shipment_payments (id, shipment_id, command, status, amount, currency, payer_account_number,
-                                               idempotency_key, hold_id, attempts, next_attempt_at, created_at, updated_at)
-                VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, 0, ?, ?, ?)
-                ON CONFLICT (shipment_id, command) DO NOTHING
+                                               idempotency_key, hold_id, expires_at, attempts, next_attempt_at,
+                                               created_at, updated_at)
+                VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                ON CONFLICT DO NOTHING
                 """,
-                UuidV7.next(clock), shipmentId, command.name(), amount, currency, payerAccountNumber,
-                idempotencyKey(shipmentId, command), holdId, Timestamp.from(now), Timestamp.from(now), Timestamp.from(now));
+                UuidV7.next(clock), shipmentId, command.name(), amount, currency, payerAccountNumber, key, holdId,
+                expiresAt == null ? null : Timestamp.from(expiresAt),
+                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now));
     }
 
     /**

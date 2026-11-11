@@ -10,6 +10,8 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -70,7 +72,16 @@ public final class LogisticsFixtures {
         return json(res).get("id").asString();
     }
 
+    /** A week from today (UTC): inside the pickup horizon, and covered by the first hold without an extension. */
+    public static LocalDate defaultPickup() {
+        return LocalDate.now(ZoneOffset.UTC).plusDays(7);
+    }
+
     public static RequestBuilder bookShipmentRequest(String quoteId, String idempotencyKey) {
+        return bookShipmentRequest(quoteId, idempotencyKey, defaultPickup());
+    }
+
+    public static RequestBuilder bookShipmentRequest(String quoteId, String idempotencyKey, LocalDate plannedPickup) {
         return post("/api/v1/shipments")
                 .header("Idempotency-Key", idempotencyKey)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -82,13 +93,18 @@ public final class LogisticsFixtures {
                           "payerAccountNumber": "%s",
                           "goodsDescription": "Chilled Atlantic kingklip fillets",
                           "declaredValue": 42000.00,
-                          "declaredValueCurrency": "EUR"
+                          "declaredValueCurrency": "EUR",
+                          "plannedPickupDate": "%s"
                         }
-                        """.formatted(quoteId, PAYER_ACCOUNT));
+                        """.formatted(quoteId, PAYER_ACCOUNT, plannedPickup));
     }
 
     public JsonNode bookShipment() throws Exception {
-        MvcResult res = mockMvc.perform(bookShipmentRequest(createQuote(), "fixture-" + UUID.randomUUID()))
+        return bookShipment(defaultPickup());
+    }
+
+    public JsonNode bookShipment(LocalDate plannedPickup) throws Exception {
+        MvcResult res = mockMvc.perform(bookShipmentRequest(createQuote(), "fixture-" + UUID.randomUUID(), plannedPickup))
                 .andExpect(status().isCreated())
                 .andReturn();
         return json(res);

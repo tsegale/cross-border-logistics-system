@@ -204,6 +204,7 @@ curl -fsS "${GATEWAY}/api/v1/quotes/${QUOTE_ID}"
 ### 4.2 Book an Idempotent Shipment (`AWAITING_PAYMENT` + `ETag: "0"`)
 
 ```bash
+PICKUP_DATE="$(date -u -d '+7 days' +%F 2>/dev/null || date -u -v+7d +%F)"  # GNU date, then BSD date
 SHIP_BODY=$(curl -fsS -X POST "${GATEWAY}/api/v1/shipments" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: smoke-ship-${RUN_ID}" \
@@ -222,7 +223,8 @@ SHIP_BODY=$(curl -fsS -X POST "${GATEWAY}/api/v1/shipments" \
     \"payerAccountNumber\": \"${EUR_ACC}\",
     \"goodsDescription\": \"Frozen hake fillets in 20kg master cartons\",
     \"declaredValue\": 18500.00,
-    \"declaredValueCurrency\": \"EUR\"
+    \"declaredValueCurrency\": \"EUR\",
+    \"plannedPickupDate\": \"${PICKUP_DATE}\"
   }")
 echo "$SHIP_BODY"
 # Expected 201 Created, ETag: "0", status: "AWAITING_PAYMENT", trackingNumber: "FF-........-."

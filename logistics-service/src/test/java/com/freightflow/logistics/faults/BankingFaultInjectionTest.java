@@ -286,8 +286,9 @@ class BankingFaultInjectionTest {
                         .content("""
                                 {"quoteId":"%s","shipper":{"name":"Namib Fisheries","address":"Walvis Bay","contact":"x"},
                                  "consignee":{"name":"Hanseatic Seafood","address":"Hamburg","contact":"y"},
-                                 "payerAccountNumber":"%s","goodsDescription":"Frozen hake","declaredValue":1000.00}
-                                """.formatted(quote, payerAccount)))
+                                 "payerAccountNumber":"%s","goodsDescription":"Frozen hake","declaredValue":1000.00,
+                                 "plannedPickupDate":"%s"}
+                                """.formatted(quote, payerAccount, LogisticsFixtures.defaultPickup())))
                 .andExpect(status().isCreated()).andReturn());
         return booked.get("id").asString();
     }

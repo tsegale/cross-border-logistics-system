@@ -53,6 +53,18 @@ freightflow:
       max-retry-backoff: ${PAYMENT_MAX_RETRY_BACKOFF:5m}
       # Commands of a batch sent at once; the payments bulkhead allows the same number (ADR 0013)
       parallelism: ${PAYMENT_RELAY_PARALLELISM:8}
+      # How long holds last: until after the planned pickup, extended while the shipment waits (ADR 0011)
+      hold-expiry:
+        margin: ${HOLD_EXPIRY_MARGIN:3d}
+        # Below banking's holds.max-ttl (30d), so clock skew never gets an expiry refused
+        max-ttl: ${HOLD_EXPIRY_MAX_TTL:29d}
+        renew-before: ${HOLD_RENEW_BEFORE:3d}
+        overdue-extension: ${HOLD_OVERDUE_EXTENSION:7d}
+        # With the margin, inside banking's holds.max-lifetime (120d)
+        max-pickup-horizon: ${MAX_PICKUP_HORIZON:90d}
+        renewal-enabled: ${HOLD_RENEWAL_ENABLED:true}
+        renewal-interval: ${HOLD_RENEWAL_INTERVAL:1h}
+        renewal-batch: ${HOLD_RENEWAL_BATCH:100}
     # In-call retries for payment commands to banking (ADR 0013)
     banking:
       retry:

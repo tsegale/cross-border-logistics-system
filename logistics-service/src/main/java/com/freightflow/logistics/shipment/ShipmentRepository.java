@@ -55,4 +55,15 @@ public interface ShipmentRepository extends JpaRepository<Shipment, UUID> {
             @Param("cursorCreatedAt") Instant cursorCreatedAt,
             @Param("cursorId") UUID cursorId,
             Pageable pageable);
+
+    /** Booked, authorised shipments with a planned pickup whose hold runs out before the cutoff, soonest first. */
+    @Query("""
+            SELECT s FROM Shipment s
+            WHERE s.status = com.freightflow.logistics.shipment.ShipmentStatus.BOOKED
+              AND s.paymentStatus = com.freightflow.logistics.shipment.PaymentStatus.AUTHORISED
+              AND s.holdId IS NOT NULL AND s.plannedPickupDate IS NOT NULL
+              AND s.holdExpiresAt < :cutoff
+            ORDER BY s.holdExpiresAt ASC
+            """)
+    List<Shipment> findBookedWithHoldExpiringBefore(@Param("cutoff") Instant cutoff, Pageable pageable);
 }

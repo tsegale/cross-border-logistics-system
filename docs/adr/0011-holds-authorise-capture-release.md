@@ -61,3 +61,56 @@ Option 2.
 - The available balance is one subtraction on the locked row, not a sum over holds.
 - A hold is not money: banking's trial balance does not see reservations. Anyone who needs them reads `holds`.
 - A partial capture releases the rest at once; a second capture of one hold is impossible by design.
+
+## Revision (Phase 3): a hold lasts until pickup
+
+Date: 2026-11-11
+
+### Problem
+logistics never sent `expiresAt`, so every hold got the 7-day default. A sea shipment can be booked weeks before its
+cargo is picked up; its hold expired, the capture at pickup was refused (`409 hold-expired`), and the shipment
+travelled unpaid with no recovery path.
+
+### Options
+1. **Re-authorise and release the old hold.** Works with the Phase 2 API. But for a moment the customer needs the
+   amount available twice (the new hold is made before the old one is let go, or there is a window with no hold at
+   all), a cross-currency hold gets a new rate on every renewal, and the shipment's hold id changes under a capture
+   that may already be in flight.
+2. **Extend the hold in place** (`POST /api/v1/holds/{id}/extension`). The reservation, the amount and the locked
+   rate stay as they are; only `expires_at` moves later. One more endpoint.
+
+### Decision
+Option 2.
+
+- **Banking.** `POST /api/v1/holds/{id}/extension` with `{"expiresAt": ...}` and an `Idempotency-Key` (scope
+  `hold-extension:<id>`). It takes the same two locks as every other hold change, so it serialises with a capture,
+  a release and the sweeper. The new expiry must be later than the current one, at most `holds.max-ttl` (30 days)
+  from now, and at most `holds.max-lifetime` (120 days) from the hold's creation: an extension is not a way to keep
+  money reserved, or an FX rate locked, indefinitely. A hold that is no longer active is `409 hold-not-active`; one
+  past its expiry, even if not yet swept, is `409 hold-expired`. Every extension is a row in `hold_extensions` (V5),
+  append-only under the ledger's trigger.
+- **logistics.** A booking now requires `plannedPickupDate` (UTC), between today and 90 days ahead
+  (`max-pickup-horizon`). The AUTHORISE asks for `expiresAt` = end of the pickup day + 3 days (`margin`), capped at
+  29 days from now (`hold-expiry.max-ttl`, one day under banking's so clock skew between the services never gets an
+  expiry refused). The hold's expiry, as banking returns it, is stored on the shipment.
+- **Renewal.** `HoldRenewalJob` (hourly) finds `BOOKED` shipments with an authorised hold that expires within 3 days
+  (`renew-before`) and writes an `EXTEND` payment command to the outbox. The relay sends it like any other command:
+  same retries, backoff, breaker and parking (ADR 0012, ADR 0013). The key is
+  `shipment-<id>-extend-<epoch second of the new expiry>`, and a partial unique index allows one open
+  (`PENDING` or `PARKED`) extension per shipment, so the job is safe on every instance at once. Each extension
+  reaches towards the pickup target, capped at 29 days; a shipment still waiting after its planned pickup gets 7 days
+  more at a time (`overdue-extension`) until banking's 120-day lifetime ends it.
+- **Outcomes.** A successful extension updates the shipment's hold expiry (never backwards). An extension that lost
+  the race to a capture or release (`hold-not-active` with `CAPTURED` or `RELEASED`) is moot and succeeds without a
+  change. Any other refusal, such as the lifetime limit, marks the payment `FAILED` with banking's problem, for an
+  operator.
+- **Tested** with an injected clock (`HoldRenewalIntegrationTest`): a pickup 60 days out is authorised for 29 days,
+  extended twice (to 29 days again, then to the pickup target), and captured at pickup; a moot extension, a refused
+  one and a picked-up shipment are covered too. Banking's rules are in `HoldIntegrationTest`.
+
+### Consequences
+- A shipment can no longer be booked without a pickup date. Shipments booked before V7 keep banking's default expiry
+  and are not extended.
+- The FX rate locked at booking holds for up to 120 days. That is FX risk the forwarder carries for long bookings;
+  pricing it is a business decision outside this ADR.
+- Pickup dates are dates, not times: a shipment collected late on its pickup day is still covered by the margin.

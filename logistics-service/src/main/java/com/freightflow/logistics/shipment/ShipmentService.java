@@ -22,6 +22,7 @@ import com.freightflow.logistics.shipment.dto.ShipmentResponse;
 import com.freightflow.logistics.shipment.dto.TrackingEventResponse;
 import com.freightflow.logistics.common.UuidV7;
 import com.freightflow.logistics.payment.PaymentCommandType;
+import com.freightflow.logistics.payment.HoldExpiryPolicy;
 import com.freightflow.logistics.payment.PaymentCommands;
 import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
@@ -38,6 +39,7 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -61,6 +63,7 @@ public class ShipmentService {
     private final JdbcTemplate jdbcTemplate;
     private final EntityManager entityManager;
     private final PaymentCommands paymentCommands;
+    private final HoldExpiryPolicy holdExpiry;
     private final Clock clock;
 
     public ShipmentService(
@@ -73,6 +76,7 @@ public class ShipmentService {
             JdbcTemplate jdbcTemplate,
             EntityManager entityManager,
             PaymentCommands paymentCommands,
+            HoldExpiryPolicy holdExpiry,
             Clock clock) {
         this.shipments = shipments;
         this.trackingEvents = trackingEvents;
@@ -83,6 +87,7 @@ public class ShipmentService {
         this.jdbcTemplate = jdbcTemplate;
         this.entityManager = entityManager;
         this.paymentCommands = paymentCommands;
+        this.holdExpiry = holdExpiry;
         this.clock = clock;
     }
 
@@ -93,7 +98,8 @@ public class ShipmentService {
             String payerAccountNumber,
             String goodsDescription,
             BigDecimal declaredValue,
-            String declaredValueCurrency
+            String declaredValueCurrency,
+            LocalDate plannedPickupDate
     ) {
     }
 
@@ -124,7 +130,8 @@ public class ShipmentService {
                 normalizedAccount,
                 request.goodsDescription().trim(),
                 request.declaredValue().stripTrailingZeros(),
-                requestedCurrency
+                requestedCurrency,
+                request.plannedPickupDate()
         );
 
         return idempotency.execute(
@@ -148,6 +155,11 @@ public class ShipmentService {
             throw new QuoteExpiredException(quote.getId(), quote.getValidUntil());
         }
 
+        if (!holdExpiry.isAcceptablePickup(request.plannedPickupDate(), now)) {
+            throw new IllegalArgumentException("plannedPickupDate must be between today and "
+                    + holdExpiry.properties().maxPickupHorizon().toDays() + " days ahead (UTC)");
+        }
+
         String declaredValueCurrency = requestedCurrency != null ? requestedCurrency : quote.getCurrency();
         if (MoneyRounding.hasExcessMinorPrecision(request.declaredValue(), declaredValueCurrency)) {
             throw new IllegalArgumentException(
@@ -166,12 +178,15 @@ public class ShipmentService {
                 request.goodsDescription(),
                 request.declaredValue(),
                 declaredValueCurrency,
+                request.plannedPickupDate(),
                 now
         );
         Shipment saved = shipments.saveAndFlush(shipment);
         // Same transaction as the booking: the AUTHORISE command exists if and only if the shipment does (ADR 0012).
+        // The hold is asked to last until after the planned pickup, as far as one request may reach (ADR 0011).
         paymentCommands.enqueue(saved.getId(), PaymentCommandType.AUTHORISE, saved.getQuotedTotalAmount(),
-                saved.getQuotedCurrency(), saved.getPayerAccountNumber(), null);
+                saved.getQuotedCurrency(), saved.getPayerAccountNumber(), null,
+                holdExpiry.initialExpiry(request.plannedPickupDate(), now));
         log.info("Booked shipment {} (trackingNumber={}, quoteId={}, status={})",
                 saved.getId(), saved.getTrackingNumber(), saved.getQuoteId(), saved.getStatus());
         return ShipmentResponse.from(saved);
@@ -316,10 +331,10 @@ public class ShipmentService {
         switch (shipment.settleAfterStatusChange()) {
             case CAPTURE -> paymentCommands.enqueue(shipment.getId(), PaymentCommandType.CAPTURE,
                     shipment.getQuotedTotalAmount(), shipment.getQuotedCurrency(), shipment.getPayerAccountNumber(),
-                    shipment.getHoldId());
+                    shipment.getHoldId(), null);
             case RELEASE -> paymentCommands.enqueue(shipment.getId(), PaymentCommandType.RELEASE,
                     shipment.getQuotedTotalAmount(), shipment.getQuotedCurrency(), shipment.getPayerAccountNumber(),
-                    shipment.getHoldId());
+                    shipment.getHoldId(), null);
             case NONE -> {
                 // nothing to settle
             }
