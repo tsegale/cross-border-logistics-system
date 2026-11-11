@@ -93,12 +93,14 @@ jobs:
         run: |
           mkdir -p benchmarks/out/payment-flow
           # Warm-up, discarded: the first run after a start measures the JIT, not the relay.
-          k6 run -q -e VUS=4 -e ITERATIONS_PER_VU=10 -e RUN_TAG="warmup-$GITHUB_RUN_ID" benchmarks/k6/payment_flow.js
+          tokens() { printf -- '-e OPERATOR_TOKEN=%s -e CUSTOMER_TOKEN=%s' "$(scripts/token.sh operator)" "$(scripts/token.sh customer-namib-exports)"; }
+          k6 run -q $(tokens) -e VUS=4 -e ITERATIONS_PER_VU=10 -e RUN_TAG="warmup-$GITHUB_RUN_ID" benchmarks/k6/payment_flow.js
           for vus in 8 16; do
-            k6 run -q -e VUS=$vus -e ITERATIONS_PER_VU=25 -e RUN_TAG="run-$GITHUB_RUN_ID-$vus" \
+            k6 run -q $(tokens) -e VUS=$vus -e ITERATIONS_PER_VU=25 -e RUN_TAG="run-$GITHUB_RUN_ID-$vus" \
               -e SUMMARY_FILE="benchmarks/out/payment-flow/payment-$vus.json" benchmarks/k6/payment_flow.js
           done
-          curl -fsS http://127.0.0.1:8080/api/v1/ledger/reconciliation | tee benchmarks/out/payment-flow/reconciliation.json
+          curl -fsS -H "Authorization: Bearer $(scripts/token.sh operator)" http://127.0.0.1:8080/api/v1/ledger/reconciliation \
+            | tee benchmarks/out/payment-flow/reconciliation.json
           grep -q '"balanced":true' benchmarks/out/payment-flow/reconciliation.json
 
       - name: System account balance read at a million postings (ADR 0010)

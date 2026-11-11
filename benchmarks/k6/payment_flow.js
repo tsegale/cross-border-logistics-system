@@ -1,6 +1,10 @@
 // Payment flow under load (ADR 0012): book shipments through the gateway and wait for the relay to pay them.
 //
-//   k6 run -e VUS=16 -e ITERATIONS_PER_VU=25 benchmarks/k6/payment_flow.js
+//   k6 run -e VUS=16 -e ITERATIONS_PER_VU=25 \
+//     -e OPERATOR_TOKEN="$(scripts/token.sh operator)" -e CUSTOMER_TOKEN="$(scripts/token.sh customer-namib-exports)" \
+//     benchmarks/k6/payment_flow.js
+// The operator opens and funds Namib Exports' payer accounts; Namib Exports' customer quotes and books (ADR 0018).
+// Tokens live 5 minutes: a run longer than that needs fresh ones.
 //
 // setup() opens one funded EUR payer account per VU and one quote; every iteration books a shipment with a new
 // Idempotency-Key and polls it until banking's hold has booked it.
@@ -18,6 +22,9 @@ const ITERATIONS_PER_VU = parseInt(__ENV.ITERATIONS_PER_VU || '25', 10);
 const SUMMARY_FILE = __ENV.SUMMARY_FILE || '';
 const RUN_TAG = __ENV.RUN_TAG || `${Date.now()}`;
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
+const NAMIB = '0193a0e0-0000-7000-8000-00000000a001';
+const OPERATOR = { Authorization: `Bearer ${__ENV.OPERATOR_TOKEN || ''}` };
+const CUSTOMER = { Authorization: `Bearer ${__ENV.CUSTOMER_TOKEN || ''}` };
 // A week ahead: the first hold covers it, so the benchmark measures authorisation, not extensions.
 const PICKUP_DATE = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
 
@@ -42,10 +49,10 @@ function post(path, body, headers) {
 export function setup() {
   const payers = [];
   for (let i = 0; i < VUS; i++) {
-    const account = post('/api/v1/accounts', { holderReference: `Payment bench ${RUN_TAG} ${i}`, currency: 'EUR' }).json();
+    const account = post('/api/v1/accounts', { currency: 'EUR', organizationId: NAMIB }, OPERATOR).json();
     const funded = post(`/api/v1/accounts/${account.id}/deposits`,
       { amount: '1000000.00', currency: 'EUR', reference: 'PAYMENT-BENCH' },
-      { 'Idempotency-Key': `payment-bench-fund-${account.id}` });
+      { ...OPERATOR, 'Idempotency-Key': `payment-bench-fund-${account.id}` });
     if (funded.status !== 201) {
       throw new Error(`funding failed: ${funded.status} ${funded.body}`);
     }
@@ -54,7 +61,7 @@ export function setup() {
   const quote = post('/api/v1/quotes', {
     origin: 'NAWVB', destination: 'DEHAM', mode: 'SEA_LCL', incoterm: 'FCA', payerRole: 'CONSIGNEE',
     packages: [{ lengthCm: 120, widthCm: 100, heightCm: 150, weightKg: 500, quantity: 2 }],
-  }).json();
+  }, CUSTOMER).json();
   return { payers, quoteId: quote.id };
 }
 
@@ -69,7 +76,7 @@ export default function (data) {
     goodsDescription: 'Frozen hake fillets',
     declaredValue: '18500.00',
     plannedPickupDate: PICKUP_DATE,
-  }, { 'Idempotency-Key': `payment-bench-${RUN_TAG}-${vu}-${exec.vu.iterationInScenario}` });
+  }, { ...CUSTOMER, 'Idempotency-Key': `payment-bench-${RUN_TAG}-${vu}-${exec.vu.iterationInScenario}` });
   bookingDuration.add(res.timings.duration);
   if (!check(res, { 'booking accepted (201)': (r) => r.status === 201 })) {
     notBooked.add(1);
@@ -77,7 +84,7 @@ export default function (data) {
   }
   const id = res.json('id');
   while (Date.now() - started < 30000) {
-    const shipment = http.get(`${BASE_URL}/api/v1/shipments/${id}`, { tags: { name: 'poll' } });
+    const shipment = http.get(`${BASE_URL}/api/v1/shipments/${id}`, { headers: CUSTOMER, tags: { name: 'poll' } });
     if (shipment.status === 200 && shipment.json('status') === 'BOOKED') {
       timeToBooked.add(Date.now() - started);
       booked.add(1);

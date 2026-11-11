@@ -123,7 +123,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      # A cold start next to Keycloak took 169 s on the benchmark laptop; the period does not count failures.
+      start_period: 240s
+      start_interval: 3s
 
   logistics-service:
     build: ./logistics-service
@@ -148,7 +150,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      # A cold start next to Keycloak took 169 s on the benchmark laptop; the period does not count failures.
+      start_period: 240s
+      start_interval: 3s
 
   # Token buckets for the gateway's rate limits on money-moving routes (ADR 0017). Not published.
   redis:

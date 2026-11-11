@@ -25,6 +25,8 @@ const VUS = parseInt(__ENV.VUS || '32', 10);
 const ITERATIONS_PER_VU = parseInt(__ENV.ITERATIONS_PER_VU || '30', 10);
 const RUN_TAG = __ENV.RUN_TAG || `${Date.now()}`;
 const SUMMARY_FILE = __ENV.SUMMARY_FILE || '';
+// A bearer token from the harness (ADR 0016): the operator's for deposits, the customer's otherwise.
+const AUTH = __ENV.TOKEN ? { Authorization: `Bearer ${__ENV.TOKEN}` } : {};
 const ACCOUNTS = JSON.parse(open(__ENV.ACCOUNTS_FILE));
 
 if (!['hot_account', 'disjoint_pairs', 'deposits', 'fx_transfers'].includes(WORKLOAD)) {
@@ -54,7 +56,7 @@ const opDuration = new Trend('op_duration', true);
 
 function post(path, body, key) {
   return http.post(`${BASE_URL}${path}`, JSON.stringify(body), {
-    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
+    headers: { ...AUTH, 'Content-Type': 'application/json', 'Idempotency-Key': key },
     responseCallback: http.expectedStatuses(201),
   });
 }
@@ -68,7 +70,7 @@ function measuredRequest(vu, key) {
     const [nad, eur] = ACCOUNTS.fxPairs[vu];
     const quote = http.post(`${BASE_URL}/api/v1/fx-quotes`,
       JSON.stringify({ sellCurrency: 'NAD', buyCurrency: 'EUR', sellAmount: '20.00' }),
-      { headers: { 'Content-Type': 'application/json' }, responseCallback: http.expectedStatuses(201) });
+      { headers: { ...AUTH, 'Content-Type': 'application/json' }, responseCallback: http.expectedStatuses(201) });
     if (quote.status !== 201) {
       return quote;
     }

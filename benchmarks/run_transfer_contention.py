@@ -35,6 +35,7 @@ import platform
 import re
 import statistics
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -62,6 +63,25 @@ SWITCH_INFO = os.environ.get("BENCH_SWITCH_INFO", "transfer.lockingStrategy")
 COMPOSE = ["docker", "compose", "-f", str(ROOT / "docker-compose.yml"), "-f", str(ROOT / "benchmarks" / "compose.bench.yml")]
 
 
+# ---------------------------------------------------------------------------- tokens (ADR 0016)
+# Every call through the gateway needs a token since Phase 3: the operator opens and funds the accounts and reads the
+# reconciliation; Namib Exports' customer, which owns the accounts, makes the transfers. Tokens live 5 minutes, so they
+# are renewed after 4.
+sys.path.insert(0, str(ROOT / "scripts"))
+from keycloak_token import token_for  # noqa: E402
+
+NAMIB = "0193a0e0-0000-7000-8000-00000000a001"
+_TOKENS: dict[str, tuple[float, str]] = {}
+
+
+def bearer(persona: str) -> str:
+    cached = _TOKENS.get(persona)
+    if cached is None or time.time() - cached[0] > 240:
+        cached = (time.time(), token_for(persona))
+        _TOKENS[persona] = cached
+    return cached[1]
+
+
 # ---------------------------------------------------------------------------- HTTP helpers
 
 def http_json(method: str, url: str, body: dict[str, Any] | None = None,
@@ -73,6 +93,8 @@ def http_json(method: str, url: str, body: dict[str, Any] | None = None,
         req.add_header("Content-Type", "application/json")
     for k, v in (headers or {}).items():
         req.add_header(k, v)
+    if url.startswith(GATEWAY_URL) and not any(k.lower() == "authorization" for k in (headers or {})):
+        req.add_header("Authorization", "Bearer " + bearer("operator"))
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
@@ -128,7 +150,8 @@ def restart_banking(strategy: str) -> None:
 # ---------------------------------------------------------------------------- accounts
 
 def create_account(holder: str, deposit: str, currency: str = "EUR") -> str:
-    status, acc = http_json("POST", f"{GATEWAY_URL}/api/v1/accounts", {"holderReference": holder, "currency": currency})
+    # holder only names the account in the logs: since Phase 3 an account belongs to an organisation (ADR 0018).
+    status, acc = http_json("POST", f"{GATEWAY_URL}/api/v1/accounts", {"currency": currency, "organizationId": NAMIB})
     if status != 201:
         raise RuntimeError(f"create account failed ({status}): {acc}")
     if deposit != "0":
@@ -257,7 +280,10 @@ def run_k6(accounts_file: Path, workload: str, vus: int, iterations_per_vu: int,
         ["k6", "run", "--quiet", "--no-color",
          "-e", f"BASE_URL={GATEWAY_URL}", "-e", f"ACCOUNTS_FILE={accounts_file}", "-e", f"WORKLOAD={workload}",
          "-e", f"VUS={vus}", "-e", f"ITERATIONS_PER_VU={iterations_per_vu}", "-e", f"RUN_TAG={uuid.uuid4().hex[:12]}",
-         "-e", f"SUMMARY_FILE={summary_file}", str(K6_SCRIPT)],
+         "-e", f"SUMMARY_FILE={summary_file}",
+         # Deposits are an operator's; transfers and FX quotes the owning customer's.
+         "-e", f"TOKEN={bearer('operator' if workload == 'deposits' else 'customer-namib-exports')}",
+         str(K6_SCRIPT)],
         cwd=ROOT, check=True, capture_output=True, text=True)
     return json.loads(summary_file.read_text(encoding="utf-8"))
 
