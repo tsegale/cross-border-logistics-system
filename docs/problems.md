@@ -1,5 +1,9 @@
 # RFC 9457 Problem Details Registry
 
+Extension members never reuse the standard member names (`type`, `title`, `status`, `detail`, `instance`):
+`status` is always the HTTP status code. Phase 1's `account-not-active` used `status` for the account status; since
+Phase 2 that member is `accountStatus`.
+
 Every error emitted by `banking-service` and `logistics-service` uses `Content-Type: application/problem+json` ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)) with a stable `type` URI under `https://freightflow.dev/problems/<slug>`.
 
 ## Common Problem Types (`banking-service` & `logistics-service`)
@@ -28,7 +32,7 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `type` URI | HTTP Status | Title | Extension Fields | When Returned |
 | --- | --- | --- | --- | --- |
 | `https://freightflow.dev/problems/account-not-found` | `404 Not Found` | Account not found | `identifier` | Account UUID or account number does not exist |
-| `https://freightflow.dev/problems/account-not-active` | `409 Conflict` | Account is not active | `accountNumber`, `status` | Attempted posting or status change on a `FROZEN` or `CLOSED` account |
+| `https://freightflow.dev/problems/account-not-active` | `409 Conflict` | Account is not active | `accountNumber`, `accountStatus` | Attempted posting or status change on a `FROZEN` or `CLOSED` account |
 | `https://freightflow.dev/problems/insufficient-funds` | `409 Conflict` | Insufficient funds | `accountNumber`, `currency`, `availableBalance`, `requestedAmount` | A debit or a new hold exceeds the `CUSTOMER` account's available balance (ledger balance minus active holds) |
 | `https://freightflow.dev/problems/unbalanced-journal-entry` | `422 Unprocessable Content` | Journal entry is not balanced | `currency`, `debits`, `credits` | Per-currency sum of `DEBIT` postings does not equal sum of `CREDIT` postings |
 | `https://freightflow.dev/problems/currency-mismatch` | `422 Unprocessable Content` | Currency mismatch | — | Posting currency does not match account currency, or cross-currency transfer lacks a matching FX quote |
@@ -39,7 +43,7 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/fx-quote-not-found` | `404 Not Found` | FX quote not found | `quoteId` | FX quote UUID does not exist |
 | `https://freightflow.dev/problems/fx-quote-expired` | `409 Conflict` | FX quote has expired | `quoteId`, `expiresAt` | FX quote `expiresAt` is not after `clock.instant()` |
 | `https://freightflow.dev/problems/hold-not-found` | `404 Not Found` | Hold not found | `holdId` | Hold UUID does not exist (internal API) |
-| `https://freightflow.dev/problems/hold-not-active` | `409 Conflict` | Hold is not active | `holdId`, `status` | Capture or release of a hold that is already `CAPTURED`, `RELEASED` or `EXPIRED` |
+| `https://freightflow.dev/problems/hold-not-active` | `409 Conflict` | Hold is not active | `holdId`, `holdStatus` | Capture or release of a hold that is already `CAPTURED`, `RELEASED` or `EXPIRED` |
 | `https://freightflow.dev/problems/hold-expired` | `409 Conflict` | Hold has expired | `holdId`, `expiresAt` | Capture after `expiresAt`; the sweeper releases the hold |
 | `https://freightflow.dev/problems/capture-exceeds-hold` | `422 Unprocessable Content` | Capture exceeds the hold | `holdId`, `holdAmount`, `requestedAmount` | Capture amount above the authorised amount |
 | `https://freightflow.dev/problems/invalid-hold` | `422 Unprocessable Content` | Invalid hold | — | Payer is not a customer account, or `expiresAt` is not in the future or more than 30 days away |
@@ -60,4 +64,24 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/shipment-not-found` | `404 Not Found` | Shipment not found | `identifier` | Shipment UUID or valid tracking number does not exist |
 | `https://freightflow.dev/problems/invalid-tracking-number` | `400 Bad Request` | Invalid tracking number | `trackingNumber` | Tracking number fails `FF-<8 Crockford Base32 chars>-<check>` format or ISO 7064 MOD 37-2 check character |
 | `https://freightflow.dev/problems/invalid-shipment-state-transition` | `409 Conflict` | Invalid shipment state transition | `currentStatus`, `requestedStatus`, `allowedNextStatuses` | Requested state transition is not in `currentStatus.allowedNextStatuses()` |
+| `https://freightflow.dev/problems/payment-command-not-found` | `404 Not Found` | Payment command not found | `commandId` | Internal operator API: no such payment command |
+| `https://freightflow.dev/problems/payment-command-not-parked` | `409 Conflict` | Payment command is not parked | `commandId`, `commandStatus` | Operator retry of a command that is not `PARKED` |
 | `https://freightflow.dev/problems/precondition-failed` | `412 Precondition Failed` | Precondition failed | `expectedETag`, `currentETag` | `If-Match` header does not match current `shipments.version` ETag |
+
+---
+
+## `api-gateway` Problem Types (ADR 0015)
+
+Errors the gateway produces itself. Problems returned by a service pass through unchanged. Every gateway problem
+carries the request's `requestId` (also in the `X-Request-Id` header).
+
+| `type` URI | HTTP Status | Title | When Returned |
+| --- | --- | --- | --- |
+| `https://freightflow.dev/problems/not-found` | `404 Not Found` | Not found | No route matches (the gateway's own actuator is only on the management port 8085), or the path is internal (`/api/v1/holds/**`, `/api/v1/payment-commands/**`) |
+| `https://freightflow.dev/problems/method-not-allowed` | `405 Method Not Allowed` | Method not allowed | The route does not accept the method |
+| `https://freightflow.dev/problems/request-too-large` | `413 Content Too Large` | Request too large | Body over 1 MB, by `Content-Length` or while reading a chunked body |
+| `https://freightflow.dev/problems/invalid-request` | `4xx` | (reason phrase) | Any other client error the gateway raises itself |
+| `https://freightflow.dev/problems/upstream-error` | `502 Bad Gateway` | Bad gateway | The service answered with an invalid response |
+| `https://freightflow.dev/problems/upstream-unavailable` | `503 Service Unavailable` (`Retry-After: 5`) | Service unavailable | The service cannot be reached (connection refused, unknown host, connect timeout) |
+| `https://freightflow.dev/problems/upstream-timeout` | `504 Gateway Timeout` | Upstream timeout | No answer within the route's 15 s response timeout. A request that changes data may still have been applied: resend it with the same `Idempotency-Key` |
+| `https://freightflow.dev/problems/internal-error` | `500 Internal Server Error` | Internal error | Anything unexpected in the gateway |
