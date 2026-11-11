@@ -56,6 +56,9 @@ BASELINE_REQUESTS = int(os.environ.get("BENCH_BASELINE_REQUESTS", "300"))
 WARMUP_REQUESTS = int(os.environ.get("BENCH_WARMUP_REQUESTS", "1500"))
 STRATEGIES = os.environ.get("BENCH_STRATEGIES", "pessimistic,conditional-update").split(",")
 WORKLOADS = os.environ.get("BENCH_WORKLOADS", "disjoint_pairs,hot_account").split(",")
+# Which startup property the rounds switch, and where /actuator/info reports it.
+SWITCH_ENV = os.environ.get("BENCH_SWITCH_ENV", "TRANSFER_LOCKING_STRATEGY")
+SWITCH_INFO = os.environ.get("BENCH_SWITCH_INFO", "transfer.lockingStrategy")
 COMPOSE = ["docker", "compose", "-f", str(ROOT / "docker-compose.yml"), "-f", str(ROOT / "benchmarks" / "compose.bench.yml")]
 
 
@@ -109,10 +112,12 @@ def restart_banking(strategy: str) -> None:
         try:
             status, info = http_json("GET", f"{BANKING_URL}/actuator/info", timeout=5)
             if status == 200:
-                active = info.get("transfer", {}).get("lockingStrategy")
+                active: Any = info
+                for key in SWITCH_INFO.split("."):
+                    active = active.get(key, {}) if isinstance(active, dict) else None
                 if active != strategy:
-                    raise RuntimeError(f"banking-service reports strategy {active!r}, expected {strategy!r}")
-                print(f"    /actuator/info reports lockingStrategy={active}")
+                    raise RuntimeError(f"banking-service reports {SWITCH_INFO}={active!r}, expected {strategy!r}")
+                print(f"    /actuator/info reports {SWITCH_INFO}={active}")
                 return
         except (urllib.error.URLError, ConnectionError, TimeoutError):
             pass
@@ -122,13 +127,13 @@ def restart_banking(strategy: str) -> None:
 
 # ---------------------------------------------------------------------------- accounts
 
-def create_account(holder: str, deposit: str) -> str:
-    status, acc = http_json("POST", f"{GATEWAY_URL}/api/v1/accounts", {"holderReference": holder, "currency": "EUR"})
+def create_account(holder: str, deposit: str, currency: str = "EUR") -> str:
+    status, acc = http_json("POST", f"{GATEWAY_URL}/api/v1/accounts", {"holderReference": holder, "currency": currency})
     if status != 201:
         raise RuntimeError(f"create account failed ({status}): {acc}")
     if deposit != "0":
         status, dep = http_json("POST", f"{GATEWAY_URL}/api/v1/accounts/{acc['id']}/deposits",
-                                {"amount": deposit, "currency": "EUR", "reference": f"BENCH-FUND-{acc['accountNumber']}"},
+                                {"amount": deposit, "currency": currency, "reference": f"BENCH-FUND-{acc['accountNumber']}"},
                                 {"Idempotency-Key": f"bench-fund-{acc['id']}"})
         if status != 201:
             raise RuntimeError(f"deposit failed ({status}): {dep}")
@@ -142,8 +147,11 @@ def setup_accounts(max_vus: int) -> Path:
         sinks = list(pool.map(lambda i: create_account(f"Bench Sink {i}", "0"), range(max_vus)))
         sources = list(pool.map(lambda i: create_account(f"Bench Pair Source {i}", "1000000.00"), range(max_vus)))
         targets = list(pool.map(lambda i: create_account(f"Bench Pair Target {i}", "0"), range(max_vus)))
-    accounts = {"hotSource": hot_source, "sinks": sinks, "pairs": [list(p) for p in zip(sources, targets)]}
-    flat = [hot_source, *sinks, *sources, *targets]
+        fx_sources = list(pool.map(lambda i: create_account(f"Bench FX Source {i}", "10000000.00", "NAD"), range(max_vus)))
+        fx_targets = list(pool.map(lambda i: create_account(f"Bench FX Target {i}", "0"), range(max_vus)))
+    accounts = {"hotSource": hot_source, "sinks": sinks, "pairs": [list(p) for p in zip(sources, targets)],
+                "fxPairs": [list(p) for p in zip(fx_sources, fx_targets)]}
+    flat = [hot_source, *sinks, *sources, *targets, *fx_sources, *fx_targets]
     if len(set(flat)) != len(flat):
         raise RuntimeError("account numbers are not unique")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -165,7 +173,8 @@ def scrape_prometheus() -> dict[str, float]:
         if not m:
             continue
         name, labels, value = m.group("name"), m.group("labels") or "", float(m.group("value"))
-        if name.startswith("http_server_requests_seconds_") and 'uri="/api/v1/transfers"' in labels and 'method="POST"' in labels:
+        measured_uri = 'uri="/api/v1/transfers"' in labels or 'uri="/api/v1/accounts/{id}/deposits"' in labels
+        if name.startswith("http_server_requests_seconds_") and measured_uri and 'method="POST"' in labels:
             key = name
         elif name in ("hikaricp_connections_acquire_seconds_sum", "hikaricp_connections_acquire_seconds_count",
                       "hikaricp_connections_usage_seconds_sum", "hikaricp_connections_usage_seconds_count"):
@@ -265,8 +274,9 @@ def measured_run(accounts_file: Path, strategy: str, workload: str, vus: int, re
     if status != 200 or recon.get("balanced") is not True:
         raise RuntimeError(f"reconciliation failed after {strategy}/{workload}/{vus}: {recon}")
 
-    duration = summary["metrics"]["http_req_duration"]["values"]
+    duration = summary["metrics"]["op_duration"]["values"]
     created = counter(summary, "transfers_created")
+    ops = created + sum(counter(summary, n) for n in ("transfers_409", "transfers_503", "transfers_other"))
     run = {
         "round": round_num,
         "strategy": strategy,
@@ -277,7 +287,7 @@ def measured_run(accounts_file: Path, strategy: str, workload: str, vus: int, re
         "conflict_409": counter(summary, "transfers_409"),
         "shed_503": counter(summary, "transfers_503"),
         "other": counter(summary, "transfers_other"),
-        "rps": round(summary["metrics"]["http_reqs"]["values"]["rate"], 2),
+        "rps": round(ops / summary["state"]["testRunDurationMs"] * 1000, 2),
         "created_per_s": round(created / summary["state"]["testRunDurationMs"] * 1000, 2),
         "p50_ms": round(duration["med"], 2),
         "p95_ms": round(duration["p(95)"], 2),
