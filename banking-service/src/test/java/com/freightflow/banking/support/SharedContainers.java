@@ -17,6 +17,8 @@ public final class SharedContainers {
     @ServiceConnection
     public static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
             DockerImageName.parse("postgres:17-alpine"))
+            // Several cached Spring contexts (one per posting mode, ADR 0010) each keep a pool open.
+            .withCommand("postgres", "-c", "max_connections=400")
             .withStartupTimeout(STARTUP_TIMEOUT);
 
     static {

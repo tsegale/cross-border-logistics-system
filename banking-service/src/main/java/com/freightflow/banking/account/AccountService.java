@@ -17,11 +17,14 @@ public class AccountService {
 
     private final AccountRepository accounts;
     private final BankingProperties properties;
+    private final SystemAccountBalances systemBalances;
     private final Clock clock;
 
-    public AccountService(AccountRepository accounts, BankingProperties properties, Clock clock) {
+    public AccountService(AccountRepository accounts, BankingProperties properties,
+                          SystemAccountBalances systemBalances, Clock clock) {
         this.accounts = accounts;
         this.properties = properties;
+        this.systemBalances = systemBalances;
         this.clock = clock;
     }
 
@@ -40,7 +43,7 @@ public class AccountService {
     @Transactional(readOnly = true)
     public AccountResponse getAccount(String idOrAccountNumber) {
         Account account = resolveAccount(idOrAccountNumber);
-        return AccountResponse.from(account);
+        return AccountResponse.from(account, systemBalances.balanceOf(account));
     }
 
     /**

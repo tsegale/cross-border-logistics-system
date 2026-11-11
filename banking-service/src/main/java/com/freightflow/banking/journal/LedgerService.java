@@ -7,6 +7,7 @@ import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.AccountType;
 import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.common.MoneyRounding;
+import com.freightflow.banking.common.UuidOrder;
 import com.freightflow.banking.config.BankingProperties;
 import com.freightflow.banking.idempotency.IdempotencyService;
 import com.freightflow.banking.journal.JournalEntry.PostingInstruction;
@@ -179,9 +180,12 @@ public class LedgerService {
     }
 
     /**
-     * Locks every involved account row with {@code SELECT ... FOR UPDATE} in ascending {@code id}
-     * order, validates double-entry balance per currency, updates account balances and appends the
-     * journal entry and its postings in one transaction.
+     * Appends a balanced journal entry (ADR 0004).
+     *
+     * <p>Customer accounts are locked with {@code SELECT ... FOR UPDATE} in ascending id order (ADR 0005), checked
+     * and updated in place, because their balance may not go negative. System accounts (CLEARING, FX_POSITION,
+     * FREIGHT_REVENUE) are applied according to {@link SystemPostingMode} (ADR 0010): in UNLOCKED and SHARDED
+     * mode their row is never locked, so they stop serialising every deposit, FX transfer and capture.
      */
     @Transactional
     public JournalEntryResponse recordEntry(
@@ -192,29 +196,46 @@ public class LedgerService {
             BigDecimal fxRate,
             List<PostingInstruction> instructions) {
         JournalEntry.assertBalanced(instructions);
+        SystemPostingMode mode = properties.systemAccounts().postingMode();
 
         Set<UUID> accountIds = instructions.stream()
                 .map(PostingInstruction::accountId)
                 .collect(Collectors.toSet());
-        // Evict any pre-lock Account snapshots from the 1st-level cache so SELECT ... FOR UPDATE
-        // hydrates the latest committed balances after acquiring the row locks.
+        // Evict pre-lock Account snapshots from the 1st-level cache so the locking SELECT hydrates the latest
+        // committed balances.
         entityManager.flush();
         entityManager.clear();
-        List<Account> lockedAccounts = LockTimeouts.withLockTimeout(
-                jdbcTemplate, properties.ledger().accountLockTimeout(),
-                () -> accounts.findAllByIdInForUpdate(accountIds));
-        if (lockedAccounts.size() != accountIds.size()) {
+        Map<UUID, AccountType> types = accountTypes(accountIds);
+        if (types.size() != accountIds.size()) {
             throw new AccountNotFoundException("One or more accounts in journal entry were not found");
         }
-        Map<UUID, Account> accountsById = lockedAccounts.stream()
-                .collect(Collectors.toMap(Account::getId, Function.identity()));
+        Set<UUID> lockIds = mode == SystemPostingMode.LOCKED
+                ? accountIds
+                : accountIds.stream().filter(id -> types.get(id).isCustomer()).collect(Collectors.toSet());
+        Set<UUID> unlockedIds = accountIds.stream().filter(id -> !lockIds.contains(id)).collect(Collectors.toSet());
+
+        Map<UUID, Account> accountsById = new java.util.HashMap<>();
+        if (!lockIds.isEmpty()) {
+            LockTimeouts.withLockTimeout(jdbcTemplate, properties.ledger().accountLockTimeout(),
+                    () -> accounts.findAllByIdInForUpdate(lockIds)).forEach(a -> accountsById.put(a.getId(), a));
+        }
+        if (!unlockedIds.isEmpty()) {
+            accounts.findAllById(unlockedIds).forEach(a -> accountsById.put(a.getId(), a));
+        }
 
         Instant now = clock.instant();
         JournalEntry entry = journalEntries.save(
                 JournalEntry.create(entryType, reference, reversesEntryId, fxQuoteId, fxRate, now));
+        journalEntries.flush();
+        int shard = Math.floorMod(entry.getId().hashCode(), properties.systemAccounts().shards());
 
-        List<PostingResponse> postingResponses = new ArrayList<>(instructions.size());
-        for (PostingInstruction instruction : instructions) {
+        // Shard rows are locked after the account rows and in ascending account id, so the global lock order
+        // (accounts by id, then shards by account id) never inverts between two entries.
+        List<PostingInstruction> ordered = instructions.stream()
+                .sorted(java.util.Comparator.comparing(PostingInstruction::accountId, UuidOrder.POSTGRES))
+                .toList();
+        Map<PostingInstruction, PostingResponse> responses = new java.util.IdentityHashMap<>();
+        for (PostingInstruction instruction : ordered) {
             Account account = accountsById.get(instruction.accountId());
             if (!account.getCurrency().equalsIgnoreCase(instruction.currency())) {
                 throw new CurrencyMismatchException(
@@ -223,20 +244,52 @@ public class LedgerService {
                         "Posting currency " + instruction.currency()
                                 + " does not match account currency " + account.getCurrency());
             }
-            BigDecimal runningBalance = account.applyPosting(instruction.signedAmount(), now);
-            Posting savedPosting = postings.save(Posting.create(
-                    entry.getId(),
-                    account.getId(),
-                    instruction.signedAmount(),
-                    account.getCurrency(),
-                    runningBalance,
-                    now
-            ));
-            postingResponses.add(PostingResponse.from(savedPosting, account.getAccountNumber()));
+            Posting posting;
+            if (lockIds.contains(account.getId())) {
+                BigDecimal runningBalance = account.applyPosting(instruction.signedAmount(), now);
+                posting = Posting.create(entry.getId(), account.getId(), instruction.signedAmount(),
+                        account.getCurrency(), runningBalance, now);
+            } else if (mode == SystemPostingMode.SHARDED) {
+                account.assertActive();
+                BigDecimal shardBalance = applyToShard(account.getId(), shard, instruction.signedAmount(), now);
+                posting = Posting.sharded(entry.getId(), account.getId(), instruction.signedAmount(),
+                        account.getCurrency(), shard, shardBalance, now);
+            } else {
+                account.assertActive();
+                posting = Posting.unlocked(entry.getId(), account.getId(), instruction.signedAmount(),
+                        account.getCurrency(), now);
+            }
+            responses.put(instruction, PostingResponse.from(postings.save(posting), account.getAccountNumber()));
         }
-        journalEntries.flush();
         postings.flush();
+        List<PostingResponse> postingResponses = instructions.stream().map(responses::get).toList();
         return JournalEntryResponse.from(entry, postingResponses);
+    }
+
+    private Map<UUID, AccountType> accountTypes(Set<UUID> ids) {
+        Map<UUID, AccountType> types = new java.util.HashMap<>();
+        jdbcTemplate.query(
+                "SELECT id, account_type FROM accounts WHERE id = ANY (?)",
+                rs -> {
+                    types.put(rs.getObject("id", UUID.class), AccountType.valueOf(rs.getString("account_type")));
+                },
+                (Object) ids.toArray(new UUID[0]));
+        return types;
+    }
+
+    private BigDecimal applyToShard(UUID accountId, int shard, BigDecimal signedAmount, Instant now) {
+        List<BigDecimal> balance = jdbcTemplate.query(
+                """
+                UPDATE account_balance_shards SET balance = balance + ?, updated_at = ?
+                WHERE account_id = ? AND shard = ?
+                RETURNING balance
+                """,
+                (rs, rowNum) -> rs.getBigDecimal("balance"),
+                MoneyRounding.toStorageScale(signedAmount), java.sql.Timestamp.from(now), accountId, shard);
+        if (balance.isEmpty()) {
+            throw new IllegalStateException("No balance shard " + shard + " for system account " + accountId);
+        }
+        return balance.getFirst();
     }
 
     @Transactional(readOnly = true)
@@ -323,7 +376,9 @@ public class LedgerService {
                 rs.getString("reference"),
                 MoneyRounding.roundToMinorUnits(rs.getBigDecimal("amount"), currency),
                 currency,
-                MoneyRounding.roundToMinorUnits(rs.getBigDecimal("running_balance"), currency),
+                rs.getBigDecimal("running_balance") == null
+                        ? null
+                        : MoneyRounding.roundToMinorUnits(rs.getBigDecimal("running_balance"), currency),
                 rs.getObject("created_at", OffsetDateTime.class).toInstant()
         );
     }

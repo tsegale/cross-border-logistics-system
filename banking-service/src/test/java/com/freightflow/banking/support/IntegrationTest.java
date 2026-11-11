@@ -11,7 +11,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  */
 @SpringBootTest(properties = {
         "spring.datasource.hikari.maximum-pool-size=32",
-        "spring.datasource.hikari.connection-timeout=15000"
+        "spring.datasource.hikari.minimum-idle=2",
+        "spring.datasource.hikari.connection-timeout=60000"
 })
 @AutoConfigureMockMvc
 @ImportTestcontainers(SharedContainers.class)

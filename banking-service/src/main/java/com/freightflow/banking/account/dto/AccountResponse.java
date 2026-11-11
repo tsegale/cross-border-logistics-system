@@ -33,6 +33,11 @@ public record AccountResponse(
 ) {
 
     public static AccountResponse from(Account account) {
+        return from(account, account.getBalance());
+    }
+
+    /** {@code balance} is passed in for system accounts, whose balance is derived (ADR 0010). */
+    public static AccountResponse from(Account account, BigDecimal balance) {
         return new AccountResponse(
                 account.getId(),
                 account.getAccountNumber(),
@@ -40,7 +45,7 @@ public record AccountResponse(
                 account.getAccountType(),
                 account.getCurrency(),
                 account.getStatus(),
-                MoneyRounding.roundToMinorUnits(account.getBalance(), account.getCurrency()),
+                MoneyRounding.roundToMinorUnits(balance, account.getCurrency()),
                 account.getCreatedAt(),
                 account.getUpdatedAt()
         );

@@ -37,6 +37,10 @@ freightflow:
     transfer-locking-strategy: ${TRANSFER_LOCKING_STRATEGY:pessimistic}
     ledger:
       account-lock-timeout: ${LEDGER_ACCOUNT_LOCK_TIMEOUT:10s}
+    # locked | unlocked | sharded (ADR 0010). The benchmark switches it by recreating the container.
+    system-accounts:
+      posting-mode: ${SYSTEM_ACCOUNT_POSTING_MODE:unlocked}
+      shards: ${SYSTEM_ACCOUNT_SHARDS:16}
     idempotency:
       ttl: ${IDEMPOTENCY_TTL:24h}
       cleanup-interval: ${IDEMPOTENCY_CLEANUP_INTERVAL:15m}

@@ -5,6 +5,7 @@ import org.springframework.boot.actuate.info.Info;
 import org.springframework.boot.actuate.info.InfoContributor;
 import org.springframework.stereotype.Component;
 
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -23,5 +24,8 @@ public class TransferStrategyInfoContributor implements InfoContributor {
     @Override
     public void contribute(Info.Builder builder) {
         builder.withDetail("transfer", Map.of("lockingStrategy", properties.transferLockingStrategy()));
+        builder.withDetail("ledger", Map.of(
+                "systemPostingMode", properties.systemAccounts().postingMode().name().toLowerCase(Locale.ROOT),
+                "shards", properties.systemAccounts().shards()));
     }
 }

@@ -351,7 +351,8 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
                 TransferService.STRATEGY_CONDITIONAL_UPDATE,
                 properties.idempotency(),
                 properties.fx(),
-                properties.ledger()
+                properties.ledger(),
+                properties.systemAccounts()
         );
         TransferService conditionalService = new TransferService(
                 accountService, accountRepository, ledgerService, journalEntryRepository,

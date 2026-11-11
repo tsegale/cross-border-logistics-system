@@ -30,6 +30,7 @@ class FxQuoteUnitTest {
                         ),
                         Map.of("NAD-ZAR", new BigDecimal("0.0000"), "ZAR-NAD", new BigDecimal("0.0000"))
                 ),
+                null,
                 null
         );
     }
@@ -79,6 +80,7 @@ class FxQuoteUnitTest {
                         Map.of("NAD", Map.of("ZAR", new BigDecimal("1.02000000"))),
                         Map.of()
                 ),
+                null,
                 null
         );
         StaticConfiguredExchangeRateProvider brokenProvider = new StaticConfiguredExchangeRateProvider(brokenPeg);

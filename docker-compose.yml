@@ -49,6 +49,8 @@ services:
       BANKING_DB_PASSWORD: ${BANKING_DB_PASSWORD:?set in .env}
       # pessimistic | conditional-update (ADR 0005). The benchmark switches it by recreating this container.
       TRANSFER_LOCKING_STRATEGY: ${TRANSFER_LOCKING_STRATEGY:-pessimistic}
+      # locked | unlocked | sharded (ADR 0010); unset keeps the service default.
+      SYSTEM_ACCOUNT_POSTING_MODE: ${SYSTEM_ACCOUNT_POSTING_MODE:-unlocked}
     ports:
       - "127.0.0.1:8081:8081"
     depends_on:

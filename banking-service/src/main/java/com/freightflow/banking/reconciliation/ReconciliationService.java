@@ -16,8 +16,11 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Recomputes every account's balance from {@code SUM(postings.amount)} and compares it against the
- * materialised {@code accounts.balance} column, alongside a trial balance per currency (ADR 0004).
+ * Recomputes every cached balance from the postings that built it and reports any difference, alongside a trial
+ * balance per currency (ADR 0004). Since ADR 0010 a system account's balance has three parts, each checked
+ * against its own postings: {@code accounts.balance} against the postings made with the row locked, every
+ * {@code account_balance_shards} row against the postings made to that shard, and unlocked postings, which have
+ * no cache to drift from. The per-currency trial balance covers all postings.
  */
 @Service
 public class ReconciliationService {
@@ -40,7 +43,8 @@ public class ReconciliationService {
                        a.balance AS materialised_balance,
                        COALESCE(SUM(p.amount), 0.0000) AS computed_balance
                 FROM accounts a
-                LEFT JOIN postings p ON p.account_id = a.id
+                LEFT JOIN postings p
+                       ON p.account_id = a.id AND p.running_balance IS NOT NULL AND p.shard IS NULL
                 GROUP BY a.id, a.account_number, a.currency, a.balance
                 ORDER BY a.account_number ASC
                 """,
@@ -67,6 +71,31 @@ public class ReconciliationService {
                 ));
             }
         }
+
+        // Sharded system postings (ADR 0010): every shard row must equal the sum of the postings made to it.
+        jdbcTemplate.query(
+                """
+                SELECT a.id, a.account_number, a.currency, s.shard, s.balance,
+                       COALESCE(SUM(p.amount), 0.0000) AS computed_balance
+                FROM account_balance_shards s
+                JOIN accounts a ON a.id = s.account_id
+                LEFT JOIN postings p ON p.account_id = s.account_id AND p.shard = s.shard
+                GROUP BY a.id, a.account_number, a.currency, s.shard, s.balance
+                HAVING s.balance <> COALESCE(SUM(p.amount), 0.0000)
+                ORDER BY a.account_number, s.shard
+                """,
+                rs -> {
+                    String currency = rs.getString("currency");
+                    BigDecimal shardBalance = rs.getBigDecimal("balance");
+                    BigDecimal computed = rs.getBigDecimal("computed_balance");
+                    discrepancies.add(new AccountDiscrepancy(
+                            rs.getObject("id", UUID.class),
+                            rs.getString("account_number") + "#shard" + rs.getInt("shard"),
+                            currency,
+                            MoneyRounding.roundToMinorUnits(shardBalance, currency),
+                            MoneyRounding.roundToMinorUnits(computed, currency),
+                            MoneyRounding.roundToMinorUnits(shardBalance.subtract(computed), currency)));
+                });
 
         List<CurrencyTrialBalance> trialBalances = jdbcTemplate.query(
                 """

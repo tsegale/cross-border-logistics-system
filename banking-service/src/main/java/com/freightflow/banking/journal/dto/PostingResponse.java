@@ -26,7 +26,7 @@ public record PostingResponse(
                 accountNumber,
                 MoneyRounding.roundToMinorUnits(posting.getAmount(), posting.getCurrency()),
                 posting.getCurrency(),
-                MoneyRounding.roundToMinorUnits(posting.getRunningBalance(), posting.getCurrency()),
+                posting.getRunningBalance() == null ? null : MoneyRounding.roundToMinorUnits(posting.getRunningBalance(), posting.getCurrency()),
                 posting.getCreatedAt()
         );
     }

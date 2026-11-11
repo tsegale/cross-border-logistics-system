@@ -2,6 +2,8 @@ package com.freightflow.banking.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import com.freightflow.banking.journal.SystemPostingMode;
+
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
@@ -16,7 +18,8 @@ public record BankingProperties(
         String transferLockingStrategy,
         Idempotency idempotency,
         Fx fx,
-        Ledger ledger
+        Ledger ledger,
+        SystemAccounts systemAccounts
 ) {
 
     public static final String STRATEGY_PESSIMISTIC = "pessimistic";
@@ -40,6 +43,9 @@ public record BankingProperties(
         if (ledger == null) {
             ledger = new Ledger(DEFAULT_ACCOUNT_LOCK_TIMEOUT);
         }
+        if (systemAccounts == null) {
+            systemAccounts = new SystemAccounts(null, 0);
+        }
     }
 
     public Set<String> normalizedCurrencies() {
@@ -54,6 +60,27 @@ public record BankingProperties(
      *                           for a hot account is normal, waiting on a duplicate request is not.
      */
     public record Ledger(Duration accountLockTimeout) {
+    }
+
+    /**
+     * @param postingMode how postings to CLEARING, FX_POSITION and FREIGHT_REVENUE are applied (ADR 0010)
+     * @param shards      shard rows per system account in SHARDED mode; V2 creates 16
+     */
+    public record SystemAccounts(SystemPostingMode postingMode, int shards) {
+        public static final int MAX_SHARDS = 16;
+
+        public SystemAccounts {
+            if (postingMode == null) {
+                postingMode = SystemPostingMode.UNLOCKED;
+            }
+            if (shards <= 0) {
+                shards = MAX_SHARDS;
+            }
+            if (shards > MAX_SHARDS) {
+                throw new IllegalArgumentException("system-accounts.shards must be at most " + MAX_SHARDS
+                        + " (the shard rows V2 creates), was " + shards);
+            }
+        }
     }
 
     public record Idempotency(

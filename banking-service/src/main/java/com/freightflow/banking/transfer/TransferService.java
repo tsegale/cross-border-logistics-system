@@ -8,6 +8,7 @@ import com.freightflow.banking.account.AccountType;
 import com.freightflow.banking.account.InsufficientFundsException;
 import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.common.MoneyRounding;
+import com.freightflow.banking.common.UuidOrder;
 import com.freightflow.banking.config.BankingProperties;
 import com.freightflow.banking.fx.FxQuote;
 import com.freightflow.banking.fx.FxQuoteService;
@@ -391,7 +392,6 @@ public class TransferService {
 
     /** Compares two UUIDs in unsigned 128-bit big-endian byte order, matching PostgreSQL's {@code uuid} B-tree order. */
     public static int compareUuidUnsigned(UUID a, UUID b) {
-        int high = Long.compareUnsigned(a.getMostSignificantBits(), b.getMostSignificantBits());
-        return high != 0 ? high : Long.compareUnsigned(a.getLeastSignificantBits(), b.getLeastSignificantBits());
+        return UuidOrder.compare(a, b);
     }
 }

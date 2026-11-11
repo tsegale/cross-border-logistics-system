@@ -11,20 +11,20 @@ class BankingPropertiesTest {
 
     @Test
     void unknownLockingStrategyFailsStartup() {
-        assertThatThrownBy(() -> new BankingProperties(List.of("NAD"), "optimistic", null, null, null))
+        assertThatThrownBy(() -> new BankingProperties(List.of("NAD"), "optimistic", null, null, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("optimistic");
     }
 
     @Test
     void strategyIsNormalisedToLowerCase() {
-        assertThat(new BankingProperties(List.of("NAD"), " Conditional-Update ", null, null, null).transferLockingStrategy())
+        assertThat(new BankingProperties(List.of("NAD"), " Conditional-Update ", null, null, null, null).transferLockingStrategy())
                 .isEqualTo(BankingProperties.STRATEGY_CONDITIONAL_UPDATE);
     }
 
     @Test
     void missingStrategyDefaultsToPessimistic() {
-        assertThat(new BankingProperties(List.of("NAD"), null, null, null, null).transferLockingStrategy())
+        assertThat(new BankingProperties(List.of("NAD"), null, null, null, null, null).transferLockingStrategy())
                 .isEqualTo(BankingProperties.STRATEGY_PESSIMISTIC);
     }
 }

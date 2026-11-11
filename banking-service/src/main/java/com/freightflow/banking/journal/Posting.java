@@ -34,8 +34,12 @@ public class Posting {
     @Column(name = "currency", length = 3, nullable = false, updatable = false)
     private String currency;
 
-    @Column(name = "running_balance", precision = 19, scale = 4, nullable = false, updatable = false)
+    /** Balance after this posting; null for an unlocked system posting, the shard's balance for a sharded one. */
+    @Column(name = "running_balance", precision = 19, scale = 4, updatable = false)
     private BigDecimal runningBalance;
+
+    @Column(name = "shard", updatable = false)
+    private Short shard;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -58,6 +62,26 @@ public class Posting {
         posting.runningBalance = MoneyRounding.toStorageScale(Objects.requireNonNull(runningBalance, "runningBalance"));
         posting.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         return posting;
+    }
+
+    /** A system-account posting that updated no balance row (UNLOCKED mode). */
+    public static Posting unlocked(UUID journalEntryId, UUID accountId, BigDecimal signedAmount, String currency,
+                                   Instant createdAt) {
+        Posting posting = create(journalEntryId, accountId, signedAmount, currency, BigDecimal.ZERO, createdAt);
+        posting.runningBalance = null;
+        return posting;
+    }
+
+    /** A system-account posting applied to one balance shard (SHARDED mode). */
+    public static Posting sharded(UUID journalEntryId, UUID accountId, BigDecimal signedAmount, String currency,
+                                  int shard, BigDecimal shardBalance, Instant createdAt) {
+        Posting posting = create(journalEntryId, accountId, signedAmount, currency, shardBalance, createdAt);
+        posting.shard = (short) shard;
+        return posting;
+    }
+
+    public Short getShard() {
+        return shard;
     }
 
     public UUID getId() {
