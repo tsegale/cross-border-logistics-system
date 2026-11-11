@@ -3,6 +3,7 @@ package com.freightflow.logistics.shipment.dto;
 import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.quote.Incoterm;
 import com.freightflow.logistics.quote.TransportMode;
+import com.freightflow.logistics.shipment.PaymentStatus;
 import com.freightflow.logistics.shipment.Shipment;
 import com.freightflow.logistics.shipment.ShipmentStatus;
 
@@ -31,11 +32,17 @@ public record ShipmentResponse(
         BigDecimal volumeCbm,
         BigDecimal chargeableWeightKg,
         String cancellationReason,
+        PaymentDto payment,
         Instant latestEventAt,
         long version,
         Instant createdAt,
         Instant updatedAt
 ) {
+
+    /** Where paying for the shipment stands (ADR 0012). failureType is a problem type URI from banking-service. */
+    public record PaymentDto(PaymentStatus status, UUID holdId, BigDecimal amount, String currency,
+                             String failureType, String failureDetail) {
+    }
 
     public static ShipmentResponse from(Shipment s) {
         return new ShipmentResponse(
@@ -59,6 +66,9 @@ public record ShipmentResponse(
                 s.getVolumeCbm(),
                 s.getChargeableWeightKg(),
                 s.getCancellationReason(),
+                new PaymentDto(s.getPaymentStatus(), s.getHoldId(),
+                        MoneyRounding.roundToMinorUnits(s.getQuotedTotalAmount(), s.getQuotedCurrency()),
+                        s.getQuotedCurrency(), s.getPaymentFailureType(), s.getPaymentFailureDetail()),
                 s.getLatestEventAt(),
                 s.getVersion(),
                 s.getCreatedAt(),

@@ -1,5 +1,6 @@
 package com.freightflow.logistics.shipment;
 
+import com.freightflow.logistics.payment.PaymentCommandRelay;
 import com.freightflow.logistics.support.IntegrationTest;
 import com.freightflow.logistics.support.LogisticsFixtures;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,7 +13,6 @@ import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -33,14 +33,16 @@ class CarrierEventIngestionIntegrationTest extends IntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private PaymentCommandRelay relay;
+
     private LogisticsFixtures fixtures;
     private String shipmentId;
 
     @BeforeEach
     void bookedShipment() throws Exception {
-        fixtures = new LogisticsFixtures(mockMvc);
-        shipmentId = fixtures.bookShipment().get("id").asString();
-        fixtures.recordEvent(shipmentId, "PAY-" + UUID.randomUUID(), "BOOKED", "2026-04-18T09:00:00Z");
+        fixtures = new LogisticsFixtures(mockMvc, relay);
+        shipmentId = fixtures.bookAndPay().get("id").asString();
     }
 
     @Test
@@ -67,7 +69,7 @@ class CarrierEventIngestionIntegrationTest extends IntegrationTest {
         assertThat(event.get("currentShipmentStatus").asString()).isEqualTo("AT_DESTINATION_PORT");
         mockMvc.perform(get("/api/v1/shipments/track/{tn}", trackingNumber()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.events.length()").value(3));
+                .andExpect(jsonPath("$.events.length()").value(2));
     }
 
     @Test

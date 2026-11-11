@@ -17,6 +17,8 @@ Shipments on the Walvis Bay (`NAWVB`) to Hamburg (`DEHAM`) corridor pass through
    - Modelled as a self-contained Java enum with an explicit `allowedNextStatuses()` transition table (not Spring Statemachine):
      `AWAITING_PAYMENT -> BOOKED -> PICKED_UP -> AT_ORIGIN_PORT -> IN_TRANSIT -> AT_DESTINATION_PORT -> CUSTOMS_HOLD <-> CUSTOMS_CLEARED -> OUT_FOR_DELIVERY -> DELIVERED`.
    - `CANCELLED` is allowed only before cargo is picked up (`AWAITING_PAYMENT` or `BOOKED`). `EXCEPTION` is reachable from any active state.
+   - **Revised in Phase 2 (ADR 0012, migration `V6`)**: `PAYMENT_FAILED` is a final status reachable only from `AWAITING_PAYMENT`, when banking refuses the hold. Only the payment saga moves a shipment out of `AWAITING_PAYMENT` (to `BOOKED` or `PAYMENT_FAILED`): a carrier or operator event targeting `BOOKED` or `PAYMENT_FAILED`, or any event while the shipment awaits payment, is stored as `REJECTED`. Reaching `PICKED_UP`, or any later milestone when the pickup scan was missed, enqueues the capture; cancelling a `BOOKED` shipment enqueues the release.
+   - The shipment response carries `payment {status, holdId, amount, currency, failureType, failureDetail}`, where `status` is one of `AUTHORISATION_PENDING`, `AUTHORISED`, `CAPTURE_PENDING`, `CAPTURED`, `RELEASE_PENDING`, `RELEASED`, `FAILED` (`NOT_REQUIRED` for shipments past payment before Phase 2).
    - Any illegal transition throws `409 invalid-shipment-state-transition` naming `currentStatus`, `requestedStatus`, and `allowedNextStatuses`.
 3. **Out-of-order and duplicate-safe tracking events (`Shipment.applyTrackingEvent`)**:
    - `shipments` tracks `latest_event_at` (`TIMESTAMPTZ`).

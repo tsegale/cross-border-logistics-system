@@ -17,6 +17,8 @@ import java.util.Set;
  */
 public enum ShipmentStatus {
     AWAITING_PAYMENT,
+    /** banking refused the hold (insufficient funds, frozen or unknown account). Final. */
+    PAYMENT_FAILED,
     BOOKED,
     PICKED_UP,
     AT_ORIGIN_PORT,
@@ -32,7 +34,7 @@ public enum ShipmentStatus {
     public Set<ShipmentStatus> allowedNextStatuses() {
         return switch (this) {
             case AWAITING_PAYMENT -> Collections.unmodifiableSet(
-                    EnumSet.of(BOOKED, CANCELLED, EXCEPTION));
+                    EnumSet.of(BOOKED, PAYMENT_FAILED, CANCELLED, EXCEPTION));
             case BOOKED -> Collections.unmodifiableSet(
                     EnumSet.of(PICKED_UP, CANCELLED, EXCEPTION));
             case PICKED_UP -> Collections.unmodifiableSet(
@@ -52,7 +54,7 @@ public enum ShipmentStatus {
             case EXCEPTION -> Collections.unmodifiableSet(
                     EnumSet.of(PICKED_UP, AT_ORIGIN_PORT, IN_TRANSIT, AT_DESTINATION_PORT,
                             CUSTOMS_HOLD, CUSTOMS_CLEARED, OUT_FOR_DELIVERY, DELIVERED));
-            case DELIVERED, CANCELLED -> Set.of();
+            case DELIVERED, CANCELLED, PAYMENT_FAILED -> Set.of();
         };
     }
 
@@ -84,6 +86,10 @@ public enum ShipmentStatus {
      * terminal status, and never out of AWAITING_PAYMENT: only the payment moves a shipment to BOOKED.
      */
     public boolean canTrackForwardTo(ShipmentStatus target) {
+        if (target == BOOKED || target == PAYMENT_FAILED || this == AWAITING_PAYMENT) {
+            // Payment-owned: only the payment saga moves a shipment out of AWAITING_PAYMENT (ADR 0012).
+            return false;
+        }
         if (canTransitionTo(target)) {
             return true;
         }

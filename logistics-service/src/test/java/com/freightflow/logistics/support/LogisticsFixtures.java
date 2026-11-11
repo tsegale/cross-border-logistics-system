@@ -1,5 +1,6 @@
 package com.freightflow.logistics.support;
 
+import com.freightflow.logistics.payment.PaymentCommandRelay;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -11,6 +12,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.util.UUID;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -37,9 +39,16 @@ public final class LogisticsFixtures {
     }
 
     private final MockMvc mockMvc;
+    private final PaymentCommandRelay relay;
 
     public LogisticsFixtures(MockMvc mockMvc) {
+        this(mockMvc, null);
+    }
+
+    /** With the relay, {@link #bookAndPay()} can authorise payments against the WireMock banking stub. */
+    public LogisticsFixtures(MockMvc mockMvc, PaymentCommandRelay relay) {
         this.mockMvc = mockMvc;
+        this.relay = relay;
     }
 
     /** FCA for the consignee, NAWVB to DEHAM, 2 pallets: 524.75 EUR. */
@@ -83,6 +92,25 @@ public final class LogisticsFixtures {
                 .andExpect(status().isCreated())
                 .andReturn();
         return json(res);
+    }
+
+    /**
+     * Books a shipment and lets banking (stubbed) accept its hold, so it is BOOKED with payment AUTHORISED. Only the
+     * payment saga books a shipment (ADR 0012); a carrier event to BOOKED is rejected.
+     */
+    public JsonNode bookAndPay() throws Exception {
+        if (relay == null) {
+            throw new IllegalStateException("bookAndPay needs the PaymentCommandRelay");
+        }
+        JsonNode shipment = bookShipment();
+        UUID id = UUID.fromString(shipment.get("id").asString());
+        BankingStub.SERVER.stubFor(BankingStubs.holdFor(id).willReturn(BankingStubs.respond(BankingStubs.HOLD_CREATED)));
+        relay.relayOnce();
+        JsonNode booked = json(mockMvc.perform(get("/api/v1/shipments/{id}", id)).andExpect(status().isOk()).andReturn());
+        if (!"BOOKED".equals(booked.get("status").asString())) {
+            throw new IllegalStateException("shipment " + id + " was not booked: " + booked);
+        }
+        return booked;
     }
 
     public static RequestBuilder eventRequest(String shipmentId, String carrierEventId, String targetStatus,

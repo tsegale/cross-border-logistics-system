@@ -21,6 +21,8 @@ import com.freightflow.logistics.shipment.dto.ShipmentPageResponse;
 import com.freightflow.logistics.shipment.dto.ShipmentResponse;
 import com.freightflow.logistics.shipment.dto.TrackingEventResponse;
 import com.freightflow.logistics.common.UuidV7;
+import com.freightflow.logistics.payment.PaymentCommandType;
+import com.freightflow.logistics.payment.PaymentCommands;
 import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +60,7 @@ public class ShipmentService {
     private final LogisticsProperties properties;
     private final JdbcTemplate jdbcTemplate;
     private final EntityManager entityManager;
+    private final PaymentCommands paymentCommands;
     private final Clock clock;
 
     public ShipmentService(
@@ -69,6 +72,7 @@ public class ShipmentService {
             LogisticsProperties properties,
             JdbcTemplate jdbcTemplate,
             EntityManager entityManager,
+            PaymentCommands paymentCommands,
             Clock clock) {
         this.shipments = shipments;
         this.trackingEvents = trackingEvents;
@@ -78,6 +82,7 @@ public class ShipmentService {
         this.properties = properties;
         this.jdbcTemplate = jdbcTemplate;
         this.entityManager = entityManager;
+        this.paymentCommands = paymentCommands;
         this.clock = clock;
     }
 
@@ -164,6 +169,9 @@ public class ShipmentService {
                 now
         );
         Shipment saved = shipments.saveAndFlush(shipment);
+        // Same transaction as the booking: the AUTHORISE command exists if and only if the shipment does (ADR 0012).
+        paymentCommands.enqueue(saved.getId(), PaymentCommandType.AUTHORISE, saved.getQuotedTotalAmount(),
+                saved.getQuotedCurrency(), saved.getPayerAccountNumber(), null);
         log.info("Booked shipment {} (trackingNumber={}, quoteId={}, status={})",
                 saved.getId(), saved.getTrackingNumber(), saved.getQuoteId(), saved.getStatus());
         return ShipmentResponse.from(saved);
@@ -220,6 +228,7 @@ public class ShipmentService {
 
         String reason = request != null ? request.reason() : null;
         shipment.cancel(reason, clock.instant());
+        settlePayment(shipment);
         Shipment saved = shipments.saveAndFlush(shipment);
         log.info("Cancelled shipment {} (trackingNumber={}, version={})",
                 saved.getId(), saved.getTrackingNumber(), saved.getVersion());
@@ -290,6 +299,9 @@ public class ShipmentService {
             return duplicate(winner, location, shipment);
         }
 
+        if (decision.isApplied()) {
+            settlePayment(shipment);
+        }
         Shipment savedShipment = shipments.saveAndFlush(shipment);
         TrackingEvent savedEvent = trackingEvents.findById(eventId)
                 .orElseThrow(() -> new IllegalStateException("Inserted tracking event " + eventId + " not found"));
@@ -297,6 +309,21 @@ public class ShipmentService {
                 eventId, shipmentId, request.targetStatus(), decision.outcome(), decision.skipped(),
                 savedShipment.getStatus());
         return TrackingEventResponse.from(savedEvent, location, savedShipment.getStatus(), savedShipment.getVersion(), false);
+    }
+
+    /** Capture after pickup, release after cancellation; written in the caller's transaction (ADR 0012). */
+    private void settlePayment(Shipment shipment) {
+        switch (shipment.settleAfterStatusChange()) {
+            case CAPTURE -> paymentCommands.enqueue(shipment.getId(), PaymentCommandType.CAPTURE,
+                    shipment.getQuotedTotalAmount(), shipment.getQuotedCurrency(), shipment.getPayerAccountNumber(),
+                    shipment.getHoldId());
+            case RELEASE -> paymentCommands.enqueue(shipment.getId(), PaymentCommandType.RELEASE,
+                    shipment.getQuotedTotalAmount(), shipment.getQuotedCurrency(), shipment.getPayerAccountNumber(),
+                    shipment.getHoldId());
+            case NONE -> {
+                // nothing to settle
+            }
+        }
     }
 
     private TrackingEventResponse duplicate(TrackingEvent existing, Location requestLocation, Shipment shipment) {

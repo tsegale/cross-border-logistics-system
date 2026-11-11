@@ -104,6 +104,19 @@ public class Shipment {
     @Column(name = "latest_event_at")
     private Instant latestEventAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status", length = 24, nullable = false)
+    private PaymentStatus paymentStatus;
+
+    @Column(name = "hold_id")
+    private UUID holdId;
+
+    @Column(name = "payment_failure_type", length = 200)
+    private String paymentFailureType;
+
+    @Column(name = "payment_failure_detail", length = 1000)
+    private String paymentFailureDetail;
+
     @Version
     @Column(name = "version", nullable = false)
     private long version;
@@ -135,6 +148,7 @@ public class Shipment {
         s.mode = quote.getMode();
         s.incoterm = quote.getIncoterm();
         s.status = ShipmentStatus.AWAITING_PAYMENT;
+        s.paymentStatus = PaymentStatus.AUTHORISATION_PENDING;
         s.shipperName = shipper.name().trim();
         s.shipperAddress = shipper.address().trim();
         s.shipperContact = shipper.contact().trim();
@@ -153,6 +167,78 @@ public class Shipment {
         s.createdAt = Objects.requireNonNull(now, "now");
         s.updatedAt = now;
         return s;
+    }
+
+    /**
+     * banking accepted the hold. A shipment still awaiting payment is booked. One cancelled while the hold was in
+     * flight keeps its status, and the hold must now be released.
+     *
+     * @return true if the hold must be released
+     */
+    public boolean paymentAuthorised(UUID holdId, Instant now) {
+        this.holdId = Objects.requireNonNull(holdId, "holdId");
+        this.updatedAt = Objects.requireNonNull(now, "now");
+        if (this.status == ShipmentStatus.AWAITING_PAYMENT) {
+            this.status = ShipmentStatus.BOOKED;
+            this.paymentStatus = PaymentStatus.AUTHORISED;
+            return false;
+        }
+        this.paymentStatus = PaymentStatus.RELEASE_PENDING;
+        return true;
+    }
+
+    /** banking refused the hold: the shipment cannot be paid for as booked. */
+    public void paymentRefused(String problemType, String detail, Instant now) {
+        this.paymentStatus = PaymentStatus.FAILED;
+        this.paymentFailureType = problemType;
+        this.paymentFailureDetail = detail;
+        if (this.status == ShipmentStatus.AWAITING_PAYMENT) {
+            this.status = ShipmentStatus.PAYMENT_FAILED;
+        }
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    /** A capture or release was refused: the money is in an unexpected state and needs an operator. */
+    public void paymentSettlementFailed(String problemType, String detail, Instant now) {
+        this.paymentStatus = PaymentStatus.FAILED;
+        this.paymentFailureType = problemType;
+        this.paymentFailureDetail = detail;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    public void paymentCaptured(Instant now) {
+        this.paymentStatus = PaymentStatus.CAPTURED;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    public void paymentReleased(Instant now) {
+        this.paymentStatus = PaymentStatus.RELEASED;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    /**
+     * What the payment needs after a status change: capture once the cargo is picked up (also when the pickup scan
+     * was missed and the shipment jumped further), release when an authorised shipment is cancelled.
+     */
+    public PaymentCommandNeeded settleAfterStatusChange() {
+        if (this.paymentStatus != PaymentStatus.AUTHORISED) {
+            return PaymentCommandNeeded.NONE;
+        }
+        if (this.status == ShipmentStatus.CANCELLED) {
+            this.paymentStatus = PaymentStatus.RELEASE_PENDING;
+            return PaymentCommandNeeded.RELEASE;
+        }
+        if (this.status.milestoneRank() >= ShipmentStatus.PICKED_UP.milestoneRank()) {
+            this.paymentStatus = PaymentStatus.CAPTURE_PENDING;
+            return PaymentCommandNeeded.CAPTURE;
+        }
+        return PaymentCommandNeeded.NONE;
+    }
+
+    public enum PaymentCommandNeeded {
+        NONE,
+        CAPTURE,
+        RELEASE
     }
 
     public void cancel(String reason, Instant now) {
@@ -286,6 +372,22 @@ public class Shipment {
 
     public Instant getLatestEventAt() {
         return latestEventAt;
+    }
+
+    public PaymentStatus getPaymentStatus() {
+        return paymentStatus;
+    }
+
+    public UUID getHoldId() {
+        return holdId;
+    }
+
+    public String getPaymentFailureType() {
+        return paymentFailureType;
+    }
+
+    public String getPaymentFailureDetail() {
+        return paymentFailureDetail;
     }
 
     public long getVersion() {

@@ -10,7 +10,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest(properties = {
         "spring.datasource.hikari.maximum-pool-size=32",
-        "spring.datasource.hikari.connection-timeout=15000"
+        "spring.datasource.hikari.connection-timeout=60000",
+        "spring.datasource.hikari.minimum-idle=2",
+        // Tests drive PaymentCommandRelay.relayOnce() themselves and do not wait for real backoff.
+        "freightflow.logistics.payments.relay-enabled=false",
+        "freightflow.logistics.payments.retry-backoff=1ms",
+        "freightflow.logistics.payments.max-retry-backoff=2ms"
 })
 @AutoConfigureMockMvc
 @ImportTestcontainers(SharedContainers.class)

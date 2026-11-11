@@ -1,5 +1,6 @@
 package com.freightflow.logistics.shipment;
 
+import com.freightflow.logistics.payment.PaymentCommandRelay;
 import com.freightflow.logistics.support.IntegrationTest;
 import com.freightflow.logistics.support.LogisticsFixtures;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,44 +27,47 @@ class TrackingEventIntegrationTest extends IntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private PaymentCommandRelay relay;
+
     private LogisticsFixtures fixtures;
     private String shipmentId;
     private String trackingNumber;
 
     @BeforeEach
     void shipment() throws Exception {
-        fixtures = new LogisticsFixtures(mockMvc);
-        JsonNode shipment = fixtures.bookShipment();
+        fixtures = new LogisticsFixtures(mockMvc, relay);
+        JsonNode shipment = fixtures.bookAndPay();
         shipmentId = shipment.get("id").asString();
         trackingNumber = shipment.get("trackingNumber").asString();
     }
 
     @Test
     void appliedEventBumpsTheETagAndShowsTheLocationsLocalTime() throws Exception {
-        mockMvc.perform(eventRequest(shipmentId, "EVT-BOOKED-01", "BOOKED", "2026-04-18T09:00:00Z", "\"0\""))
+        // Booking (version 0) and the payment authorisation (version 1) came first.
+        mockMvc.perform(eventRequest(shipmentId, "EVT-PICKUP-01", "PICKED_UP", "2026-04-18T09:00:00Z", "\"1\""))
                 .andExpect(status().isCreated())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"1\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "\"2\""))
                 .andExpect(jsonPath("$.appliedToStatus").value(true))
                 .andExpect(jsonPath("$.duplicateIgnored").value(false))
-                .andExpect(jsonPath("$.currentShipmentStatus").value("BOOKED"))
+                .andExpect(jsonPath("$.currentShipmentStatus").value("PICKED_UP"))
                 .andExpect(jsonPath("$.locationTimezone").value("Africa/Windhoek"))
                 .andExpect(jsonPath("$.occurredAtLocal").value("2026-04-18T11:00:00+02:00"));
     }
 
     @Test
     void resentCarrierEventIsIgnoredWithoutChangingTheVersion() throws Exception {
-        fixtures.recordEvent(shipmentId, "EVT-BOOKED-01", "BOOKED", "2026-04-18T09:00:00Z");
+        fixtures.recordEvent(shipmentId, "EVT-PICKUP-01", "PICKED_UP", "2026-04-18T09:00:00Z");
 
-        mockMvc.perform(eventRequest(shipmentId, "EVT-BOOKED-01", "BOOKED", "2026-04-18T09:00:00Z"))
+        mockMvc.perform(eventRequest(shipmentId, "EVT-PICKUP-01", "PICKED_UP", "2026-04-18T09:00:00Z"))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"1\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "\"2\""))
                 .andExpect(jsonPath("$.duplicateIgnored").value(true))
-                .andExpect(jsonPath("$.shipmentVersion").value(1));
+                .andExpect(jsonPath("$.shipmentVersion").value(2));
     }
 
     @Test
     void cancellationAfterPickupIsAnInvalidTransition() throws Exception {
-        fixtures.recordEvent(shipmentId, "E1", "BOOKED", "2026-04-18T09:00:00Z");
         fixtures.recordEvent(shipmentId, "E2", "PICKED_UP", "2026-04-19T08:00:00Z");
 
         mockMvc.perform(post("/api/v1/shipments/{id}/cancellation", shipmentId)
@@ -77,7 +81,6 @@ class TrackingEventIntegrationTest extends IntegrationTest {
 
     @Test
     void publicTrackingListsEventsChronologicallyInLocalTimeWithoutCustomerData() throws Exception {
-        fixtures.recordEvent(shipmentId, "E1", "BOOKED", "2026-04-18T09:00:00Z");
         fixtures.recordEvent(shipmentId, "E2", "IN_TRANSIT", "2026-04-22T10:00:00Z");
         fixtures.recordEvent(shipmentId, "E-LATE", "AT_ORIGIN_PORT", "2026-04-20T08:30:00Z");
 
@@ -87,9 +90,9 @@ class TrackingEventIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.origin.timezone").value("Africa/Windhoek"))
                 .andExpect(jsonPath("$.destination.timezone").value("Europe/Berlin"))
                 .andExpect(jsonPath("$.status").value("IN_TRANSIT"))
-                .andExpect(jsonPath("$.events.length()").value(3))
-                .andExpect(jsonPath("$.events[1].occurredAtUtc").value("2026-04-20T08:30:00Z"))
-                .andExpect(jsonPath("$.events[1].appliedToStatus").value(false))
+                .andExpect(jsonPath("$.events.length()").value(2))
+                .andExpect(jsonPath("$.events[0].occurredAtUtc").value("2026-04-20T08:30:00Z"))
+                .andExpect(jsonPath("$.events[0].appliedToStatus").value(false))
                 .andExpect(jsonPath("$.shipper").doesNotExist())
                 .andExpect(jsonPath("$.consignee").doesNotExist())
                 .andExpect(jsonPath("$.payerAccountNumber").doesNotExist())

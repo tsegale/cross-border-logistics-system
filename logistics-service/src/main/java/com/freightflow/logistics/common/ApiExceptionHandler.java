@@ -4,6 +4,7 @@ import com.freightflow.logistics.idempotency.IdempotencyKeyInFlightException;
 import com.freightflow.logistics.idempotency.IdempotencyPayloadMismatchException;
 import com.freightflow.logistics.idempotency.MissingIdempotencyKeyException;
 import com.freightflow.logistics.location.UnknownLocationException;
+import com.freightflow.logistics.payment.PaymentCommandController;
 import com.freightflow.logistics.quote.InvalidRouteException;
 import com.freightflow.logistics.quote.NothingToQuoteException;
 import com.freightflow.logistics.quote.QuoteNotFoundException;
@@ -125,6 +126,23 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         );
         problem.setProperty("incoterm", ex.getIncoterm());
         problem.setProperty("payerRole", ex.getPayerRole());
+        return problem;
+    }
+
+    @ExceptionHandler(PaymentCommandController.PaymentCommandNotFoundException.class)
+    public ProblemDetail handlePaymentCommandNotFound(PaymentCommandController.PaymentCommandNotFoundException ex) {
+        ProblemDetail problem = problem(HttpStatus.NOT_FOUND, "payment-command-not-found",
+                "Payment command not found", ex.getMessage());
+        problem.setProperty("commandId", ex.getId());
+        return problem;
+    }
+
+    @ExceptionHandler(PaymentCommandController.PaymentCommandNotParkedException.class)
+    public ProblemDetail handlePaymentCommandNotParked(PaymentCommandController.PaymentCommandNotParkedException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "payment-command-not-parked",
+                "Payment command is not parked", ex.getMessage());
+        problem.setProperty("commandId", ex.getId());
+        problem.setProperty("commandStatus", ex.getStatus());
         return problem;
     }
 

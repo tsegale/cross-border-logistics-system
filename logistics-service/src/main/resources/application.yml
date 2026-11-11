@@ -42,6 +42,15 @@ freightflow:
   logistics:
     supported-currencies: ${LOGISTICS_SUPPORTED_CURRENCIES:NAD,ZAR,EUR}
     quote-validity: ${LOGISTICS_QUOTE_VALIDITY:24h}
+    # Payment saga relay (ADR 0012)
+    payments:
+      relay-enabled: ${PAYMENT_RELAY_ENABLED:true}
+      relay-interval: ${PAYMENT_RELAY_INTERVAL:500ms}
+      batch-size: ${PAYMENT_RELAY_BATCH:20}
+      lease: ${PAYMENT_RELAY_LEASE:30s}
+      max-attempts: ${PAYMENT_MAX_ATTEMPTS:8}
+      retry-backoff: ${PAYMENT_RETRY_BACKOFF:1s}
+      max-retry-backoff: ${PAYMENT_MAX_RETRY_BACKOFF:5m}
     idempotency:
       ttl: ${IDEMPOTENCY_TTL:24h}
       cleanup-interval: ${IDEMPOTENCY_CLEANUP_INTERVAL:15m}
