@@ -85,7 +85,7 @@ class AccountNumberTest {
     void accountDomainAppliesPostingsAndPreventsNegativeCustomerBalance() {
         java.time.Instant t0 = java.time.Instant.parse("2026-11-07T18:00:00Z");
         java.time.Instant t1 = java.time.Instant.parse("2026-11-07T18:01:00Z");
-        Account customer = Account.createCustomer("FF87NAD000000001", "CUST-1", "NAD", t0);
+        Account customer = Account.createCustomer("FF87NAD000000001", java.util.UUID.fromString("0193a0e0-0000-7000-8000-00000000a001"), "NAD", t0);
 
         assertThat(customer.getAccountType().isCustomer()).isTrue();
         assertThat(customer.getAccountType().isSystem()).isFalse();

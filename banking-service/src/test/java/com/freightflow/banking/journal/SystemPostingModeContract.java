@@ -1,5 +1,6 @@
 package com.freightflow.banking.journal;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
@@ -55,11 +56,11 @@ abstract class SystemPostingModeContract extends IntegrationTest {
 
     @Test
     void concurrentDepositsAgainstOneClearingRowStayExact() throws Exception {
-        BigDecimal clearingBefore = accountService.getAccount(CLEARING_EUR.toString()).ledgerBalance();
+        BigDecimal clearingBefore = accountService.getAccount(TestCallers.OPERATOR, CLEARING_EUR.toString()).ledgerBalance();
         int deposits = 48;
         List<AccountResponse> customers = new ArrayList<>();
         for (int i = 0; i < deposits; i++) {
-            customers.add(accountService.createCustomerAccount(new CreateAccountRequest("Hot " + mode() + " " + i, "EUR")));
+            customers.add(accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB)));
         }
 
         CountDownLatch start = new CountDownLatch(1);
@@ -68,7 +69,7 @@ abstract class SystemPostingModeContract extends IntegrationTest {
             for (AccountResponse customer : customers) {
                 futures.add(pool.submit(() -> {
                     start.await();
-                    return ledgerService.deposit(customer.id().toString(),
+                    return ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
                             new DepositRequest(new BigDecimal("10.00"), "EUR", "HOT-" + mode()), "hot-" + UUID.randomUUID());
                 }));
             }
@@ -78,10 +79,10 @@ abstract class SystemPostingModeContract extends IntegrationTest {
             }
         }
 
-        assertThat(accountService.getAccount(CLEARING_EUR.toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, CLEARING_EUR.toString()).ledgerBalance())
                 .isEqualByComparingTo(clearingBefore.subtract(new BigDecimal("480.00")));
         for (AccountResponse customer : customers) {
-            assertThat(accountService.getAccount(customer.id().toString()).ledgerBalance()).isEqualByComparingTo("10.00");
+            assertThat(accountService.getAccount(TestCallers.OPERATOR, customer.id().toString()).ledgerBalance()).isEqualByComparingTo("10.00");
         }
         ReconciliationReportResponse report = reconciliationService.reconcile();
         assertThat(report.discrepancies()).isEmpty();
@@ -90,8 +91,8 @@ abstract class SystemPostingModeContract extends IntegrationTest {
 
     @Test
     void customerPostingsAlwaysCarryARunningBalance() {
-        AccountResponse customer = accountService.createCustomerAccount(new CreateAccountRequest("Running " + mode(), "EUR"));
-        JournalEntryResponse entry = ledgerService.deposit(customer.id().toString(),
+        AccountResponse customer = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
+        JournalEntryResponse entry = ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
                 new DepositRequest(new BigDecimal("25.00"), "EUR", "RUN"), "run-" + UUID.randomUUID());
 
         assertThat(entry.postings()).filteredOn(p -> p.accountId().equals(customer.id()))
@@ -105,7 +106,7 @@ abstract class SystemPostingModeContract extends IntegrationTest {
      * duration. The posting's foreign key check takes {@code FOR KEY SHARE}, which does not conflict with it.
      */
     Duration depositWhileClearingRowIsLocked(Duration hold) throws Exception {
-        AccountResponse customer = accountService.createCustomerAccount(new CreateAccountRequest("Blocked " + mode(), "EUR"));
+        AccountResponse customer = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
         CountDownLatch locked = new CountDownLatch(1);
         try (ExecutorService pool = Executors.newSingleThreadExecutor()) {
             Future<?> holder = pool.submit(() -> {
@@ -123,7 +124,7 @@ abstract class SystemPostingModeContract extends IntegrationTest {
             });
             assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
             long started = System.nanoTime();
-            ledgerService.deposit(customer.id().toString(),
+            ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
                     new DepositRequest(new BigDecimal("1.00"), "EUR", "BLOCKED"), "blocked-" + UUID.randomUUID());
             Duration took = Duration.ofNanos(System.nanoTime() - started);
             holder.get(30, TimeUnit.SECONDS);

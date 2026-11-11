@@ -16,8 +16,9 @@ public record AccountResponse(
         UUID id,
         @Schema(description = "Human account number with ISO 7064 MOD 97-10 check digits", example = "FF49NAD000001000")
         String accountNumber,
-        @Schema(description = "Holder reference", example = "CUST-NAM-WALVIS-001")
-        String holderReference,
+        @Schema(description = "The customer organisation that owns the account (ADR 0018); null for system accounts",
+                example = "0193a0e0-0000-7000-8000-00000000a001", nullable = true)
+        UUID ownerOrganizationId,
         @Schema(description = "Account type", example = "CUSTOMER")
         AccountType type,
         @Schema(description = "ISO 4217 currency code", example = "NAD")
@@ -44,7 +45,7 @@ public record AccountResponse(
         return new AccountResponse(
                 account.getId(),
                 account.getAccountNumber(),
-                account.getHolderReference(),
+                account.getOwnerOrganizationId(),
                 account.getAccountType(),
                 account.getCurrency(),
                 account.getStatus(),

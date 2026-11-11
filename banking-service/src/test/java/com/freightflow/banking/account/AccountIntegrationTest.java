@@ -1,5 +1,6 @@
 package com.freightflow.banking.account;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,7 +47,7 @@ class AccountIntegrationTest extends IntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "holderReference": "Namib Fisheries Pty Ltd",
+                                  "organizationId": "0193a0e0-0000-7000-8000-00000000a001",
                                   "currency": "NAD"
                                 }
                                 """))
@@ -68,7 +69,7 @@ class AccountIntegrationTest extends IntegrationTest {
         mockMvc.perform(get("/api/v1/accounts/" + id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accountNumber").value(accountNumber))
-                .andExpect(jsonPath("$.holderReference").value("Namib Fisheries Pty Ltd"));
+                .andExpect(jsonPath("$.ownerOrganizationId").value(TestCallers.NAMIB.toString()));
 
         // Fetch by check-digit account number
         mockMvc.perform(get("/api/v1/accounts/" + accountNumber))

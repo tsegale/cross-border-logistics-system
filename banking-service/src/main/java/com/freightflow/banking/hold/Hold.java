@@ -1,5 +1,6 @@
 package com.freightflow.banking.hold;
 
+import com.freightflow.banking.security.Actor;
 import com.freightflow.banking.common.MoneyRounding;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -77,6 +78,22 @@ public class Hold {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    // Who made it (ADR 0020): the client that called banking, and whom it acted for.
+    @Column(name = "actor_subject", length = 64, updatable = false)
+    private String actorSubject;
+
+    @Column(name = "actor_client_id", length = 64, updatable = false)
+    private String actorClientId;
+
+    @Column(name = "request_id", length = 64, updatable = false)
+    private String requestId;
+
+    @Column(name = "on_behalf_of_organization_id", updatable = false)
+    private UUID onBehalfOfOrganizationId;
+
+    @Column(name = "on_behalf_of_subject", length = 64, updatable = false)
+    private String onBehalfOfSubject;
+
     protected Hold() {
     }
 
@@ -99,6 +116,28 @@ public class Hold {
         hold.expiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
         hold.createdAt = Objects.requireNonNull(now, "now");
         return hold;
+    }
+
+    /** Records who made the hold and for whom; must be called before it is saved. */
+    public Hold recordedBy(Actor actor, UUID onBehalfOfOrganizationId, String onBehalfOfSubject) {
+        this.actorSubject = actor.subject();
+        this.actorClientId = actor.clientId();
+        this.requestId = actor.requestId();
+        this.onBehalfOfOrganizationId = onBehalfOfOrganizationId;
+        this.onBehalfOfSubject = onBehalfOfSubject;
+        return this;
+    }
+
+    public UUID getOnBehalfOfOrganizationId() {
+        return onBehalfOfOrganizationId;
+    }
+
+    public String getOnBehalfOfSubject() {
+        return onBehalfOfSubject;
+    }
+
+    public String getActorClientId() {
+        return actorClientId;
     }
 
     /** The rate locked on a cross-currency hold: 1 payer currency = rate charge currency. */

@@ -1,5 +1,6 @@
 package com.freightflow.banking.reconciliation;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
@@ -39,16 +40,14 @@ class ReconciliationIntegrationTest extends IntegrationTest {
 
     @Test
     void reconciliationReportsBalancedLedgerAndDetectsTamperedMaterialisedBalance() throws Exception {
-        AccountResponse a = accountService.createCustomerAccount(new CreateAccountRequest("Recon A", "NAD"));
-        AccountResponse b = accountService.createCustomerAccount(new CreateAccountRequest("Recon B", "NAD"));
+        AccountResponse a = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
+        AccountResponse b = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
 
-        ledgerService.deposit(
-                a.id().toString(),
+        ledgerService.deposit(TestCallers.OPERATOR, a.id().toString(),
                 new DepositRequest(new BigDecimal("1500.00"), "NAD", "Recon deposit"),
                 "recon-dep-" + UUID.randomUUID()
         );
-        transferService.createTransfer(
-                new CreateTransferRequest(a.accountNumber(), b.accountNumber(), new BigDecimal("350.25"), "NAD", "Recon transfer", null),
+        transferService.createTransfer(TestCallers.OPERATOR, new CreateTransferRequest(a.accountNumber(), b.accountNumber(), new BigDecimal("350.25"), "NAD", "Recon transfer", null),
                 "recon-tx-" + UUID.randomUUID()
         );
 

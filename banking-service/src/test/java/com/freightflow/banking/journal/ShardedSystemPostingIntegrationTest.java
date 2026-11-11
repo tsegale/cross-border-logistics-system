@@ -1,5 +1,6 @@
 package com.freightflow.banking.journal;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
 import com.freightflow.banking.journal.dto.DepositRequest;
@@ -22,8 +23,8 @@ class ShardedSystemPostingIntegrationTest extends SystemPostingModeContract {
 
     @Test
     void systemPostingRecordsItsShardAndTheShardsRunningBalance() {
-        AccountResponse customer = accountService.createCustomerAccount(new CreateAccountRequest("Sharded", "EUR"));
-        var entry = ledgerService.deposit(customer.id().toString(),
+        AccountResponse customer = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
+        var entry = ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
                 new DepositRequest(new BigDecimal("5.00"), "EUR", "S"), "s-" + UUID.randomUUID());
 
         Integer shard = jdbcTemplate.queryForObject(

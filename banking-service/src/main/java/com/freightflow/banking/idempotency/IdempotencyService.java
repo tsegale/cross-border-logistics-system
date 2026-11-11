@@ -2,6 +2,7 @@ package com.freightflow.banking.idempotency;
 
 import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.config.BankingProperties;
+import com.freightflow.banking.security.Caller;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -23,7 +24,10 @@ import java.util.function.Supplier;
 /**
  * Transactional idempotency following {@code draft-ietf-httpapi-idempotency-key-header-08} (ADR 0006).
  *
- * <p>Serialises concurrent requests for the same {@code (scope, Idempotency-Key)} with a PostgreSQL
+ * <p>Keys are scoped to the caller (ADR 0020): the same key from two callers is two keys, so tenants never collide
+ * or receive each other's stored response.
+ *
+ * <p>Serialises concurrent requests for the same {@code (scope, caller, Idempotency-Key)} with a PostgreSQL
  * transaction-scoped advisory lock, checks the SHA-256 of the canonical request payload, and writes
  * the completed status and response body in the same database transaction as the ledger entry.
  */
@@ -58,6 +62,7 @@ public class IdempotencyService {
     @Transactional
     public <T> IdempotentResult<T> execute(
             String scope,
+            Caller caller,
             String rawKey,
             Object canonicalPayload,
             int successHttpStatus,
@@ -66,10 +71,11 @@ public class IdempotencyService {
         String key = validateKey(rawKey);
         String requestHash = sha256Hex(scope, canonicalPayload);
 
-        acquireAdvisoryLock(scope, key);
+        String partition = caller.idempotencyPartition();
+        acquireAdvisoryLock(scope, partition, key);
 
         Instant now = clock.instant();
-        IdempotencyKeyId id = new IdempotencyKeyId(scope, key);
+        IdempotencyKeyId id = new IdempotencyKeyId(scope, partition, key);
         Optional<IdempotencyRecord> existingOpt = repository.findById(id);
 
         if (existingOpt.isPresent()) {
@@ -92,7 +98,7 @@ public class IdempotencyService {
         String responseJson = CANONICAL_JSON.writeValueAsString(result);
         Instant expiresAt = now.plus(properties.idempotency().ttl());
         repository.save(IdempotencyRecord.completed(
-                scope, key, requestHash, successHttpStatus, responseJson, now, expiresAt));
+                scope, partition, key, requestHash, successHttpStatus, responseJson, now, expiresAt));
         return new IdempotentResult<>(successHttpStatus, result, false);
     }
 
@@ -101,12 +107,13 @@ public class IdempotencyService {
      * or in tests verifying that an in-flight key returns 409 Conflict with {@code Retry-After}.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markInProgress(String scope, String rawKey, Object canonicalPayload) {
+    public void markInProgress(String scope, Caller caller, String rawKey, Object canonicalPayload) {
         String key = validateKey(rawKey);
         String requestHash = sha256Hex(scope, canonicalPayload);
         Instant now = clock.instant();
         Instant expiresAt = now.plus(properties.idempotency().ttl());
-        repository.saveAndFlush(IdempotencyRecord.inProgress(scope, key, requestHash, now, expiresAt));
+        repository.saveAndFlush(IdempotencyRecord.inProgress(scope, caller.idempotencyPartition(), key, requestHash,
+                now, expiresAt));
     }
 
     public static String validateKey(String rawKey) {
@@ -139,14 +146,14 @@ public class IdempotencyService {
      * The timeout applies to this one lock only (ADR 0006): the account locks taken later in the transaction
      * have their own, longer timeout.
      */
-    private void acquireAdvisoryLock(String scope, String key) {
+    private void acquireAdvisoryLock(String scope, String partition, String key) {
         try {
             LockTimeouts.withLockTimeout(jdbcTemplate, properties.idempotency().lockTimeout(), () ->
                     jdbcTemplate.queryForObject(
                             "SELECT pg_advisory_xact_lock(hashtext(?), hashtext(?))::text",
                             String.class,
                             scope,
-                            key
+                            partition + "|" + key
                     ));
         } catch (PessimisticLockingFailureException ex) {
             throw new IdempotencyKeyInFlightException(key);

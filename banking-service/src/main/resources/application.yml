@@ -32,6 +32,11 @@ spring:
       thread-name-prefix: banking-sched-
 
 freightflow:
+  # Who signs the tokens (ADRs 0016, 0017). No default issuer: banking does not start without one.
+  security:
+    issuer-uri: ${KEYCLOAK_ISSUER_URI:}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
+    audience: banking-service
   banking:
     supported-currencies: ${BANKING_SUPPORTED_CURRENCIES:NAD,ZAR,EUR}
     transfer-locking-strategy: ${TRANSFER_LOCKING_STRATEGY:pessimistic}

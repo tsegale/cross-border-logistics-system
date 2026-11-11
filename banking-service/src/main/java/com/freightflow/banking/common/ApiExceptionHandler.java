@@ -388,6 +388,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                         "The request conflicts with data that already exists or changed concurrently."));
     }
 
+    /** A role or organisation check in a service refused the request (ADR 0018). */
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ProblemDetail> handleAccessDenied(org.springframework.security.access.AccessDeniedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(problem(HttpStatus.FORBIDDEN, "forbidden", "Forbidden", ex.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleUnexpected(Exception ex) {
         log.error("Unhandled exception", ex);

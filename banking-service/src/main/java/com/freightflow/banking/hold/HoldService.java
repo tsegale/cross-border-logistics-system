@@ -1,5 +1,6 @@
 package com.freightflow.banking.hold;
 
+import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.account.Account;
 import com.freightflow.banking.account.AccountNotFoundException;
 import com.freightflow.banking.account.AccountRepository;
@@ -89,7 +90,7 @@ public class HoldService {
     // ------------------------------------------------------------------ authorise
 
     @Transactional
-    public IdempotentResult<HoldResponse> createHold(CreateHoldRequest request, String idempotencyKey) {
+    public IdempotentResult<HoldResponse> createHold(Caller caller, CreateHoldRequest request, String idempotencyKey) {
         String currency = MoneyRounding.validateSupportedCurrency(request.currency(), properties.normalizedCurrencies())
                 .getCurrencyCode();
         Map<String, Object> canonical = new LinkedHashMap<>();
@@ -98,11 +99,13 @@ public class HoldService {
         canonical.put("currency", currency);
         canonical.put("reference", request.reference().trim());
         canonical.put("expiresAt", request.expiresAt() == null ? "" : request.expiresAt().toString());
-        return idempotencyService.execute("hold", idempotencyKey, canonical, 201, HoldResponse.class,
-                () -> authorise(request, currency));
+        canonical.put("payerOrganizationId", request.payerOrganizationId().toString());
+        canonical.put("onBehalfOfSubject", request.onBehalfOfSubject() == null ? "" : request.onBehalfOfSubject());
+        return idempotencyService.execute("hold", caller, idempotencyKey, canonical, 201, HoldResponse.class,
+                () -> authorise(caller, request, currency));
     }
 
-    private HoldResponse authorise(CreateHoldRequest request, String currency) {
+    private HoldResponse authorise(Caller caller, CreateHoldRequest request, String currency) {
         assertMinorUnits(request.amount(), currency);
         BigDecimal amount = MoneyRounding.normalizeCustomerAmount(request.amount(), currency);
         Instant now = clock.instant();
@@ -111,6 +114,11 @@ public class HoldService {
         Account payer = accountService.resolveAccount(request.payerAccount());
         if (payer.getAccountType() != AccountType.CUSTOMER) {
             throw new InvalidHoldException("Holds can only be placed on customer accounts, not " + payer.getAccountType());
+        }
+        // logistics charges the organisation that booked: an account it does not own is not found (ADR 0018), so
+        // a booking cannot reserve someone else's money.
+        if (!request.payerOrganizationId().equals(payer.getOwnerOrganizationId())) {
+            throw new AccountNotFoundException(request.payerAccount().trim());
         }
         BigDecimal payerAmount = amount;
         Hold.FxLock fx = null;
@@ -126,7 +134,8 @@ public class HoldService {
         Account locked = lockAccount(payer.getId());
         locked.reserve(payerAmount, now);
         Hold hold = holds.saveAndFlush(Hold.create(locked.getId(), request.reference(), amount, currency,
-                payerAmount, locked.getCurrency(), fx, expiresAt, now));
+                payerAmount, locked.getCurrency(), fx, expiresAt, now)
+                .recordedBy(caller.actor(), request.payerOrganizationId(), request.onBehalfOfSubject()));
         log.info("Hold {} authorised: {} {} on {} ({} {})", hold.getId(), amount, currency,
                 locked.getAccountNumber(), payerAmount, locked.getCurrency());
         return HoldResponse.from(hold, locked.getAccountNumber());
@@ -135,15 +144,15 @@ public class HoldService {
     // ------------------------------------------------------------------ capture
 
     @Transactional
-    public HoldResponse capture(UUID holdId, CaptureHoldRequest request, String idempotencyKey) {
+    public HoldResponse capture(Caller caller, UUID holdId, CaptureHoldRequest request, String idempotencyKey) {
         BigDecimal requested = request == null ? null : request.amount();
         Map<String, Object> canonical = Map.of("holdId", holdId.toString(),
                 "amount", requested == null ? "full" : requested.stripTrailingZeros().toPlainString());
-        return idempotencyService.execute("hold-capture:" + holdId, idempotencyKey, canonical, 200,
-                HoldResponse.class, () -> doCapture(holdId, requested)).body();
+        return idempotencyService.execute("hold-capture:" + holdId, caller, idempotencyKey, canonical, 200,
+                HoldResponse.class, () -> doCapture(caller, holdId, requested)).body();
     }
 
-    private HoldResponse doCapture(UUID holdId, BigDecimal requested) {
+    private HoldResponse doCapture(Caller caller, UUID holdId, BigDecimal requested) {
         Instant now = clock.instant();
         Locked locked = lockPayerThenHold(holdId);
         Hold hold = locked.hold();
@@ -183,7 +192,7 @@ public class HoldService {
                     new PostingInstruction(fxCharge.getId(), captured.negate(), hold.getCurrency()),
                     new PostingInstruction(revenue.getId(), captured, hold.getCurrency()));
         }
-        JournalEntryResponse entry = ledgerService.recordEntry(JournalEntryType.CAPTURE,
+        JournalEntryResponse entry = ledgerService.recordEntry(caller.actor(), JournalEntryType.CAPTURE,
                 "CAPTURE " + hold.getReference(), null, null, hold.getFxRate(), postings);
 
         int updated = jdbcTemplate.update("""
@@ -203,9 +212,9 @@ public class HoldService {
      * the extension is recorded in {@code hold_extensions}. Same lock order as every other hold change.
      */
     @Transactional
-    public HoldResponse extend(UUID holdId, ExtendHoldRequest request, String idempotencyKey) {
+    public HoldResponse extend(Caller caller, UUID holdId, ExtendHoldRequest request, String idempotencyKey) {
         Map<String, Object> canonical = Map.of("holdId", holdId.toString(), "expiresAt", request.expiresAt().toString());
-        return idempotencyService.execute("hold-extension:" + holdId, idempotencyKey, canonical, 200,
+        return idempotencyService.execute("hold-extension:" + holdId, caller, idempotencyKey, canonical, 200,
                 HoldResponse.class, () -> doExtend(holdId, request.expiresAt())).body();
     }
 
@@ -239,8 +248,8 @@ public class HoldService {
     // ------------------------------------------------------------------ release and expiry
 
     @Transactional
-    public HoldResponse release(UUID holdId, String idempotencyKey) {
-        return idempotencyService.execute("hold-release:" + holdId, idempotencyKey, Map.of("holdId", holdId.toString()),
+    public HoldResponse release(Caller caller, UUID holdId, String idempotencyKey) {
+        return idempotencyService.execute("hold-release:" + holdId, caller, idempotencyKey, Map.of("holdId", holdId.toString()),
                 200, HoldResponse.class, () -> close(holdId, HoldStatus.RELEASED)).body();
     }
 

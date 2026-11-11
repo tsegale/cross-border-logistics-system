@@ -14,6 +14,12 @@ import java.util.List;
 @Configuration
 public class OpenApiConfig {
 
+    static {
+        // Controllers take the caller as a parameter built from the token; it is not part of the API.
+        org.springdoc.core.utils.SpringDocUtils.getConfig()
+                .addRequestWrapperToIgnore(com.freightflow.banking.security.Caller.class);
+    }
+
     @Bean
     public OpenAPI bankingOpenApi() {
         return new OpenAPI()

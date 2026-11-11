@@ -1,0 +1,6 @@
+# Test-only additions, loaded on top of src/main/resources/application.yml (a classpath:/config/ file does not
+# shadow the main one). MockMvc tests build validated tokens with spring-security-test, so no key is ever fetched.
+freightflow:
+  security:
+    issuer-uri: http://keycloak.test/realms/freightflow
+    jwk-set-uri: http://127.0.0.1:1/certs

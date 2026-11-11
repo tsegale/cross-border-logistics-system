@@ -1,5 +1,6 @@
 package com.freightflow.banking.fx;
 
+import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.fx.dto.CreateFxQuoteRequest;
 import com.freightflow.banking.fx.dto.FxQuoteResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,8 +31,8 @@ public class FxQuoteController {
 
     @PostMapping
     @Operation(summary = "Create a short-lived FX quote")
-    public ResponseEntity<FxQuoteResponse> createQuote(@Valid @RequestBody CreateFxQuoteRequest request) {
-        FxQuoteResponse created = fxQuoteService.createQuote(request);
+    public ResponseEntity<FxQuoteResponse> createQuote(Caller caller, @Valid @RequestBody CreateFxQuoteRequest request) {
+        FxQuoteResponse created = fxQuoteService.createQuote(caller, request);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
                 .buildAndExpand(created.id())
@@ -41,7 +42,7 @@ public class FxQuoteController {
 
     @GetMapping("/{id}")
     @Operation(summary = "Fetch an FX quote by ID")
-    public FxQuoteResponse getQuote(@PathVariable UUID id) {
-        return fxQuoteService.getQuote(id);
+    public FxQuoteResponse getQuote(Caller caller, @PathVariable UUID id) {
+        return fxQuoteService.getQuote(caller, id);
     }
 }

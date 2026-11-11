@@ -1,5 +1,6 @@
 package com.freightflow.banking.hold;
 
+import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.hold.dto.CaptureHoldRequest;
 import com.freightflow.banking.hold.dto.CreateHoldRequest;
 import com.freightflow.banking.hold.dto.ExtendHoldRequest;
@@ -28,8 +29,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Internal API for logistics-service (ADR 0011). Reachable on the compose network only: the gateway does not
- * route /api/v1/holds (ADR 0015). Phase 3 adds service-to-service credentials.
+ * Internal API for logistics-service (ADR 0011). The gateway does not route /api/v1/holds (ADR 0015), and every call
+ * needs logistics-service's own token with the {@code banking.holds} scope (ADR 0019).
  */
 @RestController
 @RequestMapping("/api/v1/holds")
@@ -59,10 +60,11 @@ public class HoldController {
                             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
             })
     public ResponseEntity<HoldResponse> createHold(
+            Caller caller,
             @Parameter(description = "Idempotency-Key header", required = true)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody CreateHoldRequest request) {
-        IdempotentResult<HoldResponse> result = holdService.createHold(request, idempotencyKey);
+        IdempotentResult<HoldResponse> result = holdService.createHold(caller, request, idempotencyKey);
         ResponseEntity.BodyBuilder builder = ResponseEntity.status(result.httpStatus())
                 .location(URI.create("/api/v1/holds/" + result.body().id()));
         if (result.replayed()) {
@@ -105,11 +107,12 @@ public class HoldController {
                             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
             })
     public HoldResponse capture(
+            Caller caller,
             @PathVariable("id") UUID id,
             @Parameter(description = "Idempotency-Key header", required = true)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody(required = false) CaptureHoldRequest request) {
-        return holdService.capture(id, request, idempotencyKey);
+        return holdService.capture(caller, id, request, idempotencyKey);
     }
 
     @PostMapping("/{id}/extension")
@@ -129,11 +132,12 @@ public class HoldController {
                             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
             })
     public HoldResponse extend(
+            Caller caller,
             @PathVariable("id") UUID id,
             @Parameter(description = "Idempotency-Key header", required = true)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody ExtendHoldRequest request) {
-        return holdService.extend(id, request, idempotencyKey);
+        return holdService.extend(caller, id, request, idempotencyKey);
     }
 
     @PostMapping("/{id}/release")
@@ -149,9 +153,10 @@ public class HoldController {
                             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
             })
     public HoldResponse release(
+            Caller caller,
             @PathVariable("id") UUID id,
             @Parameter(description = "Idempotency-Key header", required = true)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
-        return holdService.release(id, idempotencyKey);
+        return holdService.release(caller, id, idempotencyKey);
     }
 }

@@ -1,5 +1,7 @@
 package com.freightflow.banking.journal.dto;
 
+import com.freightflow.banking.security.Actor;
+import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.journal.JournalEntry;
 import com.freightflow.banking.journal.JournalEntryType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -18,8 +20,17 @@ public record JournalEntryResponse(
         UUID fxQuoteId,
         BigDecimal fxRate,
         Instant createdAt,
-        List<PostingResponse> postings
+        List<PostingResponse> postings,
+        @Schema(description = "Who made the entry (ADR 0020); shown to operators and auditors only", nullable = true)
+        Actor actor
 ) {
+
+    /** What a customer sees: the same entry without who made it. */
+    public JournalEntryResponse forCaller(Caller caller) {
+        return caller.seesEverything() ? this
+                : new JournalEntryResponse(id, entryType, reference, reversesEntryId, fxQuoteId, fxRate, createdAt,
+                postings, null);
+    }
 
     public static JournalEntryResponse from(JournalEntry entry, List<PostingResponse> postings) {
         return new JournalEntryResponse(
@@ -30,7 +41,8 @@ public record JournalEntryResponse(
                 entry.getFxQuoteId(),
                 entry.getFxRate(),
                 entry.getCreatedAt(),
-                postings
+                postings,
+                entry.getActor()
         );
     }
 }

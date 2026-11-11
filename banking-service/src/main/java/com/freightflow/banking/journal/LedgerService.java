@@ -1,5 +1,7 @@
 package com.freightflow.banking.journal;
 
+import com.freightflow.banking.security.Actor;
+import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.account.Account;
 import com.freightflow.banking.account.AccountNotFoundException;
 import com.freightflow.banking.account.AccountRepository;
@@ -74,7 +76,8 @@ public class LedgerService {
     }
 
     @Transactional
-    public JournalEntryResponse deposit(String accountIdOrNumber, DepositRequest request, String idempotencyKey) {
+    public JournalEntryResponse deposit(Caller caller, String accountIdOrNumber, DepositRequest request,
+                                        String idempotencyKey) {
         Account target = accountService.resolveAccount(accountIdOrNumber);
         if (!target.getAccountType().isCustomer()) {
             throw new InvalidMonetaryAmountException(
@@ -111,11 +114,13 @@ public class LedgerService {
         );
         return idempotencyService.execute(
                 scope,
+                caller,
                 idempotencyKey,
                 canonical,
                 201,
                 JournalEntryResponse.class,
                 () -> recordEntry(
+                        caller.actor(),
                         JournalEntryType.DEPOSIT,
                         request.reference().trim(),
                         null,
@@ -130,7 +135,8 @@ public class LedgerService {
     }
 
     @Transactional
-    public JournalEntryResponse reverse(UUID journalEntryId, ReversalRequest request, String idempotencyKey) {
+    public JournalEntryResponse reverse(Caller caller, UUID journalEntryId, ReversalRequest request,
+                                        String idempotencyKey) {
         String reason = request != null && request.reason() != null && !request.reason().isBlank()
                 ? request.reason().trim()
                 : "Reversal of " + journalEntryId;
@@ -141,15 +147,16 @@ public class LedgerService {
         );
         return idempotencyService.execute(
                 scope,
+                caller,
                 idempotencyKey,
                 canonical,
                 201,
                 JournalEntryResponse.class,
-                () -> executeReversal(journalEntryId, reason)
+                () -> executeReversal(caller, journalEntryId, reason)
         ).body();
     }
 
-    private JournalEntryResponse executeReversal(UUID journalEntryId, String reason) {
+    private JournalEntryResponse executeReversal(Caller caller, UUID journalEntryId, String reason) {
         JournalEntry original = journalEntries.findById(journalEntryId)
                 .orElseThrow(() -> new JournalEntryNotFoundException(journalEntryId));
         if (original.getEntryType() == JournalEntryType.REVERSAL) {
@@ -166,6 +173,7 @@ public class LedgerService {
                 .toList();
         try {
             return recordEntry(
+                    caller.actor(),
                     JournalEntryType.REVERSAL,
                     reason,
                     original.getId(),
@@ -189,6 +197,7 @@ public class LedgerService {
      */
     @Transactional
     public JournalEntryResponse recordEntry(
+            Actor actor,
             JournalEntryType entryType,
             String reference,
             UUID reversesEntryId,
@@ -225,7 +234,7 @@ public class LedgerService {
 
         Instant now = clock.instant();
         JournalEntry entry = journalEntries.save(
-                JournalEntry.create(entryType, reference, reversesEntryId, fxQuoteId, fxRate, now));
+                JournalEntry.create(entryType, reference, reversesEntryId, fxQuoteId, fxRate, now).recordedBy(actor));
         journalEntries.flush();
         int shard = Math.floorMod(entry.getId().hashCode(), properties.systemAccounts().shards());
 
@@ -293,25 +302,31 @@ public class LedgerService {
     }
 
     @Transactional(readOnly = true)
-    public JournalEntryResponse getJournalEntry(UUID id) {
+    public JournalEntryResponse getJournalEntry(Caller caller, UUID id) {
         JournalEntry entry = journalEntries.findById(id)
                 .orElseThrow(() -> new JournalEntryNotFoundException(id));
         List<Posting> entryPostings = postings.findByJournalEntryIdOrderByIdAsc(id);
         Set<UUID> accountIds = entryPostings.stream().map(Posting::getAccountId).collect(Collectors.toSet());
-        Map<UUID, String> accountNumbers = accounts.findAllById(accountIds).stream()
+        List<Account> involved = accounts.findAllById(accountIds);
+        // A customer sees an entry that touches one of its organisation's accounts; anything else is a 404 (ADR 0018).
+        if (involved.stream().noneMatch(account -> caller.mayAccess(account.getOwnerOrganizationId()))) {
+            throw new JournalEntryNotFoundException(id);
+        }
+        Map<UUID, String> accountNumbers = involved.stream()
                 .collect(Collectors.toMap(Account::getId, Account::getAccountNumber));
         List<PostingResponse> responses = entryPostings.stream()
                 .map(p -> PostingResponse.from(p, accountNumbers.get(p.getAccountId())))
                 .toList();
-        return JournalEntryResponse.from(entry, responses);
+        return JournalEntryResponse.from(entry, responses).forCaller(caller);
     }
 
     @Transactional(readOnly = true)
-    public StatementPageResponse getStatement(String accountIdOrNumber, String cursor, int size) {
+    public StatementPageResponse getStatement(Caller caller, String accountIdOrNumber, String cursor, int size) {
         if (size < 1 || size > 100) {
             throw new InvalidStatementCursorException("Statement page size must be between 1 and 100");
         }
-        Account account = accountService.resolveAccount(accountIdOrNumber);
+        Account account = accountService.resolveVisible(caller, accountIdOrNumber);
+        boolean showActor = caller.seesEverything();
         int fetchLimit = size + 1;
         List<StatementLineResponse> fetched;
 
@@ -319,14 +334,15 @@ public class LedgerService {
             fetched = jdbcTemplate.query(
                     """
                     SELECT p.id AS posting_id, p.journal_entry_id, je.entry_type, je.reference,
-                           p.amount, p.currency, p.running_balance, p.created_at
+                           p.amount, p.currency, p.running_balance, p.created_at,
+                           je.actor_subject, je.actor_client_id, je.actor_organization_id, je.request_id
                     FROM postings p
                     JOIN journal_entries je ON je.id = p.journal_entry_id
                     WHERE p.account_id = ?
                     ORDER BY p.created_at DESC, p.id DESC
                     LIMIT ?
                     """,
-                    this::mapStatementLine,
+                    (rs, row) -> mapStatementLine(rs, showActor),
                     account.getId(),
                     fetchLimit
             );
@@ -335,7 +351,8 @@ public class LedgerService {
             fetched = jdbcTemplate.query(
                     """
                     SELECT p.id AS posting_id, p.journal_entry_id, je.entry_type, je.reference,
-                           p.amount, p.currency, p.running_balance, p.created_at
+                           p.amount, p.currency, p.running_balance, p.created_at,
+                           je.actor_subject, je.actor_client_id, je.actor_organization_id, je.request_id
                     FROM postings p
                     JOIN journal_entries je ON je.id = p.journal_entry_id
                     WHERE p.account_id = ?
@@ -343,7 +360,7 @@ public class LedgerService {
                     ORDER BY p.created_at DESC, p.id DESC
                     LIMIT ?
                     """,
-                    this::mapStatementLine,
+                    (rs, row) -> mapStatementLine(rs, showActor),
                     account.getId(),
                     OffsetDateTime.ofInstant(decoded.createdAt(), ZoneOffset.UTC),
                     decoded.postingId(),
@@ -367,8 +384,12 @@ public class LedgerService {
         );
     }
 
-    private StatementLineResponse mapStatementLine(ResultSet rs, int rowNum) throws SQLException {
+    /** Who made each entry is shown to operators and auditors only (ADR 0020). */
+    private StatementLineResponse mapStatementLine(ResultSet rs, boolean showActor) throws SQLException {
         String currency = rs.getString("currency");
+        Actor actor = !showActor || rs.getString("actor_client_id") == null ? null : new Actor(
+                rs.getString("actor_subject"), rs.getString("actor_client_id"),
+                rs.getObject("actor_organization_id", UUID.class), rs.getString("request_id"));
         return new StatementLineResponse(
                 rs.getObject("posting_id", UUID.class),
                 rs.getObject("journal_entry_id", UUID.class),
@@ -379,7 +400,8 @@ public class LedgerService {
                 rs.getBigDecimal("running_balance") == null
                         ? null
                         : MoneyRounding.roundToMinorUnits(rs.getBigDecimal("running_balance"), currency),
-                rs.getObject("created_at", OffsetDateTime.class).toInstant()
+                rs.getObject("created_at", OffsetDateTime.class).toInstant(),
+                actor
         );
     }
 }

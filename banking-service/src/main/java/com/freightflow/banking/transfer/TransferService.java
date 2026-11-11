@@ -1,5 +1,6 @@
 package com.freightflow.banking.transfer;
 
+import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.account.Account;
 import com.freightflow.banking.account.AccountNotActiveException;
 import com.freightflow.banking.account.AccountRepository;
@@ -97,7 +98,7 @@ public class TransferService {
     }
 
     @Transactional
-    public TransferResponse createTransfer(CreateTransferRequest request, String idempotencyKey) {
+    public TransferResponse createTransfer(Caller caller, CreateTransferRequest request, String idempotencyKey) {
         Map<String, Object> canonical = new LinkedHashMap<>();
         canonical.put("sourceAccount", request.sourceAccount().trim().toUpperCase(Locale.ROOT));
         canonical.put("targetAccount", request.targetAccount().trim().toUpperCase(Locale.ROOT));
@@ -108,18 +109,20 @@ public class TransferService {
 
         return idempotencyService.execute(
                 "transfer",
+                caller,
                 idempotencyKey,
                 canonical,
                 201,
                 TransferResponse.class,
-                () -> executeTransfer(request)
+                () -> executeTransfer(caller, request)
         ).body();
     }
 
-    protected TransferResponse executeTransfer(CreateTransferRequest request) {
+    protected TransferResponse executeTransfer(Caller caller, CreateTransferRequest request) {
         Currency requestedCurrency = MoneyRounding.validateSupportedCurrency(
                 request.currency(), properties.normalizedCurrencies());
-        Account source = accountService.resolveAccount(request.sourceAccount());
+        // A customer moves money only out of its own organisation's accounts (ADR 0018); to any customer account.
+        Account source = accountService.resolveVisible(caller, request.sourceAccount());
         Account target = accountService.resolveAccount(request.targetAccount());
 
         if (source.getId().equals(target.getId())) {
@@ -140,7 +143,7 @@ public class TransferService {
         }
 
         if (!source.getCurrency().equals(target.getCurrency())) {
-            return executeCrossCurrencyTransfer(source, target, request, requestedCurrency.getCurrencyCode());
+            return executeCrossCurrencyTransfer(caller, source, target, request, requestedCurrency.getCurrencyCode());
         }
 
         if (request.fxQuoteId() != null) {
@@ -165,10 +168,11 @@ public class TransferService {
         String reference = request.reference().trim();
 
         if (STRATEGY_CONDITIONAL_UPDATE.equals(properties.transferLockingStrategy())) {
-            return executeConditionalSameCurrencyTransfer(source, target, normalizedAmount, reference);
+            return executeConditionalSameCurrencyTransfer(caller, source, target, normalizedAmount, reference);
         }
 
         JournalEntryResponse entry = ledgerService.recordEntry(
+                caller.actor(),
                 JournalEntryType.TRANSFER,
                 reference,
                 null,
@@ -197,6 +201,7 @@ public class TransferService {
     }
 
     protected TransferResponse executeCrossCurrencyTransfer(
+            Caller caller,
             Account source,
             Account target,
             CreateTransferRequest request,
@@ -212,6 +217,7 @@ public class TransferService {
         }
 
         FxQuote quote = fxQuoteService.consumeQuoteForTransfer(
+                caller,
                 request.fxQuoteId(),
                 source.getCurrency(),
                 target.getCurrency(),
@@ -230,6 +236,7 @@ public class TransferService {
 
         String reference = request.reference().trim();
         JournalEntryResponse entry = ledgerService.recordEntry(
+                caller.actor(),
                 JournalEntryType.FX_TRANSFER,
                 reference,
                 null,
@@ -267,6 +274,7 @@ public class TransferService {
      * {@code A -> B} and {@code B -> A} transfers never deadlock.
      */
     private TransferResponse executeConditionalSameCurrencyTransfer(
+            Caller caller,
             Account source,
             Account target,
             BigDecimal amount,
@@ -338,7 +346,8 @@ public class TransferService {
         BigDecimal targetRunning = running[1];
 
         JournalEntry entry = journalEntries.save(
-                JournalEntry.create(JournalEntryType.TRANSFER, reference, null, null, null, now));
+                JournalEntry.create(JournalEntryType.TRANSFER, reference, null, null, null, now)
+                        .recordedBy(caller.actor()));
         Posting debitPosting = postings.save(Posting.create(
                 entry.getId(), source.getId(), amount.negate(), source.getCurrency(), sourceRunning, now));
         Posting creditPosting = postings.save(Posting.create(
@@ -369,7 +378,7 @@ public class TransferService {
     }
 
     @Transactional(readOnly = true)
-    public TransferResponse getTransfer(UUID id) {
+    public TransferResponse getTransfer(Caller caller, UUID id) {
         Transfer transfer = transfers.findById(id)
                 .orElseThrow(() -> new TransferNotFoundException(id));
         List<Posting> entryPostings = postings.findByJournalEntryIdOrderByIdAsc(transfer.getJournalEntryId());
@@ -377,7 +386,15 @@ public class TransferService {
         accountIds.add(transfer.getSourceAccountId());
         accountIds.add(transfer.getTargetAccountId());
 
-        Map<UUID, String> accountNumbers = accounts.findAllById(accountIds).stream()
+        List<Account> involved = accounts.findAllById(accountIds);
+        // Visible to the organisations on either side, and to operators and auditors (ADR 0018).
+        boolean visible = involved.stream()
+                .filter(a -> a.getId().equals(transfer.getSourceAccountId()) || a.getId().equals(transfer.getTargetAccountId()))
+                .anyMatch(a -> caller.mayAccess(a.getOwnerOrganizationId()));
+        if (!visible) {
+            throw new TransferNotFoundException(id);
+        }
+        Map<UUID, String> accountNumbers = involved.stream()
                 .collect(Collectors.toMap(Account::getId, Account::getAccountNumber));
         List<PostingResponse> postingResponses = entryPostings.stream()
                 .map(p -> PostingResponse.from(p, accountNumbers.get(p.getAccountId())))

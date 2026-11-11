@@ -1,5 +1,6 @@
 package com.freightflow.banking.transfer;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.InsufficientFundsException;
 import com.freightflow.banking.common.ApiExceptionHandler;
 import com.freightflow.banking.idempotency.IdempotencyKeyInFlightException;
@@ -31,7 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(TransferController.class)
-@Import(ApiExceptionHandler.class)
+@Import({ApiExceptionHandler.class, com.freightflow.banking.support.TestSecurity.class})
 class TransferControllerTest {
 
     private static final UUID ID = UUID.fromString("01930000-0000-7000-8000-000000003000");
@@ -48,7 +49,7 @@ class TransferControllerTest {
 
     @Test
     void createdTransferIs201WithLocation() throws Exception {
-        given(transferService.createTransfer(any(), eq("key-1"))).willReturn(response());
+        given(transferService.createTransfer(any(), any(), eq("key-1"))).willReturn(response());
 
         mockMvc.perform(transfer("key-1", BODY))
                 .andExpect(status().isCreated())
@@ -70,7 +71,7 @@ class TransferControllerTest {
 
     @Test
     void missingKeyIs400() throws Exception {
-        given(transferService.createTransfer(any(), eq(null)))
+        given(transferService.createTransfer(any(), any(), eq(null)))
                 .willThrow(new MissingIdempotencyKeyException("Idempotency-Key header is required"));
 
         mockMvc.perform(post("/api/v1/transfers").contentType(MediaType.APPLICATION_JSON).content(BODY))
@@ -80,7 +81,7 @@ class TransferControllerTest {
 
     @Test
     void keyReusedWithAnotherBodyIs422() throws Exception {
-        given(transferService.createTransfer(any(), eq("reused"))).willThrow(new IdempotencyPayloadMismatchException("reused"));
+        given(transferService.createTransfer(any(), any(), eq("reused"))).willThrow(new IdempotencyPayloadMismatchException("reused"));
 
         mockMvc.perform(transfer("reused", BODY))
                 .andExpect(status().isUnprocessableContent())
@@ -89,7 +90,7 @@ class TransferControllerTest {
 
     @Test
     void keyInFlightIs409WithRetryAfter() throws Exception {
-        given(transferService.createTransfer(any(), eq("busy"))).willThrow(new IdempotencyKeyInFlightException("busy"));
+        given(transferService.createTransfer(any(), any(), eq("busy"))).willThrow(new IdempotencyKeyInFlightException("busy"));
 
         mockMvc.perform(transfer("busy", BODY))
                 .andExpect(status().isConflict())
@@ -99,7 +100,7 @@ class TransferControllerTest {
 
     @Test
     void insufficientFundsIs409() throws Exception {
-        given(transferService.createTransfer(any(), eq("poor"))).willThrow(new InsufficientFundsException(
+        given(transferService.createTransfer(any(), any(), eq("poor"))).willThrow(new InsufficientFundsException(
                 "FF83NAD000001000", "NAD", new BigDecimal("10.00"), new BigDecimal("2500.00")));
 
         mockMvc.perform(transfer("poor", BODY))
@@ -109,7 +110,7 @@ class TransferControllerTest {
 
     @Test
     void unknownTransferIs404() throws Exception {
-        given(transferService.getTransfer(ID)).willThrow(new TransferNotFoundException(ID));
+        given(transferService.getTransfer(TestCallers.OPERATOR, ID)).willThrow(new TransferNotFoundException(ID));
 
         mockMvc.perform(get("/api/v1/transfers/{id}", ID))
                 .andExpect(status().isNotFound())

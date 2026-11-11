@@ -1,5 +1,6 @@
 package com.freightflow.banking.journal;
 
+import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.journal.dto.JournalEntryResponse;
 import com.freightflow.banking.journal.dto.ReversalRequest;
 import io.swagger.v3.oas.annotations.Operation;
@@ -45,8 +46,8 @@ public class JournalEntryController {
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
             }
     )
-    public JournalEntryResponse getJournalEntry(@PathVariable("id") UUID id) {
-        return ledgerService.getJournalEntry(id);
+    public JournalEntryResponse getJournalEntry(Caller caller, @PathVariable("id") UUID id) {
+        return ledgerService.getJournalEntry(caller, id);
     }
 
     @PostMapping("/{id}/reversals")
@@ -78,11 +79,12 @@ public class JournalEntryController {
             }
     )
     public ResponseEntity<JournalEntryResponse> reverseJournalEntry(
+            Caller caller,
             @PathVariable("id") UUID id,
             @Parameter(description = "Idempotency-Key header (RFC draft-ietf-httpapi-idempotency-key-header-08)", required = true)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody(required = false) ReversalRequest request) {
-        JournalEntryResponse reversal = ledgerService.reverse(id, request, idempotencyKey);
+        JournalEntryResponse reversal = ledgerService.reverse(caller, id, request, idempotencyKey);
         return ResponseEntity.created(URI.create("/api/v1/journal-entries/" + reversal.id())).body(reversal);
     }
 }

@@ -8,6 +8,7 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 
 @Schema(description = "Reserve funds on a customer account for a charge that is captured later")
 public record CreateHoldRequest(
@@ -32,6 +33,15 @@ public record CreateHoldRequest(
         String reference,
 
         @Schema(description = "When the hold lapses if not captured; default 7 days, at most 30", nullable = true)
-        Instant expiresAt
+        Instant expiresAt,
+
+        @Schema(description = "The organisation logistics charges for: the payer account must belong to it, or the "
+                + "account is not found (ADR 0018)", example = "0193a0e0-0000-7000-8000-00000000a001")
+        @NotNull(message = "payerOrganizationId is required")
+        UUID payerOrganizationId,
+
+        @Schema(description = "Who booked, as logistics knows them: recorded on the hold (ADR 0020)", nullable = true)
+        @Size(max = 64, message = "onBehalfOfSubject must be at most 64 characters")
+        String onBehalfOfSubject
 ) {
 }

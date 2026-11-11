@@ -1,5 +1,6 @@
 package com.freightflow.banking.transfer;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.support.IntegrationTest;
 import com.freightflow.banking.transfer.dto.CreateTransferRequest;
 import com.freightflow.banking.transfer.dto.TransferResponse;
@@ -243,22 +244,19 @@ class TransferIntegrationTest extends IntegrationTest {
         );
 
         // A -> B (source UUID < target UUID)
-        TransferResponse ab = conditionalService.createTransfer(
-                new CreateTransferRequest(numA, numB, new BigDecimal("400.00"), "NAD", "COND-AB", null),
+        TransferResponse ab = conditionalService.createTransfer(TestCallers.OPERATOR, new CreateTransferRequest(numA, numB, new BigDecimal("400.00"), "NAD", "COND-AB", null),
                 "cond-key-ab"
         );
         assertThat(ab.sourceAmount()).isEqualByComparingTo("400.00");
 
         // B -> A (source UUID > target UUID)
-        TransferResponse ba = conditionalService.createTransfer(
-                new CreateTransferRequest(numB, numA, new BigDecimal("150.00"), "NAD", "COND-BA", null),
+        TransferResponse ba = conditionalService.createTransfer(TestCallers.OPERATOR, new CreateTransferRequest(numB, numA, new BigDecimal("150.00"), "NAD", "COND-BA", null),
                 "cond-key-ba"
         );
         assertThat(ba.sourceAmount()).isEqualByComparingTo("150.00");
 
         // Overdraft rejected on B (balance is 250.00)
-        assertThatThrownBy(() -> conditionalService.createTransfer(
-                new CreateTransferRequest(numB, numA, new BigDecimal("300.00"), "NAD", "COND-OVER", null),
+        assertThatThrownBy(() -> conditionalService.createTransfer(TestCallers.OPERATOR, new CreateTransferRequest(numB, numA, new BigDecimal("300.00"), "NAD", "COND-OVER", null),
                 "cond-key-over"
         )).isInstanceOf(com.freightflow.banking.account.InsufficientFundsException.class);
     }
@@ -268,10 +266,10 @@ class TransferIntegrationTest extends IntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "holderReference": "%s",
+                                  "organizationId": "%s",
                                   "currency": "%s"
                                 }
-                                """.formatted(holder, currency)))
+                                """.formatted(TestCallers.NAMIB, currency)))
                 .andExpect(status().isCreated())
                 .andReturn();
         return JSON.readTree(res.getResponse().getContentAsByteArray());

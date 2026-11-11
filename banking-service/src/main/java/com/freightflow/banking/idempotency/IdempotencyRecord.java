@@ -41,6 +41,7 @@ public class IdempotencyRecord {
 
     public static IdempotencyRecord completed(
             String scope,
+            String caller,
             String idempotencyKey,
             String requestHash,
             int httpStatus,
@@ -48,7 +49,7 @@ public class IdempotencyRecord {
             Instant createdAt,
             Instant expiresAt) {
         IdempotencyRecord record = new IdempotencyRecord();
-        record.id = new IdempotencyKeyId(scope, idempotencyKey);
+        record.id = new IdempotencyKeyId(scope, caller, idempotencyKey);
         record.requestHash = Objects.requireNonNull(requestHash, "requestHash");
         record.status = IdempotencyStatus.COMPLETED;
         record.httpStatus = httpStatus;
@@ -60,12 +61,13 @@ public class IdempotencyRecord {
 
     public static IdempotencyRecord inProgress(
             String scope,
+            String caller,
             String idempotencyKey,
             String requestHash,
             Instant createdAt,
             Instant expiresAt) {
         IdempotencyRecord record = new IdempotencyRecord();
-        record.id = new IdempotencyKeyId(scope, idempotencyKey);
+        record.id = new IdempotencyKeyId(scope, caller, idempotencyKey);
         record.requestHash = Objects.requireNonNull(requestHash, "requestHash");
         record.status = IdempotencyStatus.IN_PROGRESS;
         record.createdAt = Objects.requireNonNull(createdAt, "createdAt");

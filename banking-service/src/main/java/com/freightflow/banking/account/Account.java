@@ -27,8 +27,9 @@ public class Account {
     @Column(name = "account_number", length = 16, nullable = false, unique = true, updatable = false)
     private String accountNumber;
 
-    @Column(name = "holder_reference", length = 120, nullable = false)
-    private String holderReference;
+    /** The customer organisation that owns the account (ADR 0018); null for system accounts. */
+    @Column(name = "owner_organization_id", updatable = false)
+    private UUID ownerOrganizationId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "account_type", length = 32, nullable = false, updatable = false)
@@ -57,10 +58,10 @@ public class Account {
     protected Account() {
     }
 
-    public static Account createCustomer(String accountNumber, String holderReference, String currency, Instant now) {
+    public static Account createCustomer(String accountNumber, UUID ownerOrganizationId, String currency, Instant now) {
         Account account = new Account();
         account.accountNumber = AccountNumber.validate(accountNumber);
-        account.holderReference = Objects.requireNonNull(holderReference, "holderReference").trim();
+        account.ownerOrganizationId = Objects.requireNonNull(ownerOrganizationId, "ownerOrganizationId");
         account.accountType = AccountType.CUSTOMER;
         account.currency = Objects.requireNonNull(currency, "currency").trim().toUpperCase(Locale.ROOT);
         account.status = AccountStatus.ACTIVE;
@@ -143,8 +144,8 @@ public class Account {
         return accountNumber;
     }
 
-    public String getHolderReference() {
-        return holderReference;
+    public UUID getOwnerOrganizationId() {
+        return ownerOrganizationId;
     }
 
     public AccountType getAccountType() {

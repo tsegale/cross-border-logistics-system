@@ -1,5 +1,6 @@
 package com.freightflow.banking.fx;
 
+import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.common.MoneyRounding;
 import com.freightflow.banking.config.BankingProperties;
 import com.freightflow.banking.fx.ExchangeRateProvider.RateQuote;
@@ -34,7 +35,7 @@ public class FxQuoteService {
     }
 
     @Transactional
-    public FxQuoteResponse createQuote(CreateFxQuoteRequest request) {
+    public FxQuoteResponse createQuote(Caller caller, CreateFxQuoteRequest request) {
         if ((request.sellAmount() == null) == (request.buyAmount() == null)) {
             throw new InvalidFxQuoteRequestException("Exactly one of sellAmount or buyAmount must be provided");
         }
@@ -97,26 +98,30 @@ public class FxQuoteService {
                 rateQuote.effectiveRate(),
                 now,
                 expiresAt
-        ));
+        ).ownedBy(caller.isCustomer() ? caller.requireOrganization() : null));
         quotes.flush();
         return FxQuoteResponse.from(saved);
     }
 
     @Transactional(readOnly = true)
-    public FxQuoteResponse getQuote(UUID id) {
+    public FxQuoteResponse getQuote(Caller caller, UUID id) {
         FxQuote quote = quotes.findById(id)
+                .filter(found -> caller.mayAccess(found.getOwnerOrganizationId()))
                 .orElseThrow(() -> new FxQuoteNotFoundException(id));
         return FxQuoteResponse.from(quote);
     }
 
     @Transactional
     public FxQuote consumeQuoteForTransfer(
+            Caller caller,
             UUID quoteId,
             String sourceCurrency,
             String targetCurrency,
             BigDecimal requestedAmount,
             String requestedCurrency) {
+        // Only the organisation that asked for a quote may use it; operators may use any (ADR 0018).
         FxQuote quote = quotes.findByIdForUpdate(quoteId)
+                .filter(found -> caller.mayAccess(found.getOwnerOrganizationId()))
                 .orElseThrow(() -> new FxQuoteNotFoundException(quoteId));
 
         if (!quote.getSellCurrency().equals(sourceCurrency) || !quote.getBuyCurrency().equals(targetCurrency)) {

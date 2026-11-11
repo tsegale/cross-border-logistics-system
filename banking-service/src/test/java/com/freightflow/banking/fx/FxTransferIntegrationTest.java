@@ -1,5 +1,6 @@
 package com.freightflow.banking.fx;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
@@ -47,13 +48,10 @@ class FxTransferIntegrationTest extends IntegrationTest {
 
     @Test
     void executesFourPostingCrossCurrencyTransferViaFxPositionAccounts() throws Exception {
-        AccountResponse nadAccount = accountService.createCustomerAccount(
-                new CreateAccountRequest("Walvis Bay Shipper", "NAD"));
-        AccountResponse eurAccount = accountService.createCustomerAccount(
-                new CreateAccountRequest("Hamburg Forwarder", "EUR"));
+        AccountResponse nadAccount = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
+        AccountResponse eurAccount = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
 
-        ledgerService.deposit(
-                nadAccount.id().toString(),
+        ledgerService.deposit(TestCallers.OPERATOR, nadAccount.id().toString(),
                 new DepositRequest(new BigDecimal("10000.00"), "NAD", "Initial NAD deposit"),
                 "fx-dep-" + UUID.randomUUID()
         );
@@ -126,9 +124,9 @@ class FxTransferIntegrationTest extends IntegrationTest {
         assertThat(eurNet).isEqualByComparingTo("0.0000");
 
         // Verify customer balances
-        assertThat(accountService.getAccount(nadAccount.id().toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, nadAccount.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("5979.90");
-        assertThat(accountService.getAccount(eurAccount.id().toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, eurAccount.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("200.00");
 
         // Quote is now marked used; attempting a second transfer with the same fxQuoteId fails with 409 fx-quote-already-used
@@ -151,13 +149,10 @@ class FxTransferIntegrationTest extends IntegrationTest {
 
     @Test
     void rejectsExpiredAndMismatchedFxQuotesAndValidatesQuoteCreation() throws Exception {
-        AccountResponse nadAccount = accountService.createCustomerAccount(
-                new CreateAccountRequest("NAD Holder", "NAD"));
-        AccountResponse zarAccount = accountService.createCustomerAccount(
-                new CreateAccountRequest("ZAR Holder", "ZAR"));
+        AccountResponse nadAccount = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
+        AccountResponse zarAccount = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("ZAR", TestCallers.NAMIB));
 
-        ledgerService.deposit(
-                nadAccount.id().toString(),
+        ledgerService.deposit(TestCallers.OPERATOR, nadAccount.id().toString(),
                 new DepositRequest(new BigDecimal("1000.00"), "NAD", "NAD funding"),
                 "fx-dep-" + UUID.randomUUID()
         );

@@ -1,5 +1,6 @@
 package com.freightflow.banking.transfer;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountRepository;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.InsufficientFundsException;
@@ -95,14 +96,11 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
 
     @Test
     void twoHundredConcurrentTransfersDrainingOneAccountNeverOverdraw() throws Exception {
-        AccountResponse source = accountService.createCustomerAccount(
-                new CreateAccountRequest("Hot Source NAD", "NAD"));
-        AccountResponse target = accountService.createCustomerAccount(
-                new CreateAccountRequest("Hot Sink NAD", "NAD"));
+        AccountResponse source = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
+        AccountResponse target = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
 
         // Fund source with 5,000.00 NAD (enough for exactly 100 transfers of 50.00 NAD)
-        ledgerService.deposit(
-                source.id().toString(),
+        ledgerService.deposit(TestCallers.OPERATOR, source.id().toString(),
                 new DepositRequest(new BigDecimal("5000.00"), "NAD", "Hot account seed"),
                 "hot-seed-" + UUID.randomUUID()
         );
@@ -154,9 +152,9 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
         assertThat(createdCount.get()).isEqualTo(100);
         assertThat(conflictCount.get()).isEqualTo(100);
 
-        assertThat(accountService.getAccount(source.id().toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, source.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("0.00");
-        assertThat(accountService.getAccount(target.id().toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, target.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("5000.00");
 
         BigDecimal minRunningBalance = jdbcTemplate.queryForObject(
@@ -173,18 +171,14 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
 
     @Test
     void hundredConcurrentBidirectionalPairsCompleteWithoutDeadlock() throws Exception {
-        AccountResponse accountA = accountService.createCustomerAccount(
-                new CreateAccountRequest("Bidirectional A", "NAD"));
-        AccountResponse accountB = accountService.createCustomerAccount(
-                new CreateAccountRequest("Bidirectional B", "NAD"));
+        AccountResponse accountA = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
+        AccountResponse accountB = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
 
-        ledgerService.deposit(
-                accountA.id().toString(),
+        ledgerService.deposit(TestCallers.OPERATOR, accountA.id().toString(),
                 new DepositRequest(new BigDecimal("10000.00"), "NAD", "Seed A"),
                 "seed-a-" + UUID.randomUUID()
         );
-        ledgerService.deposit(
-                accountB.id().toString(),
+        ledgerService.deposit(TestCallers.OPERATOR, accountB.id().toString(),
                 new DepositRequest(new BigDecimal("10000.00"), "NAD", "Seed B"),
                 "seed-b-" + UUID.randomUUID()
         );
@@ -247,9 +241,9 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
 
         assertThat(successCount.get()).isEqualTo(pairs * 2);
         // A: 10000 - 100*25 + 100*15 = 9000.00; B: 10000 + 100*25 - 100*15 = 11000.00
-        assertThat(accountService.getAccount(accountA.id().toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, accountA.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("9000.00");
-        assertThat(accountService.getAccount(accountB.id().toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, accountB.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("11000.00");
 
         ReconciliationReportResponse recon = reconciliationService.reconcile();
@@ -259,13 +253,10 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
 
     @Test
     void sameIdempotencyKeySentTwentyTimesConcurrentlyCreatesSingleJournalEntry() throws Exception {
-        AccountResponse source = accountService.createCustomerAccount(
-                new CreateAccountRequest("Idemp Concurrency Source", "NAD"));
-        AccountResponse target = accountService.createCustomerAccount(
-                new CreateAccountRequest("Idemp Concurrency Target", "NAD"));
+        AccountResponse source = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
+        AccountResponse target = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
 
-        ledgerService.deposit(
-                source.id().toString(),
+        ledgerService.deposit(TestCallers.OPERATOR, source.id().toString(),
                 new DepositRequest(new BigDecimal("1000.00"), "NAD", "Seed idemp"),
                 "seed-idemp-" + UUID.randomUUID()
         );
@@ -316,9 +307,9 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
         }
 
         // Balance debited exactly once (1000 - 250 = 750)
-        assertThat(accountService.getAccount(source.id().toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, source.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("750.00");
-        assertThat(accountService.getAccount(target.id().toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, target.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("250.00");
 
         Integer transferCount = jdbcTemplate.queryForObject(
@@ -335,13 +326,10 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
 
     @Test
     void conditionalUpdateStrategyAlsoPreservesConcurrentInvariants() throws Exception {
-        AccountResponse accountA = accountService.createCustomerAccount(
-                new CreateAccountRequest("Cond Concurrent A", "NAD"));
-        AccountResponse accountB = accountService.createCustomerAccount(
-                new CreateAccountRequest("Cond Concurrent B", "NAD"));
+        AccountResponse accountA = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
+        AccountResponse accountB = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
 
-        ledgerService.deposit(
-                accountA.id().toString(),
+        ledgerService.deposit(TestCallers.OPERATOR, accountA.id().toString(),
                 new DepositRequest(new BigDecimal("2500.00"), "NAD", "Cond Seed A"),
                 "cond-seed-a-" + UUID.randomUUID()
         );
@@ -372,8 +360,7 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
                 futures.add(executor.submit(() -> {
                     startGate.await();
                     try {
-                        TransferResponse resp = conditionalService.createTransfer(
-                                new CreateTransferRequest(
+                        TransferResponse resp = conditionalService.createTransfer(TestCallers.OPERATOR, new CreateTransferRequest(
                                         accountA.accountNumber(),
                                         accountB.accountNumber(),
                                         new BigDecimal("50.00"),
@@ -400,9 +387,9 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
 
         assertThat(succeeded.get()).isEqualTo(50);
         assertThat(insufficient.get()).isEqualTo(50);
-        assertThat(accountService.getAccount(accountA.id().toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, accountA.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("0.00");
-        assertThat(accountService.getAccount(accountB.id().toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, accountB.id().toString()).ledgerBalance())
                 .isEqualByComparingTo("2500.00");
 
         ReconciliationReportResponse recon = reconciliationService.reconcile();

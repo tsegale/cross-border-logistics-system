@@ -1,5 +1,6 @@
 package com.freightflow.banking.account;
 
+import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
 import com.freightflow.banking.journal.LedgerService;
@@ -53,7 +54,6 @@ public class AccountController {
                                     name = "Namibian exporter account",
                                     value = """
                                             {
-                                              "holderReference": "CUST-NAM-WALVIS-001",
                                               "currency": "NAD"
                                             }
                                             """
@@ -72,7 +72,7 @@ public class AccountController {
                                                     {
                                                       "id": "01930000-0000-7000-8000-000000001000",
                                                       "accountNumber": "FF83NAD000001000",
-                                                      "holderReference": "CUST-NAM-WALVIS-001",
+                                                      "ownerOrganizationId": "0193a0e0-0000-7000-8000-00000000a001",
                                                       "type": "CUSTOMER",
                                                       "currency": "NAD",
                                                       "status": "ACTIVE",
@@ -88,8 +88,8 @@ public class AccountController {
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
             }
     )
-    public ResponseEntity<AccountResponse> createAccount(@Valid @RequestBody CreateAccountRequest request) {
-        AccountResponse created = accountService.createCustomerAccount(request);
+    public ResponseEntity<AccountResponse> createAccount(Caller caller, @Valid @RequestBody CreateAccountRequest request) {
+        AccountResponse created = accountService.createCustomerAccount(caller, request);
         return ResponseEntity.created(URI.create("/api/v1/accounts/" + created.id())).body(created);
     }
 
@@ -105,8 +105,8 @@ public class AccountController {
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
             }
     )
-    public AccountResponse getAccount(@PathVariable("id") String id) {
-        return accountService.getAccount(id);
+    public AccountResponse getAccount(Caller caller, @PathVariable("id") String id) {
+        return accountService.getAccount(caller, id);
     }
 
     @PostMapping("/{id}/deposits")
@@ -142,11 +142,12 @@ public class AccountController {
             }
     )
     public ResponseEntity<JournalEntryResponse> deposit(
+            Caller caller,
             @PathVariable("id") String id,
             @Parameter(description = "Idempotency-Key header", required = true)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody DepositRequest request) {
-        JournalEntryResponse entry = ledgerService.deposit(id, request, idempotencyKey);
+        JournalEntryResponse entry = ledgerService.deposit(caller, id, request, idempotencyKey);
         return ResponseEntity.created(URI.create("/api/v1/journal-entries/" + entry.id())).body(entry);
     }
 
@@ -163,9 +164,10 @@ public class AccountController {
             }
     )
     public StatementPageResponse getStatement(
+            Caller caller,
             @PathVariable("id") String id,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "size", defaultValue = "20") int size) {
-        return ledgerService.getStatement(id, cursor, size);
+        return ledgerService.getStatement(caller, id, cursor, size);
     }
 }

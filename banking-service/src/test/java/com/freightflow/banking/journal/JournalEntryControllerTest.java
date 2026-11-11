@@ -1,5 +1,6 @@
 package com.freightflow.banking.journal;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.common.ApiExceptionHandler;
 import com.freightflow.banking.journal.dto.JournalEntryResponse;
 import com.freightflow.banking.journal.dto.PostingResponse;
@@ -26,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(JournalEntryController.class)
-@Import(ApiExceptionHandler.class)
+@Import({ApiExceptionHandler.class, com.freightflow.banking.support.TestSecurity.class})
 class JournalEntryControllerTest {
 
     private static final UUID ENTRY = UUID.fromString("01930000-0000-7000-8000-000000004000");
@@ -40,7 +41,7 @@ class JournalEntryControllerTest {
 
     @Test
     void entryIsReturnedWithItsPostings() throws Exception {
-        given(ledgerService.getJournalEntry(ENTRY)).willReturn(entry(ENTRY, JournalEntryType.TRANSFER, null));
+        given(ledgerService.getJournalEntry(TestCallers.OPERATOR, ENTRY)).willReturn(entry(ENTRY, JournalEntryType.TRANSFER, null));
 
         mockMvc.perform(get("/api/v1/journal-entries/{id}", ENTRY))
                 .andExpect(status().isOk())
@@ -50,7 +51,7 @@ class JournalEntryControllerTest {
 
     @Test
     void reversalIs201WithLocation() throws Exception {
-        given(ledgerService.reverse(eq(ENTRY), any(), eq("rev-1")))
+        given(ledgerService.reverse(any(), eq(ENTRY), any(), eq("rev-1")))
                 .willReturn(entry(REVERSAL, JournalEntryType.REVERSAL, ENTRY));
 
         mockMvc.perform(post("/api/v1/journal-entries/{id}/reversals", ENTRY)
@@ -64,7 +65,7 @@ class JournalEntryControllerTest {
 
     @Test
     void secondReversalIs409() throws Exception {
-        given(ledgerService.reverse(eq(ENTRY), any(), eq("rev-2")))
+        given(ledgerService.reverse(any(), eq(ENTRY), any(), eq("rev-2")))
                 .willThrow(new JournalEntryAlreadyReversedException(ENTRY, "already reversed"));
 
         mockMvc.perform(post("/api/v1/journal-entries/{id}/reversals", ENTRY).header("Idempotency-Key", "rev-2"))
@@ -84,7 +85,7 @@ class JournalEntryControllerTest {
 
     @Test
     void unknownEntryIs404() throws Exception {
-        given(ledgerService.getJournalEntry(ENTRY)).willThrow(new JournalEntryNotFoundException(ENTRY));
+        given(ledgerService.getJournalEntry(TestCallers.OPERATOR, ENTRY)).willThrow(new JournalEntryNotFoundException(ENTRY));
 
         mockMvc.perform(get("/api/v1/journal-entries/{id}", ENTRY))
                 .andExpect(status().isNotFound())
@@ -101,6 +102,6 @@ class JournalEntryControllerTest {
         Instant at = Instant.parse("2026-11-10T10:00:00Z");
         return new JournalEntryResponse(id, type, "REF", reverses, null, null, at, List.of(
                 new PostingResponse(UUID.randomUUID(), UUID.randomUUID(), "FF83NAD000001000", new BigDecimal("-10.00"), "NAD", new BigDecimal("90.00"), at),
-                new PostingResponse(UUID.randomUUID(), UUID.randomUUID(), "FF60NAD000001001", new BigDecimal("10.00"), "NAD", new BigDecimal("10.00"), at)));
+                new PostingResponse(UUID.randomUUID(), UUID.randomUUID(), "FF60NAD000001001", new BigDecimal("10.00"), "NAD", new BigDecimal("10.00"), at)), null);
     }
 }

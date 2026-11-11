@@ -1,5 +1,6 @@
 package com.freightflow.banking.hold;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
@@ -109,7 +110,7 @@ class HoldIntegrationTest extends IntegrationTest {
     @Test
     void transfersAreCheckedAgainstTheAvailableBalance() throws Exception {
         AccountResponse payer = funded("EUR", "1000.00");
-        AccountResponse other = accountService.createCustomerAccount(new CreateAccountRequest("Other", "EUR"));
+        AccountResponse other = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
         mockMvc.perform(hold(payer, "900.00", "EUR", key())).andExpect(status().isCreated());
 
         mockMvc.perform(post("/api/v1/transfers").header("Idempotency-Key", key())
@@ -124,9 +125,9 @@ class HoldIntegrationTest extends IntegrationTest {
 
     @Test
     void systemAccountsCannotBeHeld() throws Exception {
-        mockMvc.perform(post("/api/v1/holds").header("Idempotency-Key", key()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/v1/holds").with(TestCallers.logistics()).header("Idempotency-Key", key()).contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"payerAccount":"FF14EUR000000001","amount":1.00,"currency":"EUR","reference":"X"}
+                                {"payerAccount":"FF14EUR000000001","amount":1.00,"currency":"EUR","reference":"X","payerOrganizationId":"0193a0e0-0000-7000-8000-00000000a001"}
                                 """))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/invalid-hold"));
@@ -135,7 +136,7 @@ class HoldIntegrationTest extends IntegrationTest {
     @Test
     void fullCapturePostsPayerToFreightRevenueAndClosesTheHold() throws Exception {
         AccountResponse payer = funded("EUR", "1000.00");
-        BigDecimal revenueBefore = accountService.getAccount(FREIGHT_REVENUE_EUR.toString()).ledgerBalance();
+        BigDecimal revenueBefore = accountService.getAccount(TestCallers.OPERATOR, FREIGHT_REVENUE_EUR.toString()).ledgerBalance();
         String id = holdId(payer, "524.75", "EUR");
 
         JsonNode captured = json(mockMvc.perform(capture(id, null, key()))
@@ -145,7 +146,7 @@ class HoldIntegrationTest extends IntegrationTest {
                 .andReturn());
 
         assertBalances(payer, "475.25", "475.25");
-        assertThat(accountService.getAccount(FREIGHT_REVENUE_EUR.toString()).ledgerBalance())
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, FREIGHT_REVENUE_EUR.toString()).ledgerBalance())
                 .isEqualByComparingTo(revenueBefore.add(new BigDecimal("524.75")));
         assertThat(jdbcTemplate.queryForObject("SELECT entry_type FROM journal_entries WHERE id = ?::uuid",
                 String.class, captured.get("captureJournalEntryId").asString())).isEqualTo("CAPTURE");
@@ -286,10 +287,10 @@ class HoldIntegrationTest extends IntegrationTest {
     @Test
     void expiredHoldIsReleasedBySweepersRacingOnAllInstancesOnce() throws Exception {
         AccountResponse payer = funded("EUR", "1000.00");
-        String id = json(mockMvc.perform(post("/api/v1/holds").header("Idempotency-Key", key())
+        String id = json(mockMvc.perform(post("/api/v1/holds").with(TestCallers.logistics()).header("Idempotency-Key", key())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"payerAccount":"%s","amount":300.00,"currency":"EUR","reference":"EXP","expiresAt":"%s"}
+                                {"payerOrganizationId":"0193a0e0-0000-7000-8000-00000000a001","payerAccount":"%s","amount":300.00,"currency":"EUR","reference":"EXP","expiresAt":"%s"}
                                 """.formatted(payer.accountNumber(), Instant.now().plusMillis(1500))))
                 .andExpect(status().isCreated()).andReturn()).get("id").asString();
         Thread.sleep(1_700);
@@ -314,9 +315,9 @@ class HoldIntegrationTest extends IntegrationTest {
     @Test
     void expiryOutsideTheAllowedWindowIsRejected() throws Exception {
         AccountResponse payer = funded("EUR", "100.00");
-        mockMvc.perform(post("/api/v1/holds").header("Idempotency-Key", key()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/v1/holds").with(TestCallers.logistics()).header("Idempotency-Key", key()).contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"payerAccount":"%s","amount":1.00,"currency":"EUR","reference":"X","expiresAt":"%s"}
+                                {"payerOrganizationId":"0193a0e0-0000-7000-8000-00000000a001","payerAccount":"%s","amount":1.00,"currency":"EUR","reference":"X","expiresAt":"%s"}
                                 """.formatted(payer.accountNumber(), Instant.now().plusSeconds(31L * 24 * 3600))))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/invalid-hold"));
@@ -363,7 +364,7 @@ class HoldIntegrationTest extends IntegrationTest {
     void extensionMustBeLaterAndWithinMaxTtlAndMaxLifetime() throws Exception {
         AccountResponse payer = funded("EUR", "100.00");
         String id = holdId(payer, "10.00", "EUR");
-        Instant current = Instant.parse(json(mockMvc.perform(get("/api/v1/holds/{id}", id)).andReturn())
+        Instant current = Instant.parse(json(mockMvc.perform(get("/api/v1/holds/{id}", id).with(TestCallers.logistics())).andReturn())
                 .get("expiresAt").asString());
 
         mockMvc.perform(extend(id, current, key()))
@@ -393,10 +394,10 @@ class HoldIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/hold-not-active"))
                 .andExpect(jsonPath("$.holdStatus").value("RELEASED"));
 
-        String expiring = json(mockMvc.perform(post("/api/v1/holds").header("Idempotency-Key", key())
+        String expiring = json(mockMvc.perform(post("/api/v1/holds").with(TestCallers.logistics()).header("Idempotency-Key", key())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"payerAccount":"%s","amount":5.00,"currency":"EUR","reference":"EXP","expiresAt":"%s"}
+                                {"payerOrganizationId":"0193a0e0-0000-7000-8000-00000000a001","payerAccount":"%s","amount":5.00,"currency":"EUR","reference":"EXP","expiresAt":"%s"}
                                 """.formatted(payer.accountNumber(), Instant.now().plusMillis(1500))))
                 .andExpect(status().isCreated()).andReturn()).get("id").asString();
         Thread.sleep(1_700);
@@ -409,23 +410,23 @@ class HoldIntegrationTest extends IntegrationTest {
     void holdsAreFoundByTheirReference() throws Exception {
         AccountResponse payer = funded("EUR", "1000.00");
         String reference = "SHIPMENT " + UUID.randomUUID();
-        mockMvc.perform(post("/api/v1/holds").header("Idempotency-Key", key()).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/v1/holds").with(TestCallers.logistics()).header("Idempotency-Key", key()).contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"payerAccount":"%s","amount":10.00,"currency":"EUR","reference":"%s"}
+                                {"payerOrganizationId":"0193a0e0-0000-7000-8000-00000000a001","payerAccount":"%s","amount":10.00,"currency":"EUR","reference":"%s"}
                                 """.formatted(payer.accountNumber(), reference)))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/v1/holds").param("reference", reference))
+        mockMvc.perform(get("/api/v1/holds").with(TestCallers.logistics()).param("reference", reference))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].reference").value(reference));
-        mockMvc.perform(get("/api/v1/holds").param("reference", "SHIPMENT nobody"))
+        mockMvc.perform(get("/api/v1/holds").with(TestCallers.logistics()).param("reference", "SHIPMENT nobody"))
                 .andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test
     void unknownHoldIs404() throws Exception {
-        mockMvc.perform(get("/api/v1/holds/{id}", UUID.randomUUID()))
+        mockMvc.perform(get("/api/v1/holds/{id}", UUID.randomUUID()).with(TestCallers.logistics()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/hold-not-found"));
     }
@@ -433,8 +434,8 @@ class HoldIntegrationTest extends IntegrationTest {
     // ------------------------------------------------------------------ helpers
 
     private AccountResponse funded(String currency, String amount) {
-        AccountResponse account = accountService.createCustomerAccount(new CreateAccountRequest("Hold payer", currency));
-        ledgerService.deposit(account.id().toString(), new DepositRequest(new BigDecimal(amount), currency, "SEED"), key());
+        AccountResponse account = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest(currency, TestCallers.NAMIB));
+        ledgerService.deposit(TestCallers.OPERATOR, account.id().toString(), new DepositRequest(new BigDecimal(amount), currency, "SEED"), key());
         return account;
     }
 
@@ -444,29 +445,29 @@ class HoldIntegrationTest extends IntegrationTest {
     }
 
     private static RequestBuilder hold(AccountResponse payer, String amount, String currency, String key) {
-        return post("/api/v1/holds").header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON)
+        return post("/api/v1/holds").with(TestCallers.logistics()).header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"payerAccount":"%s","amount":%s,"currency":"%s","reference":"SHIPMENT FF-TEST"}
+                        {"payerOrganizationId":"0193a0e0-0000-7000-8000-00000000a001","payerAccount":"%s","amount":%s,"currency":"%s","reference":"SHIPMENT FF-TEST"}
                         """.formatted(payer.accountNumber(), amount, currency));
     }
 
     private static RequestBuilder capture(String holdId, String amount, String key) {
-        var builder = post("/api/v1/holds/{id}/capture", holdId).header("Idempotency-Key", key);
+        var builder = post("/api/v1/holds/{id}/capture", holdId).with(TestCallers.logistics()).header("Idempotency-Key", key);
         return amount == null ? builder
                 : builder.contentType(MediaType.APPLICATION_JSON).content("{\"amount\":" + amount + "}");
     }
 
     private static RequestBuilder extend(String holdId, Instant expiresAt, String key) {
-        return post("/api/v1/holds/{id}/extension", holdId).header("Idempotency-Key", key)
+        return post("/api/v1/holds/{id}/extension", holdId).with(TestCallers.logistics()).header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"expiresAt\":\"" + expiresAt + "\"}");
     }
 
     private static RequestBuilder release(String holdId, String key) {
-        return post("/api/v1/holds/{id}/release", holdId).header("Idempotency-Key", key);
+        return post("/api/v1/holds/{id}/release", holdId).with(TestCallers.logistics()).header("Idempotency-Key", key);
     }
 
     private void assertBalances(AccountResponse account, String ledger, String available) {
-        AccountResponse current = accountService.getAccount(account.id().toString());
+        AccountResponse current = accountService.getAccount(TestCallers.OPERATOR, account.id().toString());
         assertThat(current.ledgerBalance()).as("ledger balance").isEqualByComparingTo(ledger);
         assertThat(current.availableBalance()).as("available balance").isEqualByComparingTo(available);
     }

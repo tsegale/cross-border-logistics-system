@@ -1,5 +1,6 @@
 package com.freightflow.banking.transfer;
 
+import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.transfer.dto.CreateTransferRequest;
 import com.freightflow.banking.transfer.dto.TransferResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -86,10 +87,11 @@ public class TransferController {
             }
     )
     public ResponseEntity<TransferResponse> createTransfer(
+            Caller caller,
             @Parameter(description = "Idempotency-Key header (RFC draft-ietf-httpapi-idempotency-key-header-08)", required = true)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody CreateTransferRequest request) {
-        TransferResponse created = transferService.createTransfer(request, idempotencyKey);
+        TransferResponse created = transferService.createTransfer(caller, request, idempotencyKey);
         return ResponseEntity.created(URI.create("/api/v1/transfers/" + created.id())).body(created);
     }
 
@@ -103,7 +105,7 @@ public class TransferController {
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
             }
     )
-    public TransferResponse getTransfer(@PathVariable("id") UUID id) {
-        return transferService.getTransfer(id);
+    public TransferResponse getTransfer(Caller caller, @PathVariable("id") UUID id) {
+        return transferService.getTransfer(caller, id);
     }
 }

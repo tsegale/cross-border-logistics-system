@@ -1,5 +1,6 @@
 package com.freightflow.banking.fx;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.common.ApiExceptionHandler;
 import com.freightflow.banking.fx.dto.FxQuoteResponse;
 import org.junit.jupiter.api.Test;
@@ -24,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(FxQuoteController.class)
-@Import(ApiExceptionHandler.class)
+@Import({ApiExceptionHandler.class, com.freightflow.banking.support.TestSecurity.class})
 class FxQuoteControllerTest {
 
     private static final UUID ID = UUID.fromString("01930000-0000-7000-8000-000000002000");
@@ -37,7 +38,7 @@ class FxQuoteControllerTest {
 
     @Test
     void createdQuoteIs201WithLocation() throws Exception {
-        given(fxQuoteService.createQuote(any())).willReturn(new FxQuoteResponse(ID, "NAD", "EUR",
+        given(fxQuoteService.createQuote(any(), any())).willReturn(new FxQuoteResponse(ID, "NAD", "EUR",
                 new BigDecimal("50000.00"), new BigDecimal("2487.50"), new BigDecimal("0.05000000"),
                 new BigDecimal("0.005000"), new BigDecimal("0.04975000"), Instant.parse("2026-11-10T10:01:00Z"),
                 null, Instant.parse("2026-11-10T10:00:00Z")));
@@ -61,7 +62,7 @@ class FxQuoteControllerTest {
 
     @Test
     void bothAmountsIsAnInvalidRequest() throws Exception {
-        given(fxQuoteService.createQuote(any()))
+        given(fxQuoteService.createQuote(any(), any()))
                 .willThrow(new InvalidFxQuoteRequestException("Exactly one of sellAmount or buyAmount must be provided"));
 
         mockMvc.perform(post("/api/v1/fx-quotes").contentType(MediaType.APPLICATION_JSON)
@@ -72,7 +73,7 @@ class FxQuoteControllerTest {
 
     @Test
     void unknownQuoteIs404() throws Exception {
-        given(fxQuoteService.getQuote(ID)).willThrow(new FxQuoteNotFoundException(ID));
+        given(fxQuoteService.getQuote(TestCallers.OPERATOR, ID)).willThrow(new FxQuoteNotFoundException(ID));
 
         mockMvc.perform(get("/api/v1/fx-quotes/{id}", ID))
                 .andExpect(status().isNotFound())

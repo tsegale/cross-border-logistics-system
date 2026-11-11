@@ -1,5 +1,6 @@
 package com.freightflow.banking.journal;
 
+import com.freightflow.banking.security.Actor;
 import com.freightflow.banking.common.MoneyRounding;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -46,6 +47,19 @@ public class JournalEntry {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    // Who made it (ADR 0020). Set before the insert; the table refuses a new entry without them.
+    @Column(name = "actor_subject", length = 64, updatable = false)
+    private String actorSubject;
+
+    @Column(name = "actor_client_id", length = 64, updatable = false)
+    private String actorClientId;
+
+    @Column(name = "actor_organization_id", updatable = false)
+    private UUID actorOrganizationId;
+
+    @Column(name = "request_id", length = 64, updatable = false)
+    private String requestId;
+
     public record PostingInstruction(UUID accountId, BigDecimal signedAmount, String currency) {
     }
 
@@ -67,6 +81,20 @@ public class JournalEntry {
         entry.fxRate = fxRate;
         entry.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         return entry;
+    }
+
+    /** Records who made the entry; must be called before it is saved. */
+    public JournalEntry recordedBy(Actor actor) {
+        Objects.requireNonNull(actor, "actor");
+        this.actorSubject = actor.subject();
+        this.actorClientId = actor.clientId();
+        this.actorOrganizationId = actor.organizationId();
+        this.requestId = actor.requestId();
+        return this;
+    }
+
+    public Actor getActor() {
+        return actorClientId == null ? null : new Actor(actorSubject, actorClientId, actorOrganizationId, requestId);
     }
 
     /**

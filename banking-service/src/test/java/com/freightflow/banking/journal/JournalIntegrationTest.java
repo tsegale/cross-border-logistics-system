@@ -1,5 +1,6 @@
 package com.freightflow.banking.journal;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountRepository;
 import com.freightflow.banking.account.AccountType;
 import com.freightflow.banking.idempotency.IdempotencyCleanupJob;
@@ -114,7 +115,7 @@ class JournalIntegrationTest extends IntegrationTest {
             UUID entryId = UUID.randomUUID();
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             jdbcTemplate.update(
-                    "INSERT INTO journal_entries (id, entry_type, reference, created_at) VALUES (?, 'TRANSFER', 'BAD-SUM', ?)",
+                    "INSERT INTO journal_entries (id, entry_type, reference, created_at, actor_subject, actor_client_id) VALUES (?, 'TRANSFER', 'BAD-SUM', ?, 'test', 'test')",
                     entryId, now);
             jdbcTemplate.update(
                     "INSERT INTO postings (id, journal_entry_id, account_id, amount, currency, running_balance, created_at) VALUES (?, ?, ?, -100.0000, 'NAD', -100.0000, ?)",
@@ -131,7 +132,7 @@ class JournalIntegrationTest extends IntegrationTest {
             UUID entryId = UUID.randomUUID();
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             jdbcTemplate.update(
-                    "INSERT INTO journal_entries (id, entry_type, reference, created_at) VALUES (?, 'TRANSFER', 'ONE-POSTING', ?)",
+                    "INSERT INTO journal_entries (id, entry_type, reference, created_at, actor_subject, actor_client_id) VALUES (?, 'TRANSFER', 'ONE-POSTING', ?, 'test', 'test')",
                     entryId, now);
             jdbcTemplate.update(
                     "INSERT INTO postings (id, journal_entry_id, account_id, amount, currency, running_balance, created_at) VALUES (?, ?, ?, 100.0000, 'NAD', 100.0000, ?)",
@@ -210,7 +211,7 @@ class JournalIntegrationTest extends IntegrationTest {
                 "currency", "NAD",
                 "reference", "DEP-IN-FLIGHT"
         );
-        idempotencyService.markInProgress("deposit:" + accountId, "dep-inflight-key", inFlightCanonical);
+        idempotencyService.markInProgress("deposit:" + accountId, TestCallers.OPERATOR, "dep-inflight-key", inFlightCanonical);
         mockMvc.perform(post("/api/v1/accounts/" + accountId + "/deposits")
                         .header("Idempotency-Key", "dep-inflight-key")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -370,10 +371,10 @@ class JournalIntegrationTest extends IntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "holderReference": "%s",
+                                  "organizationId": "%s",
                                   "currency": "%s"
                                 }
-                                """.formatted(holder, currency)))
+                                """.formatted(TestCallers.NAMIB, currency)))
                 .andExpect(status().isCreated())
                 .andReturn();
         return JSON.readTree(res.getResponse().getContentAsByteArray()).get("id").asString();

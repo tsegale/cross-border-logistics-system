@@ -1,5 +1,6 @@
 package com.freightflow.banking.account;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
 import com.freightflow.banking.journal.LedgerService;
@@ -86,7 +87,7 @@ class SystemBalanceCheckpointsIntegrationTest extends IntegrationTest {
         try (ExecutorService pool = Executors.newSingleThreadExecutor()) {
             // A deposit whose transaction is open while the roll-up runs, and commits only after it.
             Future<?> slowDeposit = pool.submit(() -> transactions.executeWithoutResult(status -> {
-                ledgerService.deposit(customer.id().toString(),
+                ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
                         new DepositRequest(new BigDecimal("7.00"), "EUR", "LATE"), "late-" + UUID.randomUUID());
                 posted.countDown();
                 await(checkpointTaken);
@@ -147,11 +148,11 @@ class SystemBalanceCheckpointsIntegrationTest extends IntegrationTest {
     }
 
     private AccountResponse customer() {
-        return accountService.createCustomerAccount(new CreateAccountRequest("Checkpoint customer", "EUR"));
+        return accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
     }
 
     private void deposit(AccountResponse account, String amount) {
-        ledgerService.deposit(account.id().toString(), new DepositRequest(new BigDecimal(amount), "EUR", "SEED"),
+        ledgerService.deposit(TestCallers.OPERATOR, account.id().toString(), new DepositRequest(new BigDecimal(amount), "EUR", "SEED"),
                 "checkpoint-" + UUID.randomUUID());
     }
 

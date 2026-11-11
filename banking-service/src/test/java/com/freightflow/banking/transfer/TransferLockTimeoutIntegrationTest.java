@@ -1,5 +1,6 @@
 package com.freightflow.banking.transfer;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
@@ -59,7 +60,7 @@ class TransferLockTimeoutIntegrationTest extends IntegrationTest {
     @Test
     void transferWaitsForAnAccountLockHeldLongerThanTheIdempotencyLockTimeout() throws Exception {
         AccountResponse source = fundedAccount();
-        AccountResponse target = accountService.createCustomerAccount(new CreateAccountRequest("Lock Target", "NAD"));
+        AccountResponse target = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
         Duration hold = IDEMPOTENCY_LOCK_TIMEOUT.multipliedBy(4);
 
         long started = System.nanoTime();
@@ -73,13 +74,13 @@ class TransferLockTimeoutIntegrationTest extends IntegrationTest {
         }
         long waitedMillis = Duration.ofNanos(System.nanoTime() - started).toMillis();
         assertThat(waitedMillis).isGreaterThanOrEqualTo(hold.toMillis() - 50);
-        assertThat(accountService.getAccount(source.id().toString()).ledgerBalance()).isEqualByComparingTo("90.00");
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, source.id().toString()).ledgerBalance()).isEqualByComparingTo("90.00");
     }
 
     @Test
     void lockHeldPastTheAccountLockTimeoutIsARetryable503AndTheRetrySucceeds() throws Exception {
         AccountResponse source = fundedAccount();
-        AccountResponse target = accountService.createCustomerAccount(new CreateAccountRequest("Lock Target", "NAD"));
+        AccountResponse target = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
         String key = "lock-timeout-" + UUID.randomUUID();
 
         try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
@@ -92,12 +93,12 @@ class TransferLockTimeoutIntegrationTest extends IntegrationTest {
         }
 
         mockMvc.perform(transfer(source, target, key)).andExpect(status().isCreated());
-        assertThat(accountService.getAccount(source.id().toString()).ledgerBalance()).isEqualByComparingTo("90.00");
+        assertThat(accountService.getAccount(TestCallers.OPERATOR, source.id().toString()).ledgerBalance()).isEqualByComparingTo("90.00");
     }
 
     private AccountResponse fundedAccount() {
-        AccountResponse account = accountService.createCustomerAccount(new CreateAccountRequest("Lock Source", "NAD"));
-        ledgerService.deposit(account.id().toString(),
+        AccountResponse account = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
+        ledgerService.deposit(TestCallers.OPERATOR, account.id().toString(),
                 new DepositRequest(new BigDecimal("100.00"), "NAD", "seed"), "seed-" + UUID.randomUUID());
         return account;
     }

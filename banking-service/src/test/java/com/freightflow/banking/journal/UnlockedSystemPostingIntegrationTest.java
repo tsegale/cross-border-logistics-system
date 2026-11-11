@@ -1,5 +1,6 @@
 package com.freightflow.banking.journal;
 
+import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
 import com.freightflow.banking.journal.dto.DepositRequest;
@@ -25,8 +26,8 @@ class UnlockedSystemPostingIntegrationTest extends SystemPostingModeContract {
 
     @Test
     void systemPostingHasNoRunningBalanceAndNoShard() {
-        AccountResponse customer = accountService.createCustomerAccount(new CreateAccountRequest("Unlocked", "EUR"));
-        JournalEntryResponse entry = ledgerService.deposit(customer.id().toString(),
+        AccountResponse customer = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
+        JournalEntryResponse entry = ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
                 new DepositRequest(new BigDecimal("5.00"), "EUR", "U"), "u-" + UUID.randomUUID());
 
         assertThat(entry.postings()).filteredOn(p -> p.accountId().equals(CLEARING_EUR))
@@ -41,7 +42,7 @@ class UnlockedSystemPostingIntegrationTest extends SystemPostingModeContract {
 
     @Test
     void theDatabaseRejectsABalanceShardForACustomerAccount() {
-        AccountResponse customer = accountService.createCustomerAccount(new CreateAccountRequest("Guard", "EUR"));
+        AccountResponse customer = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
         assertThatThrownBy(() -> jdbcTemplate.update("""
                 INSERT INTO account_balance_shards (account_id, shard, balance, updated_at) VALUES (?, 0, 0, now())
                 """, customer.id()))
