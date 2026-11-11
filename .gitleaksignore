@@ -1,0 +1,3 @@
+# False positive: Keycloak's JDBC URL (jdbc:postgresql://keycloak-db:5432/keycloak) matched generic-api-key because
+# the host name contains "key". It holds no credential; the file now uses KC_DB_URL_HOST instead.
+c2bec53ac833d2558b350ca212ebc946e600d5cf:docker-compose.yml:generic-api-key:72

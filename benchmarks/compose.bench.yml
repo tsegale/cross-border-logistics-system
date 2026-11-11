@@ -16,3 +16,14 @@ services:
   banking-service:
     environment:
       JAVA_TOOL_OPTIONS: ${BANKING_JAVA_TOOL_OPTIONS:-}
+    # The harness reads /actuator/info and /actuator/prometheus directly; the default stack publishes nothing.
+    ports:
+      - "127.0.0.1:8081:8081"
+
+  # Budgets a single benchmark persona cannot reach: the benchmark measures the ledger, not the limiter.
+  api-gateway:
+    environment:
+      RATE_LIMIT_MONEY_RPS: 100000
+      RATE_LIMIT_MONEY_BURST: 100000
+      RATE_LIMIT_BOOKING_RPS: 100000
+      RATE_LIMIT_BOOKING_BURST: 100000

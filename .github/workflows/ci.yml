@@ -64,8 +64,13 @@ jobs:
       - name: Every service is ready, the gateway included
         run: |
           # The gateway's actuator is on its management port (8085); /actuator on 8080 is a 404 (ADR 0015).
-          for port in 8085 8081 8082; do
-            curl -fsS "http://127.0.0.1:$port/actuator/health/readiness"; echo
+          curl -fsS "http://127.0.0.1:8085/actuator/health/readiness"; echo
+          # Services and databases publish nothing by default (ADR 0019): ask compose for their health.
+          for service in banking-service logistics-service keycloak; do
+            test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q "$service")")" = healthy
+          done
+          for port in 8081 8082 5441 5442; do
+            if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$port"; then echo "::error::port $port is published"; exit 1; fi
           done
       - name: Seed demo data
         run: ./scripts/seed_demo.sh

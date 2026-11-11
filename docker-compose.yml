@@ -1,9 +1,11 @@
 # FreightFlow local stack.
-#   cp .env.example .env && docker compose up --build
-# Default profile: the gateway, banking and logistics, each service with its own Postgres (ADR 0001).
+#   cp .env.example .env && python scripts/generate_secrets.py && docker compose up --build
+# Default profile: the gateway, Keycloak, banking and logistics, each service with its own Postgres (ADR 0001).
+#   --profile debug           publishes the services and databases on 127.0.0.1 for local tools (ADR 0019)
 #   --profile events          adds Kafka in KRaft mode (ADR 0003)
 #   --profile notifications   adds the notification service (and Kafka)
-# Ports are published on 127.0.0.1 only, for local tools.
+# By default only the gateway (8080, management 8085) and Keycloak (8180, for logins) publish a port, on 127.0.0.1.
+# Every secret is a file in secrets/ mounted as a compose secret; none is in this file or an image (ADR 0019).
 name: freightflow
 
 services:
@@ -13,9 +15,8 @@ services:
     environment:
       POSTGRES_DB: banking
       POSTGRES_USER: ${BANKING_DB_USER:?set in .env}
-      POSTGRES_PASSWORD: ${BANKING_DB_PASSWORD:?set in .env}
-    ports:
-      - "127.0.0.1:5441:5432"
+      POSTGRES_PASSWORD_FILE: /run/secrets/banking_db_password
+    secrets: [banking_db_password]
     volumes:
       - banking-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -29,9 +30,8 @@ services:
     environment:
       POSTGRES_DB: logistics
       POSTGRES_USER: ${LOGISTICS_DB_USER:?set in .env}
-      POSTGRES_PASSWORD: ${LOGISTICS_DB_PASSWORD:?set in .env}
-    ports:
-      - "127.0.0.1:5442:5432"
+      POSTGRES_PASSWORD_FILE: /run/secrets/logistics_db_password
+    secrets: [logistics_db_password]
     volumes:
       - logistics-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -69,7 +69,8 @@ services:
         required: true
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: keycloak
       KC_DB_USERNAME: keycloak
       # The public URL becomes the iss of every token, so clients and services must use exactly this. TLS belongs in
       # front of it in production (docs/threat-model.md).
@@ -105,13 +106,15 @@ services:
     environment:
       BANKING_DB_URL: jdbc:postgresql://banking-db:5432/banking
       BANKING_DB_USER: ${BANKING_DB_USER:?set in .env}
-      BANKING_DB_PASSWORD: ${BANKING_DB_PASSWORD:?set in .env}
+      # The password is the secret file banking_db_password, read through Spring's config tree.
       # pessimistic | conditional-update (ADR 0005). The benchmark switches it by recreating this container.
       TRANSFER_LOCKING_STRATEGY: ${TRANSFER_LOCKING_STRATEGY:-pessimistic}
       # locked | unlocked | sharded (ADR 0010); unset keeps the service default.
       SYSTEM_ACCOUNT_POSTING_MODE: ${SYSTEM_ACCOUNT_POSTING_MODE:-unlocked}
-    ports:
-      - "127.0.0.1:8081:8081"
+      # banking validates the relayed token itself, for its own audience (ADR 0017).
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
+    secrets: [banking_db_password]
     depends_on:
       banking-db:
         condition: service_healthy
@@ -127,12 +130,17 @@ services:
     environment:
       LOGISTICS_DB_URL: jdbc:postgresql://logistics-db:5432/logistics
       LOGISTICS_DB_USER: ${LOGISTICS_DB_USER:?set in .env}
-      LOGISTICS_DB_PASSWORD: ${LOGISTICS_DB_PASSWORD:?set in .env}
+      # Its database password and its client secret for Keycloak are secret files (ADR 0019).
       # Internal network only: holds and captures are not routed by the gateway.
       BANKING_SERVICE_URI: http://banking-service:8081
-    ports:
-      - "127.0.0.1:8082:8082"
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
+      # Its own client-credentials token for banking, from Keycloak on the compose network (ADR 0019).
+      KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/token
+    secrets: [logistics_db_password, logistics_client_secret]
     depends_on:
+      keycloak:
+        condition: service_healthy
       logistics-db:
         condition: service_healthy
     healthcheck:
@@ -185,6 +193,26 @@ services:
       retries: 12
       start_period: 20s
 
+  # ---------------- Local tools (--profile debug) ----------------
+  # Forwarders publish the services and databases on 127.0.0.1 for psql, IDE debuggers and the benchmark harness.
+  # Off by default: then every request has to come through the gateway (ADR 0019).
+  debug-ports:
+    profiles: [debug]
+    image: alpine/socat:1.8.0.3
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        socat TCP-LISTEN:8081,fork,reuseaddr TCP:banking-service:8081 &
+        socat TCP-LISTEN:8082,fork,reuseaddr TCP:logistics-service:8082 &
+        socat TCP-LISTEN:5441,fork,reuseaddr TCP:banking-db:5432 &
+        socat TCP-LISTEN:5442,fork,reuseaddr TCP:logistics-db:5432 &
+        wait
+    ports:
+      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:8082:8082"
+      - "127.0.0.1:5441:5441"
+      - "127.0.0.1:5442:5442"
+
   # ---------------- Optional profiles ----------------
   # Single-node Kafka 4 in KRaft mode: no ZooKeeper (removed in Kafka 4.0).
   kafka:
@@ -233,8 +261,14 @@ services:
 
 secrets:
   # Generated by scripts/generate_secrets.py into secrets/ (git-ignored).
+  banking_db_password:
+    file: ./secrets/banking_db_password
+  logistics_db_password:
+    file: ./secrets/logistics_db_password
   keycloak_db_password:
     file: ./secrets/keycloak_db_password
+  logistics_client_secret:
+    file: ./secrets/logistics_client_secret
 
 volumes:
   banking-db-data:

@@ -4,13 +4,17 @@ server:
   forward-headers-strategy: framework
 
 spring:
+  # Compose secrets are files under /run/secrets; each file name becomes a property (ADR 0019).
+  config:
+    import: optional:configtree:/run/secrets/
   application:
     name: banking-service
   datasource:
     # Defaults match docker compose's published port, so the service also runs from the IDE.
     url: ${BANKING_DB_URL:jdbc:postgresql://127.0.0.1:5441/banking}
     username: ${BANKING_DB_USER:banking}
-    password: ${BANKING_DB_PASSWORD:change-me-banking}
+    # From the compose secret banking_db_password (config tree below) or the environment; no default (ADR 0019).
+    password: ${banking_db_password:${BANKING_DB_PASSWORD:}}
     # With the database down, fail a request in about 2 s instead of Hikari's default 30 s.
     hikari:
       connection-timeout: ${BANKING_DB_CONNECTION_TIMEOUT:2000}
