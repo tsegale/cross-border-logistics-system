@@ -45,3 +45,54 @@ reached 17.8/s median but overlapped `locked` in one round. FX transfers roughly
   fine while only reconciliation and operators read it; a periodic roll-up into a checkpoint row is the next step if
   a hot path ever needs it.
 - A statement of a system account has no running balance per posting.
+
+## Revision (Phase 3): checkpointed balances
+
+Date: 2026-11-11
+
+The open point above, made concrete: with 1,000,000 unlocked postings on `CLEARING-EUR`, the balance read took
+175 ms (median, 146-266 ms over 30 warm runs) and grows linearly with the postings.
+
+### Decision
+A periodic roll-up writes the sum so far into `system_balance_checkpoints` (V6), append-only; the balance is the
+latest checkpoint plus the postings after it.
+
+- **What "after" means.** Not a posting id or a timestamp: both are assigned before commit, so a transaction that
+  started before a roll-up can commit after it and its posting would be skipped for ever. Each posting records the
+  transaction that wrote it (`postings.txid xid8 DEFAULT pg_current_xact_id()`; `xid8` never wraps). A checkpoint
+  covers exactly the postings of transactions below `pg_snapshot_xmin(pg_current_snapshot())`, read in the same
+  statement as the sum: every transaction below that point has finished, so nothing can later appear behind the
+  checkpoint. Postings written before V6 have a `NULL` txid and are covered by the first checkpoint.
+- **The roll-up** (`sql/system-balance-checkpoint.sql`, run by `SystemBalanceCheckpoints` every 60 s on every
+  instance) is incremental: previous checkpoint + postings with `txid` in `[previous horizon, new horizon)`. A
+  transaction-scoped advisory lock per account lets one instance do the work, and `UNIQUE (account_id,
+  covered_below)` makes a duplicate a no-op. Nothing is written when no posting finished since the last one.
+- **The read** is two statements, the latest checkpoint and then a range scan over
+  `idx_postings_unlocked_by_account_txid (account_id, txid) INCLUDE (amount)`. Exact for the same reason: every
+  transaction below the horizon finished before the checkpoint was written.
+- **Reconciliation** recomputes every account's latest checkpoint from the postings it covers; a forged or wrong
+  checkpoint is a discrepancy (`#checkpoint`). Checkpoints are append-only under the ledger's trigger and refused for
+  customer accounts.
+- **Tested**: a deposit whose transaction is still open while the roll-up runs, and commits after it, is counted
+  (`SystemBalanceCheckpointsIntegrationTest`).
+
+### Measured
+`benchmarks/system_balance_read.py`: PostgreSQL 17.11 in a throwaway container with banking's migrations,
+1,000,000 unlocked postings per account, then 1,000 more after the checkpoint; server execution time from
+`EXPLAIN ANALYZE`, 30 warm runs. Intel Core i5-1135G7 laptop, Docker Desktop on WSL 2, host CPU at 67% from other
+applications when the run started.
+
+| Read | Median ms | p95 ms | Min-max ms |
+| --- | ---: | ---: | ---: |
+| Without a checkpoint: sum over 1,000,000 postings | 175.449 | 218.532 | 145.728-265.779 |
+| Latest checkpoint lookup | 0.058 | 0.106 | 0.042-0.183 |
+| With a checkpoint: plus the 1,000 postings after it | 0.484 | 0.834 | 0.348-1.328 |
+
+The first roll-up over all 1,000,000 postings took 1,809 ms; later ones only sum the postings since the previous
+checkpoint. Both reads returned the same balance (1,001,000.0000).
+
+### Consequences
+- The read stays proportional to the postings since the last roll-up (about a minute of traffic), not to history.
+- One more index on `postings` and one more column per posting.
+- A long-running transaction holds the horizon back, so postings after it wait for a later checkpoint; the balance
+  is still exact, the read just sums a few more rows.

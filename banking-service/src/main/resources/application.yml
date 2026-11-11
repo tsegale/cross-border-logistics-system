@@ -49,6 +49,9 @@ freightflow:
     system-accounts:
       posting-mode: ${SYSTEM_ACCOUNT_POSTING_MODE:unlocked}
       shards: ${SYSTEM_ACCOUNT_SHARDS:16}
+      # Roll unlocked postings into balance checkpoints (ADR 0010)
+      checkpoints-enabled: ${SYSTEM_BALANCE_CHECKPOINTS_ENABLED:true}
+      checkpoint-interval: ${SYSTEM_BALANCE_CHECKPOINT_INTERVAL:60s}
     idempotency:
       ttl: ${IDEMPOTENCY_TTL:24h}
       cleanup-interval: ${IDEMPOTENCY_CLEANUP_INTERVAL:15m}

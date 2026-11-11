@@ -19,8 +19,9 @@ import java.util.UUID;
  * Recomputes every cached balance from the postings that built it and reports any difference, alongside a trial
  * balance per currency (ADR 0004). Since ADR 0010 a system account's balance has three parts, each checked
  * against its own postings: {@code accounts.balance} against the postings made with the row locked, every
- * {@code account_balance_shards} row against the postings made to that shard, and unlocked postings, which have
- * no cache to drift from. The per-currency trial balance covers all postings.
+ * {@code account_balance_shards} row against the postings made to that shard, and each account's latest
+ * {@code system_balance_checkpoints} row against the unlocked postings it covers. The per-currency trial balance
+ * covers all postings.
  */
 @Service
 public class ReconciliationService {
@@ -95,6 +96,33 @@ public class ReconciliationService {
                             MoneyRounding.roundToMinorUnits(shardBalance, currency),
                             MoneyRounding.roundToMinorUnits(computed, currency),
                             MoneyRounding.roundToMinorUnits(shardBalance.subtract(computed), currency)));
+                });
+
+        // Checkpoints (ADR 0010): an account's latest checkpoint must equal the sum of the unlocked postings it covers.
+        jdbcTemplate.query(
+                """
+                SELECT a.id, a.account_number, a.currency, c.balance,
+                       COALESCE((SELECT SUM(p.amount) FROM postings p
+                                 WHERE p.account_id = a.id AND p.running_balance IS NULL
+                                   AND (p.txid IS NULL OR p.txid < c.covered_below)), 0.0000) AS computed_balance
+                FROM accounts a
+                JOIN LATERAL (SELECT k.balance, k.covered_below FROM system_balance_checkpoints k
+                              WHERE k.account_id = a.id ORDER BY k.covered_below DESC LIMIT 1) c ON true
+                ORDER BY a.account_number
+                """,
+                rs -> {
+                    String currency = rs.getString("currency");
+                    BigDecimal checkpoint = rs.getBigDecimal("balance");
+                    BigDecimal computed = rs.getBigDecimal("computed_balance");
+                    if (checkpoint.compareTo(computed) != 0) {
+                        discrepancies.add(new AccountDiscrepancy(
+                                rs.getObject("id", UUID.class),
+                                rs.getString("account_number") + "#checkpoint",
+                                currency,
+                                MoneyRounding.roundToMinorUnits(checkpoint, currency),
+                                MoneyRounding.roundToMinorUnits(computed, currency),
+                                MoneyRounding.roundToMinorUnits(checkpoint.subtract(computed), currency)));
+                    }
                 });
 
         // Holds (ADR 0011): an account's cached held amount must equal the sum of its active holds.

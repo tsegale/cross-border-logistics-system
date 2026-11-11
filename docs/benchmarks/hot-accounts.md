@@ -85,3 +85,17 @@ All answers, as the harness reports them:
 or lock ordering, and it removes system rows from the write path entirely. `sharded` stays selectable for
 benchmarking; its advantage, a constant-cost balance read, is not needed while system balances are read only by
 reconciliation and operators.
+
+## Reading an unlocked balance at a million postings (Phase 3)
+`unlocked` made the balance read a sum over every unlocked posting. Measured with
+[`benchmarks/system_balance_read.py`](../../benchmarks/system_balance_read.py) before and after the checkpoint
+roll-up (ADR 0010 revision): 1,000,000 postings on `CLEARING-EUR`, server execution time from `EXPLAIN ANALYZE`,
+30 warm runs, PostgreSQL 17.11, same laptop (host CPU at 67% from other applications at the start).
+
+| Read | Median ms | p95 ms | Min-max ms |
+| --- | ---: | ---: | ---: |
+| Without a checkpoint | 175.449 | 218.532 | 145.728-265.779 |
+| With a checkpoint, 1,000 postings after it | 0.484 | 0.834 | 0.348-1.328 |
+
+The roll-up that produced the first checkpoint took 1,809 ms. Raw results: `benchmarks/out/system-balance-read.json`
+(not committed; the hosted-runner workflow uploads them as an artifact).
