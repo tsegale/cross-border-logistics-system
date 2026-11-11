@@ -1,0 +1,440 @@
+{
+  "realm": "freightflow",
+  "displayName": "FreightFlow",
+  "enabled": true,
+  "sslRequired": "external",
+  "organizationsEnabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "defaultSignatureAlgorithm": "RS256",
+  "passwordPolicy": "length(12) and notUsername(undefined) and notEmail(undefined)",
+  "accessTokenLifespan": 300,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "accessCodeLifespanLogin": 1800,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "quickLoginCheckMilliSeconds": 1000,
+  "minimumQuickLoginWaitSeconds": 60,
+  "roles": {
+    "realm": [
+      {
+        "name": "customer",
+        "description": "A member of a customer organisation: its accounts and shipments only"
+      },
+      {
+        "name": "operator",
+        "description": "FreightFlow staff: deposits, reconciliation, carrier assignment, parked payments"
+      },
+      {
+        "name": "carrier",
+        "description": "A carrier integration: tracking events for the shipments assigned to it"
+      },
+      {
+        "name": "auditor",
+        "description": "Reads everything, changes nothing"
+      }
+    ]
+  },
+  "clientScopes": [
+    {
+      "name": "freightflow-api",
+      "description": "People through the gateway: audiences of the gateway and both services, roles, organisation",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience api-gateway",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "api-gateway",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience banking-service",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "banking-service",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience logistics-service",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "logistics-service",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "organization",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-organization-membership-mapper",
+          "config": {
+            "claim.name": "organization",
+            "jsonType.label": "JSON",
+            "multivalued": "true",
+            "addOrganizationId": "true",
+            "addOrganizationAttributes": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "freightflow-carrier",
+      "description": "Carrier integrations: the gateway and logistics only, never banking",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience api-gateway",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "api-gateway",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience logistics-service",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "logistics-service",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "banking.holds",
+      "description": "logistics-service authorising, capturing, extending and releasing holds in banking",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience banking-service",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "banking-service",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "defaultDefaultClientScopes": [],
+  "defaultOptionalClientScopes": [],
+  "scopeMappings": [
+    {
+      "clientScope": "freightflow-api",
+      "roles": [
+        "customer",
+        "operator",
+        "auditor"
+      ]
+    },
+    {
+      "clientScope": "freightflow-carrier",
+      "roles": [
+        "carrier"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "freightflow-web",
+      "name": "FreightFlow web front end and the dev token script",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [
+        "${KEYCLOAK_WEB_ORIGIN}/*"
+      ],
+      "webOrigins": [
+        "${KEYCLOAK_WEB_ORIGIN}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${KEYCLOAK_WEB_ORIGIN}/*"
+      },
+      "defaultClientScopes": [
+        "freightflow-api"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "logistics-service",
+      "name": "logistics-service calling banking-service (ADR 0019)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${KEYCLOAK_LOGISTICS_SERVICE_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": false,
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "false"
+      },
+      "defaultClientScopes": [
+        "banking.holds"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "carrier-walvis-haulage",
+      "name": "Walvis Bay Haulage's tracking integration",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${KEYCLOAK_CARRIER_WALVIS_HAULAGE_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": false,
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "false"
+      },
+      "defaultClientScopes": [
+        "freightflow-carrier"
+      ],
+      "optionalClientScopes": []
+    }
+  ],
+  "users": [
+    {
+      "username": "customer-namib-exports",
+      "email": "customer-namib-exports@namib-exports.example",
+      "emailVerified": true,
+      "firstName": "Namib",
+      "lastName": "Exports",
+      "enabled": true,
+      "realmRoles": [
+        "customer"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_PASSWORD_CUSTOMER_NAMIB_EXPORTS}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "customer-hanseatic-imports",
+      "email": "customer-hanseatic-imports@hanseatic-imports.example",
+      "emailVerified": true,
+      "firstName": "Hanseatic",
+      "lastName": "Imports",
+      "enabled": true,
+      "realmRoles": [
+        "customer"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_PASSWORD_CUSTOMER_HANSEATIC_IMPORTS}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "operator",
+      "email": "operator@freightflow.example",
+      "emailVerified": true,
+      "firstName": "FreightFlow",
+      "lastName": "Operator",
+      "enabled": true,
+      "realmRoles": [
+        "operator"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_PASSWORD_OPERATOR}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "auditor",
+      "email": "auditor@freightflow.example",
+      "emailVerified": true,
+      "firstName": "FreightFlow",
+      "lastName": "Auditor",
+      "enabled": true,
+      "realmRoles": [
+        "auditor"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_PASSWORD_AUDITOR}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "service-account-logistics-service",
+      "enabled": true,
+      "serviceAccountClientId": "logistics-service",
+      "realmRoles": []
+    },
+    {
+      "username": "service-account-carrier-walvis-haulage",
+      "enabled": true,
+      "serviceAccountClientId": "carrier-walvis-haulage",
+      "realmRoles": [
+        "carrier"
+      ]
+    }
+  ],
+  "organizations": [
+    {
+      "id": "0193a0e0-0000-7000-8000-00000000a001",
+      "name": "Namib Exports (Pty) Ltd",
+      "alias": "namib-exports",
+      "enabled": true,
+      "description": "Fish exporter, Walvis Bay",
+      "attributes": {},
+      "domains": [
+        {
+          "name": "namib-exports.example",
+          "verified": false
+        }
+      ],
+      "members": [
+        {
+          "username": "customer-namib-exports",
+          "membershipType": "UNMANAGED"
+        }
+      ]
+    },
+    {
+      "id": "0193a0e0-0000-7000-8000-00000000a002",
+      "name": "Hanseatic Imports GmbH",
+      "alias": "hanseatic-imports",
+      "enabled": true,
+      "description": "Seafood importer, Hamburg",
+      "attributes": {},
+      "domains": [
+        {
+          "name": "hanseatic-imports.example",
+          "verified": false
+        }
+      ],
+      "members": [
+        {
+          "username": "customer-hanseatic-imports",
+          "membershipType": "UNMANAGED"
+        }
+      ]
+    }
+  ]
+}

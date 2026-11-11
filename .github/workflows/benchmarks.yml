@@ -61,6 +61,7 @@ jobs:
       - name: Start the stack with the benchmark overrides
         run: |
           sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
+          python3 scripts/generate_secrets.py
           $COMPOSE up -d --wait --build
 
       - name: Transfers (ADR 0005)
