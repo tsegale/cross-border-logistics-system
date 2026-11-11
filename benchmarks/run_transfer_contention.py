@@ -104,10 +104,10 @@ def psql(sql: str) -> str:
 
 
 def restart_banking(strategy: str) -> None:
-    print(f"\n==> Recreating banking-service with TRANSFER_LOCKING_STRATEGY={strategy}")
-    compose("up", "-d", "--force-recreate", "--wait", "banking-service",
-            env={"TRANSFER_LOCKING_STRATEGY": strategy})
-    deadline = time.time() + 120
+    print(f"\n==> Recreating banking-service with {SWITCH_ENV}={strategy}")
+    # No --wait: on a busy machine startup can outlast the compose healthcheck window. Poll /actuator/info instead.
+    compose("up", "-d", "--force-recreate", "banking-service", env={SWITCH_ENV: strategy})
+    deadline = time.time() + 600
     while time.time() < deadline:
         try:
             status, info = http_json("GET", f"{BANKING_URL}/actuator/info", timeout=5)
@@ -122,7 +122,7 @@ def restart_banking(strategy: str) -> None:
         except (urllib.error.URLError, ConnectionError, TimeoutError):
             pass
         time.sleep(1)
-    raise RuntimeError("banking-service did not come back within 120 s")
+    raise RuntimeError("banking-service did not come back within 600 s")
 
 
 # ---------------------------------------------------------------------------- accounts
