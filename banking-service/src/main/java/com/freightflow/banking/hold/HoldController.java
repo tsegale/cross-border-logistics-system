@@ -19,9 +19,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -45,13 +47,15 @@ public class HoldController {
                     @ApiResponse(responseCode = "201", description = "Hold authorised",
                             content = @Content(schema = @Schema(implementation = HoldResponse.class))),
                     @ApiResponse(responseCode = "400", description = "Validation error, invalid account number or expiry, missing Idempotency-Key",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
                     @ApiResponse(responseCode = "404", description = "Payer account not found",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
                     @ApiResponse(responseCode = "409", description = "Insufficient available funds, account not active, key in flight",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
                     @ApiResponse(responseCode = "422", description = "Idempotency-Key reused with another body, or the payer is not a customer account",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "503", description = "Database unavailable or account lock timeout: retry with the same Idempotency-Key",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
             })
     public ResponseEntity<HoldResponse> createHold(
             @Parameter(description = "Idempotency-Key header", required = true)
@@ -66,13 +70,20 @@ public class HoldController {
         return builder.body(result.body());
     }
 
+    @GetMapping
+    @Operation(summary = "Find the holds made for a reference, newest first (at most 50)",
+            responses = @ApiResponse(responseCode = "200", description = "Holds with that reference"))
+    public List<HoldResponse> findByReference(@RequestParam("reference") String reference) {
+        return holdService.findByReference(reference);
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "Get a hold",
             responses = {
                     @ApiResponse(responseCode = "200", description = "The hold",
                             content = @Content(schema = @Schema(implementation = HoldResponse.class))),
                     @ApiResponse(responseCode = "404", description = "Hold not found",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
             })
     public HoldResponse getHold(@PathVariable("id") UUID id) {
         return holdService.getHold(id);
@@ -84,14 +95,17 @@ public class HoldController {
                     @ApiResponse(responseCode = "200", description = "Captured",
                             content = @Content(schema = @Schema(implementation = HoldResponse.class))),
                     @ApiResponse(responseCode = "404", description = "Hold not found",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
                     @ApiResponse(responseCode = "409", description = "Hold not active or expired, key in flight",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
                     @ApiResponse(responseCode = "422", description = "Capture exceeds the hold, or key reused with another body",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "503", description = "Database unavailable or account lock timeout: retry with the same Idempotency-Key",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
             })
     public HoldResponse capture(
             @PathVariable("id") UUID id,
+            @Parameter(description = "Idempotency-Key header", required = true)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody(required = false) CaptureHoldRequest request) {
         return holdService.capture(id, request, idempotencyKey);
@@ -103,12 +117,15 @@ public class HoldController {
                     @ApiResponse(responseCode = "200", description = "Released",
                             content = @Content(schema = @Schema(implementation = HoldResponse.class))),
                     @ApiResponse(responseCode = "404", description = "Hold not found",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
                     @ApiResponse(responseCode = "409", description = "Hold not active, key in flight",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "503", description = "Database unavailable or account lock timeout: retry with the same Idempotency-Key",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
             })
     public HoldResponse release(
             @PathVariable("id") UUID id,
+            @Parameter(description = "Idempotency-Key header", required = true)
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         return holdService.release(id, idempotencyKey);
     }

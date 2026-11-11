@@ -31,7 +31,7 @@ public class FxRateController {
                     @ApiResponse(responseCode = "200", description = "Indicative rates",
                             content = @Content(schema = @Schema(implementation = FxRatesResponse.class))),
                     @ApiResponse(responseCode = "400", description = "Unsupported base currency",
-                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
             }
     )
     public FxRatesResponse getRates(
