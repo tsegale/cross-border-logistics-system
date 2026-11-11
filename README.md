@@ -7,7 +7,7 @@ settles through an internal double-entry ledger with accounts in `NAD`, `ZAR` an
 Java 21, Spring Boot 4.1, Spring Cloud Gateway, PostgreSQL 17, Kafka, Docker. Built in phases; each phase ships
 with tests, CI, architecture decision records and measured numbers.
 
-> **Status:** Phase 1 complete — double-entry multi-currency ledger, idempotent transfers & FX quotes (`banking-service`), and freight quotes, shipment state machine & out-of-order tracking (`logistics-service`).
+> **Status:** Phase 2 complete: a booked shipment is paid from the customer's ledger account through an authorise, capture and release saga that survives timeouts, outages and lost responses. Phase 1 built the double-entry ledger, transfers and FX (`banking-service`) and quotes, shipments and tracking (`logistics-service`).
 
 ## Architecture
 
@@ -17,7 +17,7 @@ with tests, CI, architecture decision records and measured numbers.
                     └─────┬───────────────┬────┘
                           │               │
              ┌────────────▼───┐       ┌───▼──────────────┐
-             │ banking  :8081 │◀──────│ logistics  :8082 │   logistics charges freight to the ledger (Phase 2)
+             │ banking  :8081 │◀──────│ logistics  :8082 │   holds, captures, releases: internal, not via the gateway
              │ ledger, FX     │       │ quotes, tracking │
              └───────┬────────┘       └────────┬─────────┘
                      │                         │
@@ -26,6 +26,100 @@ with tests, CI, architecture decision records and measured numbers.
               └─────────────┘           └─────────────┘
                      │   outbox → Kafka (KRaft) → notification-service :8083   (Phase 4)
 ```
+
+## Phase 2: paying for a shipment
+
+Booking a shipment reserves its freight on the customer's account; pickup takes it; a cancellation gives it back.
+The two services share no database (ADR 0001), so the payment is a saga through a transactional outbox, made safe to
+retry by idempotency keys (ADR 0012).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant G as api-gateway
+    participant L as logistics-service
+    participant LDB as logistics-db
+    participant B as banking-service
+    C->>G: POST /api/v1/shipments (Idempotency-Key)
+    G->>L: forward (X-Request-Id)
+    L->>LDB: one transaction: shipment AWAITING_PAYMENT + AUTHORISE command
+    L-->>C: 201 AWAITING_PAYMENT
+    loop relay, every 500 ms, any instance (FOR UPDATE SKIP LOCKED)
+        L->>B: POST /api/v1/holds (Idempotency-Key: shipment-<id>-authorise)
+        alt hold accepted
+            B-->>L: 201 hold (available balance drops)
+            L->>LDB: shipment BOOKED
+        else refused (insufficient funds, unknown account)
+            B-->>L: 409 / 404 problem
+            L->>LDB: shipment PAYMENT_FAILED, problem recorded, no retry
+        else timeout, reset, 5xx: outcome unknown
+            L->>LDB: retry later with the SAME key (banking replays a committed hold)
+        end
+    end
+    Note over L,B: PICKED_UP (or a later scan) enqueues CAPTURE; cancelling a BOOKED shipment enqueues RELEASE
+    L->>B: POST /api/v1/holds/{id}/capture (shipment-<id>-capture)
+    B-->>L: 200: one CAPTURE entry, payer to FREIGHT_REVENUE
+```
+
+### What it guarantees, and how it is tested
+- **Exactly one hold per shipment, whatever is lost.** `BankingFaultInjectionTest` runs the real banking-service
+  image behind Toxiproxy: banking slower than the read timeout, banking down, the connection cut after banking
+  committed, 503 while banking's database is paused, and the circuit breaker opening and closing. Each test ends by
+  asking banking for the shipment's holds (exactly one) and its reconciliation (clean).
+- **The customer never overdraws through holds**: `available = ledger balance - active holds`, enforced by a `CHECK`
+  and by every debit. Concurrent capture and release of one hold resolve to exactly one (ADR 0011).
+- **Banking owns FX.** A hold in another currency converts at banking's rate, locked on the hold and used by the
+  capture through the `FX_POSITION` accounts. Quotes are priced in the tariff currency; any other figure is
+  indicative and comes from banking.
+- **Contracts on both sides.** banking's OpenAPI document is committed (`docs/api/banking-openapi.json`) and a test
+  fails when the served one drifts; logistics validates every banking stub against it (ADR 0014).
+- **Resilience** (ADR 0013): 500 ms connect, 2 s read, 2 in-call retries only for unknown outcomes inside a 5 s budget,
+  a circuit breaker and bulkheads, then durable retries with backoff and parking for an operator.
+- **The edge** (ADR 0015): internal paths answer 404, 15 s response timeout, 1 MB bodies, GET-only retries,
+  `X-Request-Id` on every request and in every service's logs, and RFC 9457 problems for the gateway's own errors.
+
+### Example: book, get paid, pick up
+
+```bash
+# Book: 201 AWAITING_PAYMENT; the relay authorises a hold a moment later
+curl -s -X POST http://127.0.0.1:8080/api/v1/shipments -H "Content-Type: application/json" \
+  -H "Idempotency-Key: book-42" -d '{"quoteId":"<quote id>","payerAccountNumber":"<EUR account>", ...}'
+
+curl -s http://127.0.0.1:8080/api/v1/shipments/<id>
+```
+
+```json
+{
+  "status": "BOOKED",
+  "payment": {
+    "status": "AUTHORISED",
+    "holdId": "01a1c913-fe17-7bc2-8c0a-10083c143d55",
+    "amount": 524.75,
+    "currency": "EUR",
+    "failureType": null,
+    "failureDetail": null
+  }
+}
+```
+
+```bash
+# The payer's account: ledger balance unchanged, available balance reduced by the hold
+curl -s http://127.0.0.1:8080/api/v1/accounts/<EUR account>
+# {"ledgerBalance": 5000.00, "availableBalance": 4475.25, ...}
+
+# A missed pickup scan: the departure skips two milestones, is applied, and triggers the capture
+curl -s -X POST http://127.0.0.1:8080/api/v1/shipments/<id>/tracking-events -H "Content-Type: application/json" \
+  -d '{"carrierEventId":"VSL-1","eventType":"DEPARTED","targetStatus":"IN_TRANSIT","location":"NAWVB",
+       "description":"Vessel departed","occurredAt":"2026-04-21T06:00:00Z"}'
+# {"outcome":"APPLIED","skippedStatuses":["PICKED_UP","AT_ORIGIN_PORT"], ...}  then payment.status CAPTURED
+
+# Internal endpoints are not reachable at the edge
+curl -s -X POST http://127.0.0.1:8080/api/v1/holds
+# 404 {"type":"https://freightflow.dev/problems/not-found", ...}
+```
+
+The full walkthrough is `scripts/smoke_test.sh` (49 calls, run in CI against the default stack).
 
 ## Engineering highlights (Phase 1)
 
@@ -58,7 +152,7 @@ Needs Docker and JDK 21 (only for running tests outside Docker). No local Maven:
 ```bash
 cp .env.example .env              # then change the passwords
 docker compose up -d --build --wait
-curl http://127.0.0.1:8080/actuator/health
+curl http://127.0.0.1:8085/actuator/health   # the gateway's management port
 ./scripts/seed_demo.sh            # seeds NAD/ZAR/EUR accounts, FX transfer & shipment
 ```
 
@@ -154,29 +248,27 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/quotes \
 curl -s http://127.0.0.1:8080/api/v1/shipments/track/FF-00010000-6
 ```
 
-## Transfer contention benchmark
+## Benchmarks
 
-Measured on `Intel64 Family 6 Model 140 Stepping 1, GenuineIntel` (8 logical cores), Windows 11 (`10.0.26300`), Docker Desktop / WSL 2, PostgreSQL 17, Eclipse Temurin 21, HikariCP `maximum-pool-size = 32` (3 interleaved rounds of 1,000 requests per strategy after JVM warm-up; full report in [`docs/benchmarks/transfer-contention.md`](docs/benchmarks/transfer-contention.md)):
+Measured on an Intel Core i5-1135G7 laptop (4 cores / 8 threads), Windows 11 10.0.26300, Docker Desktop on WSL 2
+(8 CPUs, 3.7 GiB), with the host at about 90% CPU from other applications, PostgreSQL 17, Temurin 21, HikariCP pool 32.
+Every run ends with a balanced ledger reconciliation. The reports hold the method, every round and the caveats.
 
-| Workload | Concurrency | Strategy | Median `req/s` | `p50` (`ms`) | `p95` (`ms`) | `p99` (`ms`) | Reconciled |
-| --- | :---: | --- | ---: | ---: | ---: | ---: | :---: |
-| **Hot Account** (1 source account) | 32 VUs | `pessimistic` | **31.01** | **162.02** | **5,492.06** | **8,797.34** | `true` (0.0000 drift) |
-| **Hot Account** (1 source account) | 32 VUs | `conditional-update` | 25.10 | 177.72 | 5,937.42 | 11,083.65 | `true` (0.0000 drift) |
-| **Many Accounts** (disjoint pairs) | 32 VUs | `pessimistic` | **76.58** | **300.03** | **1,084.06** | **1,836.00** | `true` (0.0000 drift) |
-| **Many Accounts** (disjoint pairs) | 32 VUs | `conditional-update` | 67.75 | 308.53 | 1,230.75 | 2,336.80 | `true` (0.0000 drift) |
-| **Hot Account** (1 source account) | 100 VUs | `pessimistic` | **30.91** | **2,134.43** | **7,076.93** | **12,621.20** | `true` (0.0000 drift) |
-| **Hot Account** (1 source account) | 100 VUs | `conditional-update` | 27.83 | 2,183.31 | 8,088.21 | 13,388.12 | `true` (0.0000 drift) |
-| **Many Accounts** (100 accounts) | 100 VUs | `pessimistic` | 60.77 | **1,145.84** | 3,117.91 | 3,751.96 | `true` (0.0000 drift) |
-| **Many Accounts** (100 accounts) | 100 VUs | `conditional-update` | **72.07** | 1,152.38 | **2,473.06** | **3,104.94** | `true` (0.0000 drift) |
+| Report | Question | Result |
+| --- | --- | --- |
+| [Transfer contention](docs/benchmarks/transfer-contention.md) | `pessimistic` vs `conditional-update` transfers (ADR 0005) | Ranges overlap in every workload on this machine; `pessimistic` stays the default because one ordered lock covers every entry shape, FX included |
+| [Hot system accounts](docs/benchmarks/hot-accounts.md) | `locked` vs `unlocked` vs `sharded` system postings (ADR 0010) | Deposits at 32 VUs: 6.0-10.7/s `locked`, 22.5-24.6/s `unlocked`, no overlap; `unlocked` is the default |
+| [Payment flow](docs/benchmarks/payment-flow.md) | Time from booking to `BOOKED` through the relay (ADR 0012) | Parallel relay at 16 VUs: 11.5 booked/s, p99 5.2 s, up from 1.9/s and 26.3 s with the sequential relay |
 
 ## Running the tests
 
 ```bash
-cd banking-service && ./mvnw verify       # banking-service (48 unit + Testcontainers + concurrency tests)
-cd logistics-service && ./mvnw verify     # logistics-service (40 unit + Testcontainers tests)
+cd banking-service && ./mvnw verify       # banking-service: 113 tests (unit, Testcontainers, concurrency, contract)
+cd logistics-service && ./mvnw verify     # logistics-service: 145 tests (unit, Testcontainers, contract, Toxiproxy faults)
+cd api-gateway && ./mvnw verify           # api-gateway: 27 tests (edge policy, problem details)
 ```
 
-Integration tests start their own PostgreSQL 17 in Testcontainers, so Docker must be running. Every service enforces a JaCoCo coverage gate (`>= 80%` line, `>= 70%` branch).
+Integration tests start their own PostgreSQL 17 in Testcontainers, so Docker must be running. The logistics fault-injection tests also run the `freightflow-banking-service` image, so build it first (`docker compose build banking-service`). Every service enforces a JaCoCo coverage gate (`>= 80%` line, `>= 70%` branch).
 
 ## Roadmap
 
@@ -184,8 +276,8 @@ Integration tests start their own PostgreSQL 17 in Testcontainers, so Docker mus
 | --- | --- | --- |
 | 0 | Scaffold: standalone services, compose, CI with scans and SBOMs, first ADRs | Done |
 | 1 | Ledger and shipments core: double-entry ledger, idempotent transfers, FX quotes, freight quotes, shipment state machine | Done |
-| 2 | Settlement across services: gateway routes, HTTP clients with resilience, idempotent payment for shipments | Next |
-| 3 | Security: Keycloak, OAuth2 resource server at the gateway, roles, identity headers | Planned |
+| 2 | Settlement across services: holds, payment saga, resilient HTTP client, contract and fault-injection tests, edge policy | Done |
+| 3 | Security: Keycloak, OAuth2 resource server at the gateway, roles, identity headers, service-to-service credentials | Next |
 | 4 | Events: transactional outbox, Kafka, notification service, dead-letter topics, contract tests | Planned |
 | 5 | Observability: OpenTelemetry traces, metrics and logs, Grafana dashboards, SLOs and alerts | Planned |
 | 6 | Real-world data: live exchange rates, customs duties and Incoterms, carrier tracking feeds | Planned |
@@ -198,9 +290,11 @@ api-gateway/            Spring Cloud Gateway (:8080)
 banking-service/        accounts, double-entry ledger, transfers, FX quotes (:8081)
 logistics-service/      freight quotes, shipments, tracking events (:8082)
 notification-service/   event consumer (:8083, Phase 4)
-benchmarks/             k6 and Python transfer-contention benchmark harnesses
+benchmarks/             k6 scripts and the Python harness for the transfer, hot-account and payment benchmarks
 scripts/seed_demo.sh    end-to-end demo data seeder through the gateway
-docs/adr/               architecture decision records (0001–0009)
+scripts/smoke_test.sh   end-to-end smoke test, stops at the first unexpected status
+docs/adr/               architecture decision records (0001-0015)
+docs/api/               banking's committed OpenAPI contract (ADR 0014)
 docs/benchmarks/        measured benchmark reports
 docs/problems.md        RFC 9457 Problem Details type URI registry
 docs/smoke-test.md      end-to-end gateway curl walkthrough
