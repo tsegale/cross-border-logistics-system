@@ -22,6 +22,7 @@
         <springdoc.version>3.1.1</springdoc.version>
         <jacoco.version>0.8.16</jacoco.version>
         <wiremock.version>3.13.2</wiremock.version>
+        <swagger-request-validator.version>3.0.0</swagger-request-validator.version>
     </properties>
 
     <dependencies>
@@ -93,6 +94,13 @@
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock-standalone</artifactId>
             <version>${wiremock.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Validates every banking stub against banking's committed OpenAPI document (ADR 0014) -->
+        <dependency>
+            <groupId>com.atlassian.oai</groupId>
+            <artifactId>swagger-request-validator-core</artifactId>
+            <version>${swagger-request-validator.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
