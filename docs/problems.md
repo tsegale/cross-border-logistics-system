@@ -77,7 +77,12 @@ carries the request's `requestId` (also in the `X-Request-Id` header).
 
 | `type` URI | HTTP Status | Title | When Returned |
 | --- | --- | --- | --- |
-| `https://freightflow.dev/problems/not-found` | `404 Not Found` | Not found | No route matches (the gateway's own actuator is only on the management port 8085), or the path is internal (`/api/v1/holds/**`, `/api/v1/payment-commands/**`) |
+| `https://freightflow.dev/problems/unauthenticated` | `401 Unauthorized` (`WWW-Authenticate: Bearer`, or `Bearer error="invalid_token"`) | Authentication required | No bearer token, or one that is not signed by the realm's key with RS256, not for this issuer and audience, or expired (ADR 0017) |
+| `https://freightflow.dev/problems/forbidden` | `403 Forbidden` | Forbidden | The token is valid but its role may not use this route (ADR 0017). A resource the caller may not see is a 404 from the service instead (ADR 0018) |
+| `https://freightflow.dev/problems/issuer-unavailable` | `503 Service Unavailable` (`Retry-After: 5`) | Token cannot be verified right now | The token's signing key is not cached and Keycloak's keys cannot be fetched: retry with the same token |
+| `https://freightflow.dev/problems/rate-limited` | `429 Too Many Requests` (`Retry-After`, `RateLimit-Policy`, `RateLimit`) | Too many requests | The caller's token bucket for a money-moving route is empty; retry with the same `Idempotency-Key` |
+| `https://freightflow.dev/problems/rate-limiter-unavailable` | `503 Service Unavailable` (`Retry-After: 1`) | Temporarily unavailable | The rate limiter's Redis is unreachable; money-moving routes fail closed |
+| `https://freightflow.dev/problems/not-found` | `404 Not Found` | Not found | No route matches (the gateway's own actuator is only on the management port 8085), or the path is internal (`/api/v1/holds/**`) |
 | `https://freightflow.dev/problems/method-not-allowed` | `405 Method Not Allowed` | Method not allowed | The route does not accept the method |
 | `https://freightflow.dev/problems/request-too-large` | `413 Content Too Large` | Request too large | Body over 1 MB, by `Content-Length` or while reading a chunked body |
 | `https://freightflow.dev/problems/invalid-request` | `4xx` | (reason phrase) | Any other client error the gateway raises itself |

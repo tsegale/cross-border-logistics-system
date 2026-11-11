@@ -142,16 +142,38 @@ services:
       retries: 12
       start_period: 30s
 
+  # Token buckets for the gateway's rate limits on money-moving routes (ADR 0017). Not published.
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   api-gateway:
     build: ./api-gateway
     environment:
       BANKING_SERVICE_URI: http://banking-service:8081
       LOGISTICS_SERVICE_URI: http://logistics-service:8082
+      # The iss in every token is Keycloak's public URL; keys come from inside the network (ADR 0017).
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
+      REDIS_HOST: redis
+      RATE_LIMIT_MONEY_RPS: ${RATE_LIMIT_MONEY_RPS:-5}
+      RATE_LIMIT_MONEY_BURST: ${RATE_LIMIT_MONEY_BURST:-20}
+      RATE_LIMIT_BOOKING_RPS: ${RATE_LIMIT_BOOKING_RPS:-2}
+      RATE_LIMIT_BOOKING_BURST: ${RATE_LIMIT_BOOKING_BURST:-10}
     ports:
       - "127.0.0.1:8080:8080"
       # Management port: health and Prometheus, not reachable through the public port (ADR 0015).
       - "127.0.0.1:8085:8085"
     depends_on:
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
       banking-service:
         condition: service_healthy
       logistics-service:

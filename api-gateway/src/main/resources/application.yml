@@ -5,6 +5,12 @@ server:
 spring:
   application:
     name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      # Bounds what a slow Redis adds to a money-moving request; a Redis that is down is rejected at once.
+      timeout: ${REDIS_TIMEOUT:1s}
   cloud:
     gateway:
       server:
@@ -31,24 +37,60 @@ spring:
                   basedOnPreviousValue: false
           # Defaults reach services started from the IDE; compose points them at the containers.
           routes:
+            # Money-moving requests (ADR 0017): a per-caller token bucket that fails closed if Redis is down.
+            - id: money-banking
+              order: 0
+              uri: ${BANKING_SERVICE_URI:http://127.0.0.1:8081}
+              predicates:
+                - Path=/api/v1/transfers,/api/v1/accounts/*/deposits,/api/v1/fx-quotes
+                - Method=POST
+              filters:
+                - PreserveHostHeader
+                - name: RateLimit
+                  args:
+                    fail-mode: closed
+                    redis-rate-limiter.replenishRate: ${RATE_LIMIT_MONEY_RPS:5}
+                    redis-rate-limiter.burstCapacity: ${RATE_LIMIT_MONEY_BURST:20}
+            # Booking reserves money: the AUTHORISE hold (ADR 0012).
+            - id: money-bookings
+              order: 0
+              uri: ${LOGISTICS_SERVICE_URI:http://127.0.0.1:8082}
+              predicates:
+                - Path=/api/v1/shipments
+                - Method=POST
+              filters:
+                - PreserveHostHeader
+                - name: RateLimit
+                  args:
+                    fail-mode: closed
+                    redis-rate-limiter.replenishRate: ${RATE_LIMIT_BOOKING_RPS:2}
+                    redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BOOKING_BURST:10}
             - id: banking
+              order: 10
               uri: ${BANKING_SERVICE_URI:http://127.0.0.1:8081}
               predicates:
                 - Path=/api/v1/accounts/**,/api/v1/transfers/**,/api/v1/fx-quotes/**,/api/v1/fx-rates/**,/api/v1/journal-entries/**,/api/v1/ledger/**,/docs/banking/**
               filters:
                 - PreserveHostHeader
             - id: logistics
+              order: 10
               uri: ${LOGISTICS_SERVICE_URI:http://127.0.0.1:8082}
               predicates:
-                - Path=/api/v1/quotes/**,/api/v1/shipments/**,/docs/logistics/**
+                # Payment commands: operators retry parked ones (ADR 0012), auditors read them (ADR 0018).
+                - Path=/api/v1/quotes/**,/api/v1/shipments/**,/api/v1/payment-commands/**,/docs/logistics/**
               filters:
                 - PreserveHostHeader
 
 freightflow:
   gateway:
     max-request-size: ${GATEWAY_MAX_REQUEST_SIZE:1MB}
-    # Answered 404 at the edge whatever the routes say (ADR 0015).
-    internal-path-prefixes: /api/v1/holds,/api/v1/payment-commands
+    # Answered 404 at the edge whatever the routes say (ADR 0015): only logistics-service may hold money (ADR 0019).
+    internal-path-prefixes: /api/v1/holds
+  # Who signs the tokens (ADR 0016, ADR 0017). No default issuer: the gateway does not start without one.
+  security:
+    issuer-uri: ${KEYCLOAK_ISSUER_URI:}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
+    audience: api-gateway
 
 management:
   # Health and metrics on their own port, published on 127.0.0.1 only; /actuator on 8080 is a 404 (ADR 0015).

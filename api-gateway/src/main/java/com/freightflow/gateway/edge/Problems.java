@@ -7,6 +7,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+
+import java.util.function.Consumer;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -22,6 +24,13 @@ public final class Problems {
 
     public static Mono<Void> write(ServerWebExchange exchange, HttpStatus status, String slug, String title,
                                    String detail) {
+        return write(exchange, status, slug, title, detail, headers -> {
+        });
+    }
+
+    /** With extra response headers: {@code WWW-Authenticate} on a 401, {@code Retry-After} and limits on a 429. */
+    public static Mono<Void> write(ServerWebExchange exchange, HttpStatus status, String slug, String title,
+                                   String detail, Consumer<HttpHeaders> extraHeaders) {
         ServerHttpResponse response = exchange.getResponse();
         if (response.isCommitted()) {
             return Mono.empty();
@@ -44,6 +53,7 @@ public final class Problems {
         if (status == HttpStatus.SERVICE_UNAVAILABLE) {
             headers.set(HttpHeaders.RETRY_AFTER, "5");
         }
+        extraHeaders.accept(headers);
         DataBuffer buffer = response.bufferFactory().wrap(bytes);
         return response.writeWith(Mono.just(buffer));
     }

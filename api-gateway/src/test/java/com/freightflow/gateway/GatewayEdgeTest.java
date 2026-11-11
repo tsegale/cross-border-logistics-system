@@ -5,6 +5,7 @@ import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import com.freightflow.gateway.support.TestIssuer;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
@@ -44,6 +45,7 @@ class GatewayEdgeTest {
 
     @DynamicPropertySource
     static void upstreams(DynamicPropertyRegistry registry) {
+        TestIssuer.register(registry);
         registry.add("BANKING_SERVICE_URI", BANKING::baseUrl);
         // Nothing listens on port 1: the logistics route stands for a service that is down.
         registry.add("LOGISTICS_SERVICE_URI", () -> "http://127.0.0.1:1");
@@ -62,8 +64,10 @@ class GatewayEdgeTest {
         BANKING.resetAll();
     }
 
+    /** An operator: allowed every route at the edge, so these tests exercise the edge policy, not the roles. */
     private WebTestClient client() {
         return WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, TestIssuer.bearer(TestIssuer.role("operator")))
                 .responseTimeout(Duration.ofSeconds(10)).build();
     }
 
@@ -113,7 +117,7 @@ class GatewayEdgeTest {
         BANKING.stubFor(get(anyUrl()).willReturn(okJson("{}")));
 
         for (String path : new String[] {"/api/v1/holds", "/api/v1/holds/01a1c900-0000-7000-8000-000000000001/capture",
-                "/api/v1/payment-commands", "/actuator/health", "/actuator/prometheus", "/API/V1/HOLDS"}) {
+                "/actuator/health", "/actuator/prometheus", "/API/V1/HOLDS"}) {
             client().post().uri(path).contentType(MediaType.APPLICATION_JSON).bodyValue("{}").exchange()
                     .expectStatus().isNotFound()
                     .expectBody().jsonPath("$.type").isEqualTo("https://freightflow.dev/problems/not-found");
