@@ -6,9 +6,11 @@ WORKDIR /src
 COPY --chmod=755 mvnw .
 COPY .mvn ./.mvn
 COPY pom.xml .
-RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -q dependency:go-offline
+# One Maven cache per service: compose builds them in parallel, and two wrappers unpacking Maven into one shared
+# cache collided ("unable to remove target: Directory not empty").
+RUN --mount=type=cache,id=m2-banking-service,target=/root/.m2 ./mvnw -B -q dependency:go-offline
 COPY src ./src
-RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -q package -DskipTests \
+RUN --mount=type=cache,id=m2-banking-service,target=/root/.m2 ./mvnw -B -q package -DskipTests \
  && java -Djarmode=tools -jar target/*.jar extract --layers --launcher --destination target/extracted
 
 # ---- runtime ----
