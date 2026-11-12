@@ -69,8 +69,9 @@ jobs:
           for service in banking-service logistics-service keycloak; do
             test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q "$service")")" = healthy
           done
+          # A TCP connect, not curl: Postgres doesn't speak HTTP, so curl fails against a published database port too.
           for port in 8081 8082 5441 5442; do
-            if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$port"; then echo "::error::port $port is published"; exit 1; fi
+            if timeout 2 bash -c "</dev/tcp/127.0.0.1/$port" 2>/dev/null; then echo "::error::port $port is published"; exit 1; fi
           done
       - name: Seed demo data
         run: ./scripts/seed_demo.sh
