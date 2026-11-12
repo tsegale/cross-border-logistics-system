@@ -6,7 +6,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.security.oauth2.client.AuthorizedClientServiceOAuth2AuthorizedClientManager;
 import org.springframework.security.oauth2.client.ClientCredentialsOAuth2AuthorizedClientProvider;
-import org.springframework.security.oauth2.client.InMemoryOAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
 import org.springframework.security.oauth2.client.endpoint.RestClientClientCredentialsTokenResponseClient;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
@@ -39,9 +38,15 @@ public class BankingCredentials {
         }
     }
 
+    @Bean
+    BankingTokenCache bankingTokenCache() {
+        return new BankingTokenCache();
+    }
+
     /** Works outside an HTTP request: the payment relay calls banking from its own threads. */
     @Bean
-    OAuth2AuthorizedClientManager bankingClientManager(ClientRegistrationRepository registrations, TokenSettings settings) {
+    OAuth2AuthorizedClientManager bankingClientManager(ClientRegistrationRepository registrations, TokenSettings settings,
+                                                       BankingTokenCache bankingTokenCache) {
         SimpleClientHttpRequestFactory timeouts = new SimpleClientHttpRequestFactory();
         timeouts.setConnectTimeout(settings.timeout());
         timeouts.setReadTimeout(settings.timeout());
@@ -58,7 +63,7 @@ public class BankingCredentials {
         provider.setAccessTokenResponseClient(tokens);
         provider.setClockSkew(settings.refreshSkew());
         AuthorizedClientServiceOAuth2AuthorizedClientManager manager = new AuthorizedClientServiceOAuth2AuthorizedClientManager(
-                registrations, new InMemoryOAuth2AuthorizedClientService(registrations));
+                registrations, bankingTokenCache);
         manager.setAuthorizedClientProvider(provider);
         return manager;
     }
