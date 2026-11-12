@@ -15,6 +15,8 @@ import tools.jackson.databind.JsonNode;
 
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.is;
 import static com.freightflow.logistics.support.BankingStubs.respond;
 import static com.freightflow.logistics.support.LogisticsFixtures.eventRequest;
 import static com.freightflow.logistics.support.LogisticsFixtures.json;
@@ -150,9 +152,14 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         }
         PaymentCommand parked = command(shipment, PaymentCommandType.AUTHORISE);
         assertThat(parked.getStatus()).isEqualTo(PaymentCommandStatus.PARKED);
+        // By id, not from the PARKED list: that lists the oldest 50, and other tests park commands in this database too.
+        mockMvc.perform(get("/api/v1/payment-commands/{id}", parked.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PARKED"))
+                .andExpect(jsonPath("$.attempts").value(8));
         mockMvc.perform(get("/api/v1/payment-commands").param("status", "PARKED"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.id == '" + parked.getId() + "')].attempts").value(8));
+                .andExpect(jsonPath("$[*].status", everyItem(is("PARKED"))));
 
         mockMvc.perform(post("/api/v1/payment-commands/{id}/retry", parked.getId()))
                 .andExpect(status().isOk())

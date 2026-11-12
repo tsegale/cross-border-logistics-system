@@ -1,5 +1,6 @@
 package com.freightflow.logistics.faults;
 
+import com.freightflow.logistics.banking.BankingTokenCache;
 import com.freightflow.logistics.payment.PaymentCommandRelay;
 import com.freightflow.logistics.support.SharedContainers;
 import com.freightflow.logistics.support.LogisticsFixtures;
@@ -152,6 +153,9 @@ class BankingFaultInjectionTest {
 
     @Autowired
     private CircuitBreakerRegistry breakers;
+
+    @Autowired
+    private BankingTokenCache bankingTokens;
 
     /** Talks to banking directly, around the proxy, as an operator: sets accounts up and checks the ledger. */
     private final RestClient banking = RestClient.builder()
@@ -315,6 +319,8 @@ class BankingFaultInjectionTest {
     @Test
     void keycloakDownWhileLogisticsNeedsAFreshTokenKeepsTheCommandPendingAndLosesNothing() throws Exception {
         String shipment = book();
+        // An earlier test may have left a token that is still valid for minutes: the point is a *fresh* one.
+        bankingTokens.evictAll();
         var docker = KEYCLOAK.getDockerClient();
         docker.pauseContainerCmd(KEYCLOAK.getContainerId()).exec();
         try {
