@@ -43,6 +43,8 @@ jobs:
       # Catches broken interpolation or references before anyone runs the stack.
       - run: |
           cp .env.example .env
+          # Compose resolves secrets/ files and keycloak's env_file while rendering the config.
+          python3 scripts/generate_secrets.py
           docker compose config --quiet
           docker compose --profile events config --quiet
           docker compose --profile notifications config --quiet
