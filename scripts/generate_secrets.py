@@ -51,8 +51,17 @@ def read_secret(name: str) -> str:
 
 
 def _private(path: Path, text: str) -> None:
+    """Only read by compose on the host (env_file), so readable by this user only."""
     path.write_text(text, encoding="utf-8", newline="\n")
     os.chmod(path, 0o600)
+
+
+def _mounted(path: Path, text: str) -> None:
+    """A compose secret: bind-mounted with its host mode and read by the container's own non-root user, whose uid
+    is not this user's. 0600 makes it unreadable there (Docker Desktop on Windows hides this). The directory is 0700,
+    so on the host only this user can reach the file anyway."""
+    path.write_text(text, encoding="utf-8", newline="\n")
+    os.chmod(path, 0o644)
 
 
 def _value() -> str:
@@ -61,12 +70,15 @@ def _value() -> str:
 
 def main() -> None:
     SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(SECRETS_DIR, 0o700)
     added = 0
     for name in FILES:
         path = SECRETS_DIR / name
         if not path.exists():
-            _private(path, _value() + "\n")
+            _mounted(path, _value() + "\n")
             added += 1
+        else:
+            os.chmod(path, 0o644)  # files made by an earlier version were 0600
     env = read_env_file()
     for key in KEYCLOAK_GENERATED:
         if key not in env:
