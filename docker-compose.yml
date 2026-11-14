@@ -156,7 +156,7 @@ services:
 
   # Token buckets for the gateway's rate limits on money-moving routes (ADR 0017). Not published.
   redis:
-    image: redis:7.4-alpine
+    image: redis:8.0-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -202,7 +202,7 @@ services:
   # Off by default: then every request has to come through the gateway (ADR 0019).
   debug-ports:
     profiles: [debug]
-    image: alpine/socat:1.8.0.3
+    image: alpine/socat:1.8.1.1
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
