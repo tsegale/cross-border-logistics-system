@@ -40,6 +40,8 @@ PEOPLE = {
     "customer-namib-exports": "KEYCLOAK_PASSWORD_CUSTOMER_NAMIB_EXPORTS",
     "customer-hanseatic-imports": "KEYCLOAK_PASSWORD_CUSTOMER_HANSEATIC_IMPORTS",
     "operator": "KEYCLOAK_PASSWORD_OPERATOR",
+    # The four-eyes checker (ADR 0021): approves what "operator" requests.
+    "second-operator": "KEYCLOAK_PASSWORD_SECOND_OPERATOR",
     "auditor": "KEYCLOAK_PASSWORD_AUDITOR",
 }
 MACHINES = {

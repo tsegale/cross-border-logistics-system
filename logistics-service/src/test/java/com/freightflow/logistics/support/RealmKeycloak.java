@@ -45,6 +45,7 @@ public final class RealmKeycloak {
                         "KEYCLOAK_PASSWORD_CUSTOMER_NAMIB_EXPORTS", "test-password-namib",
                         "KEYCLOAK_PASSWORD_CUSTOMER_HANSEATIC_IMPORTS", "test-password-hanseatic",
                         "KEYCLOAK_PASSWORD_OPERATOR", "test-password-operator",
+                        "KEYCLOAK_PASSWORD_SECOND_OPERATOR", "test-password-second-operator",
                         "KEYCLOAK_PASSWORD_AUDITOR", "test-password-auditor"));
         if (network != null) {
             keycloak.withNetwork(network).withNetworkAliases("keycloak");

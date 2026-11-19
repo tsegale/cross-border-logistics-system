@@ -83,6 +83,9 @@ class BankingFaultInjectionTest {
     private static final Network NETWORK = Network.newNetwork();
     private static final String TEST_OPERATOR = "fault-test-operator";
     private static final String TEST_OPERATOR_SECRET = "fault-test-operator-secret";
+    /** Approves the funding deposits TEST_OPERATOR requests: banking posts none on one operator's word (ADR 0021). */
+    private static final String TEST_CHECKER = "fault-test-checker";
+    private static final String TEST_CHECKER_SECRET = "fault-test-checker-secret";
 
     static final dasniko.testcontainers.keycloak.KeycloakContainer KEYCLOAK =
             com.freightflow.logistics.support.RealmKeycloak.container(NETWORK);
@@ -108,6 +111,7 @@ class BankingFaultInjectionTest {
     static {
         KEYCLOAK.start();
         com.freightflow.logistics.support.RealmKeycloak.addOperatorTestClient(KEYCLOAK, TEST_OPERATOR, TEST_OPERATOR_SECRET);
+        com.freightflow.logistics.support.RealmKeycloak.addOperatorTestClient(KEYCLOAK, TEST_CHECKER, TEST_CHECKER_SECRET);
         BANKING_DB.start();
         BANKING.withEnv(Map.of(
                 "BANKING_DB_URL", "jdbc:postgresql://banking-db:5432/banking",
@@ -167,6 +171,16 @@ class BankingFaultInjectionTest {
             })
             .build();
 
+    /** The second operator: approves what {@link #banking} requests. */
+    private final RestClient bankingAsChecker = RestClient.builder()
+            .baseUrl("http://" + BANKING.getHost() + ":" + BANKING.getMappedPort(8081))
+            .requestInterceptor((request, body, execution) -> {
+                request.getHeaders().setBearerAuth(com.freightflow.logistics.support.RealmKeycloak.clientToken(
+                        KEYCLOAK, TEST_CHECKER, TEST_CHECKER_SECRET));
+                return execution.execute(request, body);
+            })
+            .build();
+
     /** Holds are logistics' to read (ADR 0019): its own token. */
     private final RestClient bankingAsLogistics = RestClient.builder()
             .baseUrl("http://" + BANKING.getHost() + ":" + BANKING.getMappedPort(8081))
@@ -192,10 +206,14 @@ class BankingFaultInjectionTest {
                 .body("{\"currency\":\"EUR\",\"organizationId\":\"0193a0e0-0000-7000-8000-00000000a001\"}")
                 .retrieve().body(String.class));
         payerAccount = account.get("accountNumber").asString();
-        banking.post().uri("/api/v1/accounts/{id}/deposits", account.get("id").asString())
+        JsonNode requested = JSON.readTree(banking.post().uri("/api/v1/approvals")
                 .header("Idempotency-Key", "fault-fund-" + UUID.randomUUID())
                 .contentType(MediaType.APPLICATION_JSON)
-                .body("{\"amount\":10000.00,\"currency\":\"EUR\",\"reference\":\"FAULT-FUND\"}")
+                .body("{\"kind\":\"DEPOSIT\",\"account\":\"" + payerAccount
+                        + "\",\"amount\":10000.00,\"currency\":\"EUR\",\"reference\":\"FAULT-FUND\"}")
+                .retrieve().body(String.class));
+        bankingAsChecker.post().uri("/api/v1/approvals/{id}/approval", requested.get("id").asString())
+                .header("Idempotency-Key", "fault-fund-approval-" + UUID.randomUUID())
                 .retrieve().toBodilessEntity();
     }
 

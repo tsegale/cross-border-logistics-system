@@ -363,6 +363,24 @@
       ]
     },
     {
+      "username": "second-operator",
+      "email": "second-operator@freightflow.example",
+      "emailVerified": true,
+      "firstName": "FreightFlow",
+      "lastName": "Second Operator",
+      "enabled": true,
+      "realmRoles": [
+        "operator"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_PASSWORD_SECOND_OPERATOR}",
+          "temporary": false
+        }
+      ]
+    },
+    {
       "username": "auditor",
       "email": "auditor@freightflow.example",
       "emailVerified": true,
