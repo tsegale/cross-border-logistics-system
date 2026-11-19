@@ -48,8 +48,8 @@ class GatewaySecurityTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         TestIssuer.register(registry);
-        registry.add("BANKING_SERVICE_URI", UPSTREAM::baseUrl);
-        registry.add("LOGISTICS_SERVICE_URI", UPSTREAM::baseUrl);
+        registry.add("BANKING_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
+        registry.add("LOGISTICS_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
     }
 
     @AfterAll
@@ -114,9 +114,15 @@ class GatewaySecurityTest {
             "auditor,  POST, /api/v1/transfers,                        403",
             "auditor,  GET,  /api/v1/ledger/reconciliation,            200",
             "customer, GET,  /api/v1/ledger/reconciliation,            403",
-            "customer, POST, /api/v1/accounts/FF14EUR000000001/deposits, 403",
-            "operator, POST, /api/v1/accounts/FF14EUR000000001/deposits, 200",
-            "customer, POST, /api/v1/journal-entries/x/reversals,       403",
+            "customer, POST, /api/v1/approvals,                         403",
+            "operator, POST, /api/v1/approvals,                         200",
+            "auditor,  POST, /api/v1/approvals/x/approval,              403",
+            "operator, POST, /api/v1/approvals/x/approval,              200",
+            "customer, POST, /api/v1/approvals/x/rejection,             403",
+            "auditor,  GET,  /api/v1/approvals,                         200",
+            "customer, GET,  /api/v1/approvals/x,                       403",
+            "operator, POST, /api/v1/transfers,                         403",
+            "customer, POST, /api/v1/transfers,                         200",
             "carrier,  GET,  /api/v1/accounts/FF14EUR000000001,          403",
             "carrier,  POST, /api/v1/quotes,                            403",
             "carrier,  POST, /api/v1/shipments/x/tracking-events,       200",
