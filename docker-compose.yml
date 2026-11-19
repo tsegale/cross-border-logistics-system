@@ -2,8 +2,8 @@
 #   cp .env.example .env && python scripts/generate_secrets.py && docker compose up --build
 # Default profile: the gateway, Keycloak, banking and logistics, each service with its own Postgres (ADR 0001).
 #   --profile debug           publishes the services and databases on 127.0.0.1 for local tools (ADR 0019)
-#   --profile events          adds Kafka in KRaft mode (ADR 0003)
-#   --profile notifications   adds the notification service (and Kafka)
+#   --profile notifications   adds the notification service
+# Kafka (KRaft, ADR 0003) is in the default stack, with a SCRAM credential per service and ACLs (ADR 0022).
 # By default only the gateway (8080, management 8085) and Keycloak (8180, for logins) publish a port, on 127.0.0.1.
 # Every secret is a file in secrets/ mounted as a compose secret; none is in this file or an image (ADR 0019).
 name: freightflow
@@ -114,10 +114,18 @@ services:
       # banking validates the relayed token itself, for its own audience (ADR 0017).
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
-    secrets: [banking_db_password]
+      # Its own SCRAM user; the password is its own secret only, mounted as kafka_password (ADR 0022).
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_USERNAME: banking
+    secrets:
+      - banking_db_password
+      - source: kafka_banking_password
+        target: kafka_password
     depends_on:
       banking-db:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/actuator/health/readiness > /dev/null || exit 1"]
       interval: 10s
@@ -139,8 +147,16 @@ services:
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
       # Its own client-credentials token for banking, from Keycloak on the compose network (ADR 0019).
       KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/token
-    secrets: [logistics_db_password, logistics_client_secret]
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_USERNAME: logistics
+    secrets:
+      - logistics_db_password
+      - logistics_client_secret
+      - source: kafka_logistics_password
+        target: kafka_password
     depends_on:
+      kafka-init:
+        condition: service_completed_successfully
       keycloak:
         condition: service_healthy
       logistics-db:
@@ -217,36 +233,38 @@ services:
       - "127.0.0.1:5441:5441"
       - "127.0.0.1:5442:5442"
 
-  # ---------------- Optional profiles ----------------
-  # Single-node Kafka 4 in KRaft mode: no ZooKeeper (removed in Kafka 4.0).
+  # ---------------- Events ----------------
+  # Single-node Kafka 4 in KRaft mode (ADR 0003): SCRAM-SHA-512 per service, ACLs, nothing published (ADR 0022).
   kafka:
-    profiles: [events, notifications]
     image: apache/kafka:4.3.1
+    entrypoint: ["bash", "/etc/freightflow/kafka/start.sh"]
     environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: INTERNAL://:29092,CONTROLLER://:9093,HOST://:9092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,HOST://127.0.0.1:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      # Topics are declared by the services that own them, never created by a typo in a consumer.
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-    ports:
-      - "127.0.0.1:9092:9092"
+      # Fixed for this one-node cluster; the storage is formatted with it once.
+      CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    secrets: [kafka_admin_password]
     volumes:
+      - ./infra/kafka:/etc/freightflow/kafka:ro
       - kafka-data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:29092 > /dev/null 2>&1"]
-      interval: 10s
-      timeout: 10s
-      retries: 12
+      # The listener is up; kafka-init then waits for an authenticated answer before it applies users and ACLs.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/29092'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
       start_period: 20s
+
+  # Service users and ACLs from infra/kafka/acls.conf, applied on every start, before any service connects.
+  kafka-init:
+    image: apache/kafka:4.3.1
+    entrypoint: ["bash", "/etc/freightflow/kafka/init.sh"]
+    secrets: [kafka_admin_password, kafka_banking_password, kafka_logistics_password, kafka_notification_password]
+    volumes:
+      - ./infra/kafka:/etc/freightflow/kafka:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
 
   notification-service:
     profiles: [notifications]
@@ -254,8 +272,8 @@ services:
     ports:
       - "127.0.0.1:8083:8083"
     depends_on:
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8083/actuator/health/readiness > /dev/null || exit 1"]
       interval: 10s
@@ -273,6 +291,14 @@ secrets:
     file: ./secrets/keycloak_db_password
   logistics_client_secret:
     file: ./secrets/logistics_client_secret
+  kafka_admin_password:
+    file: ./secrets/kafka_admin_password
+  kafka_banking_password:
+    file: ./secrets/kafka_banking_password
+  kafka_logistics_password:
+    file: ./secrets/kafka_logistics_password
+  kafka_notification_password:
+    file: ./secrets/kafka_notification_password
 
 volumes:
   banking-db-data:

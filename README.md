@@ -236,6 +236,11 @@ Interactive OpenAPI docs through the gateway:
 - **Logistics API**: `http://127.0.0.1:8080/docs/logistics/swagger-ui.html`
 - **Full curl walkthrough**: [`docs/smoke-test.md`](docs/smoke-test.md)
 
+The default stack includes Kafka, with a SCRAM user per service and ACLs (ADR 0022). Measured with `docker stats`
+after the smoke test, on the benchmark laptop's Docker Desktop VM (3.695 GiB): 2284 MiB in total, so about 1.4 GiB
+free. Keycloak 516 MiB, logistics 494 MiB, banking 391 MiB, Kafka 365 MiB, gateway 306 MiB, the three Postgres
+databases 198 MiB together, Redis 15 MiB. Kafka's heap is capped at 512 MB; nothing else was trimmed.
+
 ## Phase 1 API examples (via `:8080`)
 
 Every call below needs `-H "Authorization: Bearer $(scripts/token.sh <persona>)"` since Phase 3: an operator opens

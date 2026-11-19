@@ -27,6 +27,11 @@ FILES = (
     "logistics_db_password",
     "keycloak_db_password",
     "logistics_client_secret",
+    # Kafka SCRAM users (ADR 0022): admin for the broker and kafka-init, one per service.
+    "kafka_admin_password",
+    "kafka_banking_password",
+    "kafka_logistics_password",
+    "kafka_notification_password",
 )
 # Keycloak's environment: the realm's ${PLACEHOLDERS} and its own admin and database credentials.
 KEYCLOAK_GENERATED = (

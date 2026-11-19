@@ -1,4 +1,4 @@
-# Threat model (Phase 3, insider misuse added in Phase 4)
+# Threat model (Phase 3; insider misuse and the broker added in Phase 4)
 
 STRIDE per trust boundary. Every threat names the control that stops it and the test or check that proves the
 control works. "Residual" is what remains, and where it is addressed.
@@ -18,6 +18,8 @@ flowchart LR
     B -.->|keys| K
     L -.->|keys| K
     G --> R[(redis)]
+    B -->|7 SCRAM| KF[(kafka)]
+    L -->|7 SCRAM| KF
 ```
 
 ## 1. Internet to gateway
@@ -103,3 +105,22 @@ Residual: two colluding operators, or one person with two operator logins, defea
 gets one account (an organisational control); a Phase 5 alert flags a pair of operators who approve each other far
 more than the rest. A Keycloak realm administrator can create operator accounts and is outside this model; production
 restricts the admin console (section 5).
+
+## 7. Services to the broker (Kafka)
+
+Events are acted on by their consumers, so a forged or altered event is as dangerous as a forged API call. ADR 0022.
+
+| STRIDE | Threat | Control | Proof |
+| --- | --- | --- | --- |
+| Spoofing | A client with no credential connects and reads or writes events | One listener, SASL/SCRAM-SHA-512 only; no port published | `KafkaAccessIntegrationTest.aWrongPasswordIsRefusedBeforeAnything`; CI `Default stack starts` checks 9092 and 29092 are closed |
+| Spoofing | One service logs in as another | One SCRAM user per service; each container mounts only its own password | compose `secrets:` per service; `RequiredSecretsTest` |
+| Tampering | logistics (or a compromised logistics) forges a money event on banking's topic | ACLs: only a topic's owner may write it; `allow.everyone.if.no.acl.found=false` | `KafkaAccessIntegrationTest.logisticsWritesItsOwnTopicButCannotWriteOrCreateBankings`, `EventTopicsIntegrationTest.bankingWritesItsOwnTopicsButNotLogistics` |
+| Tampering | A consumer typo or a rogue client creates a look-alike topic | `auto.create.topics.enable=false`; only owners may Create their own topics, by literal name | `KafkaAccessIntegrationTest` (create refused) |
+| Information disclosure | A service reads events it has no business with | Consumers may Read only the topics in `infra/kafka/acls.conf`, and only as their own group | `KafkaAccessIntegrationTest.logisticsReadsHoldEventsOnlyAsItsOwnGroupAndNothingElse` |
+| Elevation of privilege | A service changes ACLs or users | Only `admin` (the broker and `kafka-init`) holds cluster permissions; services never see its password | `infra/kafka/acls.conf`, compose `secrets:` |
+| Elevation of privilege | The controller's PLAINTEXT listener used to act as the super user ANONYMOUS | Bound to the container's loopback (`127.0.0.1:9093`); no other container can reach it | `infra/kafka/start.sh`; ADR 0022 |
+
+Residual: traffic on the compose network is not encrypted, so a process on the network could read events in transit
+(SCRAM protects the password, not the payload); TLS for the broker, Postgres and service HTTP is one production
+deployment decision. Removing a line from `acls.conf` does not revoke a grant (ADR 0022's runbook). Events carry no
+personal data (Phase 4, §2), which limits what a reader of the log could learn.
