@@ -75,6 +75,12 @@ jobs:
           for port in 8081 8082 5441 5442; do
             if timeout 2 bash -c "</dev/tcp/127.0.0.1/$port" 2>/dev/null; then echo "::error::port $port is published"; exit 1; fi
           done
+      # Straight after --wait and before anything else warms the stack: what the first users of a fresh start get.
+      - name: First requests after a cold start
+        run: |
+          set -o pipefail
+          python3 benchmarks/first_requests.py --json first-requests.json | tee first-requests.md
+          { echo "## First requests after a cold start"; echo; cat first-requests.md; } >> "$GITHUB_STEP_SUMMARY"
       - name: Seed demo data
         run: ./scripts/seed_demo.sh
       # docs/smoke-test.md as a script: stops at the first unexpected HTTP status.
