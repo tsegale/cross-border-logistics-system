@@ -86,6 +86,16 @@ freightflow:
     max-request-size: ${GATEWAY_MAX_REQUEST_SIZE:1MB}
     # Answered 404 at the edge whatever the routes say (ADR 0015): only logistics-service may hold money (ADR 0019).
     internal-path-prefixes: /api/v1/holds
+  # Before readiness: signing keys, Redis, every route's service and its own port (WarmUpRunner).
+  warm-up:
+    enabled: ${WARM_UP_ENABLED:true}
+    rounds: 3
+    request-timeout: 5s
+    timeout: 60s
+    paths:
+      - "/api/v1/accounts"
+      - "/api/v1/shipments"
+      - "/api/v1/approvals"
   # Who signs the tokens (ADR 0016, ADR 0017). No default issuer: the gateway does not start without one.
   security:
     issuer-uri: ${KEYCLOAK_ISSUER_URI:}

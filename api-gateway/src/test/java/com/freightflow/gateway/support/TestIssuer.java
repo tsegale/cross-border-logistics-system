@@ -67,6 +67,8 @@ public final class TestIssuer {
         registry.add("REDIS_PORT", () -> REDIS.getMappedPort(6379));
         // The JVM's first Redis connection also loads Lettuce and Netty; production keeps the 1 s default.
         registry.add("REDIS_TIMEOUT", () -> "5s");
+        // On only in WarmUpIntegrationTest: elsewhere its requests would land in the upstream stubs' journals.
+        registry.add("WARM_UP_ENABLED", () -> "false");
     }
 
     public static String customer() {

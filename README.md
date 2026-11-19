@@ -339,6 +339,7 @@ Every run ends with a balanced ledger reconciliation. The reports hold the metho
 | [Hot system accounts](docs/benchmarks/hot-accounts.md) | `locked` vs `unlocked` vs `sharded` system postings (ADR 0010) | Deposits at 32 VUs: 6.0-10.7/s `locked`, 22.5-24.6/s `unlocked`, no overlap; `unlocked` is the default |
 | [Payment flow](docs/benchmarks/payment-flow.md) | Time from booking to `BOOKED` through the relay (ADR 0012) | Parallel relay at 16 VUs: 11.5 booked/s, p99 5.2 s, up from 1.9/s and 26.3 s with the sequential relay |
 | [System balance read](docs/benchmarks/hot-accounts.md#reading-an-unlocked-balance-at-a-million-postings-phase-3) | Reading an unlocked system balance at 1,000,000 postings (ADR 0010) | 175 ms median without a checkpoint, 0.48 ms with one |
+| [Cold start](docs/benchmarks/cold-start.md) | First requests through the gateway after a restart, before and after the warm-up | First banking request 1.7-3.4 s before, 159-306 ms after; first quote 2.0-4.2 s before, 0.7-2.6 s after |
 
 These are laptop numbers. `.github/workflows/benchmarks.yml` runs the same workloads on a GitHub-hosted runner and
 records its CPU and memory; its results lead the reports once it has run.

@@ -1,6 +1,9 @@
 # Test-only additions, loaded on top of src/main/resources/application.yml (a classpath:/config/ file does not
 # shadow the main one). MockMvc tests build validated tokens with spring-security-test, so no key is ever fetched.
 freightflow:
+  # On only in WarmUpIntegrationTest: elsewhere its requests would land in the stubs' request journals.
+  warm-up:
+    enabled: false
   # Testcontainers provides the connections; RequiredSecretsTest checks the real rule.
   secrets:
     required: false

@@ -36,6 +36,17 @@ spring:
       thread-name-prefix: banking-sched-
 
 freightflow:
+  # Before readiness: signing keys, a query per entity, requests to its own port (WarmUpRunner).
+  warm-up:
+    enabled: ${WARM_UP_ENABLED:true}
+    rounds: 3
+    request-timeout: 5s
+    timeout: 60s
+    paths:
+      - "/api/v1/accounts"
+      - "/api/v1/fx-rates?base=EUR"
+      - "/api/v1/approvals"
+      - "/api/v1/ledger/reconciliation"
   # Who signs the tokens (ADRs 0016, 0017). No default issuer: banking does not start without one.
   security:
     issuer-uri: ${KEYCLOAK_ISSUER_URI:}

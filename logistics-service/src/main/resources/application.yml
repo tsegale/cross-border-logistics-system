@@ -58,6 +58,16 @@ spring:
       thread-name-prefix: logistics-sched-
 
 freightflow:
+  # Before readiness: signing keys, a query per entity, its own port and one call to banking (WarmUpRunner).
+  warm-up:
+    enabled: ${WARM_UP_ENABLED:true}
+    rounds: 3
+    request-timeout: 5s
+    timeout: 60s
+    paths:
+      - "/api/v1/shipments"
+      - "/api/v1/quotes"
+      - "/api/v1/payment-commands"
   # Who signs the tokens logistics accepts (ADRs 0016, 0017). No default issuer: logistics does not start without one.
   security:
     issuer-uri: ${KEYCLOAK_ISSUER_URI:}
