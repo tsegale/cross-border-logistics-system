@@ -10,7 +10,9 @@
 // Workloads (closed loop: every VU sends its next request when the previous one has answered):
 //   hot_account     every VU debits the same source account into its own sink account
 //   disjoint_pairs  VU i transfers pairs[i][0] -> pairs[i][1]; no account is shared between two VUs
-//   deposits        VU i deposits into its own account: every deposit posts against the one CLEARING-EUR row
+//   deposits        VU i deposits into its own account: every deposit posts against the one CLEARING-EUR row.
+//                   A deposit is four-eyes (ADR 0021): the operator's request is set-up, the second operator's
+//                   approval posts the entry and is what op_duration times.
 //   fx_transfers    VU i locks an FX quote and transfers NAD -> EUR between its own two accounts: every
 //                   transfer posts against the FX_POSITION-NAD and FX_POSITION-EUR rows
 // op_duration times the measured operation only (the transfer, not the FX quote before it).
@@ -27,6 +29,8 @@ const RUN_TAG = __ENV.RUN_TAG || `${Date.now()}`;
 const SUMMARY_FILE = __ENV.SUMMARY_FILE || '';
 // A bearer token from the harness (ADR 0016): the operator's for deposits, the customer's otherwise.
 const AUTH = __ENV.TOKEN ? { Authorization: `Bearer ${__ENV.TOKEN}` } : {};
+// The second operator, who approves the deposits the first one requests (ADR 0021).
+const CHECKER = __ENV.CHECKER_TOKEN ? { Authorization: `Bearer ${__ENV.CHECKER_TOKEN}` } : {};
 const ACCOUNTS = JSON.parse(open(__ENV.ACCOUNTS_FILE));
 
 if (!['hot_account', 'disjoint_pairs', 'deposits', 'fx_transfers'].includes(WORKLOAD)) {
@@ -63,8 +67,16 @@ function post(path, body, key) {
 
 function measuredRequest(vu, key) {
   if (WORKLOAD === 'deposits') {
-    return post(`/api/v1/accounts/${ACCOUNTS.pairs[vu][1]}/deposits`,
-      { amount: '1.00', currency: 'EUR', reference: 'BENCH-deposits' }, key);
+    const requested = post('/api/v1/approvals', {
+      kind: 'DEPOSIT', account: ACCOUNTS.pairs[vu][1], amount: '1.00', currency: 'EUR', reference: 'BENCH-deposits',
+    }, `${key}-request`);
+    if (requested.status !== 201) {
+      return requested;
+    }
+    return http.post(`${BASE_URL}/api/v1/approvals/${requested.json('id')}/approval`, '{}', {
+      headers: { ...CHECKER, 'Content-Type': 'application/json', 'Idempotency-Key': key },
+      responseCallback: http.expectedStatuses(200),
+    });
   }
   if (WORKLOAD === 'fx_transfers') {
     const [nad, eur] = ACCOUNTS.fxPairs[vu];
@@ -91,7 +103,7 @@ export default function () {
   const vu = exec.vu.idInTest - 1;
   const res = measuredRequest(vu, `bench-${RUN_TAG}-${vu}-${exec.vu.iterationInScenario}`);
   opDuration.add(res.timings.duration);
-  if (res.status === 201) {
+  if (res.status === 201 || (WORKLOAD === 'deposits' && res.status === 200)) {
     created.add(1);
   } else if (res.status === 503) {
     shed.add(1);

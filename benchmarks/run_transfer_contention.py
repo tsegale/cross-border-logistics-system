@@ -155,24 +155,33 @@ def create_account(holder: str, deposit: str, currency: str = "EUR") -> str:
     if status != 201:
         raise RuntimeError(f"create account failed ({status}): {acc}")
     if deposit != "0":
-        # Deposits are idempotent: on a timeout the same key is sent again and can never fund the account twice.
-        for attempt in range(5):
-            try:
-                status, dep = http_json("POST", f"{GATEWAY_URL}/api/v1/accounts/{acc['id']}/deposits",
-                                        {"amount": deposit, "currency": currency,
-                                         "reference": f"BENCH-FUND-{acc['accountNumber']}"},
-                                        {"Idempotency-Key": f"bench-fund-{acc['id']}"}, timeout=120)
-            except (TimeoutError, urllib.error.URLError):
-                time.sleep(2)
-                continue
-            if status == 201:
-                break
-            if status not in (409, 503):
-                raise RuntimeError(f"deposit failed ({status}): {dep}")
-            time.sleep(1)
-        else:
-            raise RuntimeError(f"deposit into {acc['accountNumber']} did not succeed after 5 attempts")
+        # Four eyes (ADR 0021): the operator requests the deposit, the second operator approves it. Both calls are
+        # idempotent: on a timeout the same key is sent again and can never fund the account twice.
+        approval = retried("deposit request", lambda: http_json(
+            "POST", f"{GATEWAY_URL}/api/v1/approvals",
+            {"kind": "DEPOSIT", "account": acc["accountNumber"], "amount": deposit, "currency": currency,
+             "reference": f"BENCH-FUND-{acc['accountNumber']}"},
+            {"Idempotency-Key": f"bench-fund-{acc['id']}"}, timeout=120), 201)
+        retried("deposit approval", lambda: http_json(
+            "POST", f"{GATEWAY_URL}/api/v1/approvals/{approval['id']}/approval", {},
+            {"Idempotency-Key": f"bench-fund-{acc['id']}-approval",
+             "Authorization": "Bearer " + bearer("second-operator")}, timeout=120), 200)
     return acc["accountNumber"]
+
+
+def retried(what: str, call, expected: int) -> Any:
+    for _ in range(5):
+        try:
+            status, body = call()
+        except (TimeoutError, urllib.error.URLError):
+            time.sleep(2)
+            continue
+        if status == expected:
+            return body
+        if status not in (409, 503):
+            raise RuntimeError(f"{what} failed ({status}): {body}")
+        time.sleep(1)
+    raise RuntimeError(f"{what} did not succeed after 5 attempts")
 
 
 def setup_accounts(max_vus: int) -> Path:
@@ -208,7 +217,8 @@ def scrape_prometheus() -> dict[str, float]:
         if not m:
             continue
         name, labels, value = m.group("name"), m.group("labels") or "", float(m.group("value"))
-        measured_uri = 'uri="/api/v1/transfers"' in labels or 'uri="/api/v1/accounts/{id}/deposits"' in labels
+        # A deposit is posted by its approval (ADR 0021): that request is the one against CLEARING.
+        measured_uri = 'uri="/api/v1/transfers"' in labels or 'uri="/api/v1/approvals/{id}/approval"' in labels
         if name.startswith("http_server_requests_seconds_") and measured_uri and 'method="POST"' in labels:
             key = name
         elif name in ("hikaricp_connections_acquire_seconds_sum", "hikaricp_connections_acquire_seconds_count",
@@ -281,8 +291,10 @@ def run_k6(accounts_file: Path, workload: str, vus: int, iterations_per_vu: int,
          "-e", f"BASE_URL={GATEWAY_URL}", "-e", f"ACCOUNTS_FILE={accounts_file}", "-e", f"WORKLOAD={workload}",
          "-e", f"VUS={vus}", "-e", f"ITERATIONS_PER_VU={iterations_per_vu}", "-e", f"RUN_TAG={uuid.uuid4().hex[:12]}",
          "-e", f"SUMMARY_FILE={summary_file}",
-         # Deposits are an operator's; transfers and FX quotes the owning customer's.
+         # Deposits are requested by an operator and approved by another (ADR 0021); transfers and FX quotes are
+         # the owning customer's.
          "-e", f"TOKEN={bearer('operator' if workload == 'deposits' else 'customer-namib-exports')}",
+         "-e", f"CHECKER_TOKEN={bearer('second-operator')}",
          str(K6_SCRIPT)],
         cwd=ROOT, check=True, capture_output=True, text=True)
     return json.loads(summary_file.read_text(encoding="utf-8"))

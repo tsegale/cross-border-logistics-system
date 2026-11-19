@@ -16,8 +16,20 @@ PYTHON=python3
 NAMIB="0193a0e0-0000-7000-8000-00000000a001"
 HANSEATIC="0193a0e0-0000-7000-8000-00000000a002"
 OPERATOR_AUTH="Authorization: Bearer $("$PYTHON" "${SCRIPTS}/keycloak_token.py" operator)"
+CHECKER_AUTH="Authorization: Bearer $("$PYTHON" "${SCRIPTS}/keycloak_token.py" second-operator)"
 NAMIB_AUTH="Authorization: Bearer $("$PYTHON" "${SCRIPTS}/keycloak_token.py" customer-namib-exports)"
 HANSEATIC_AUTH="Authorization: Bearer $("$PYTHON" "${SCRIPTS}/keycloak_token.py" customer-hanseatic-imports)"
+
+# deposit <account number> <amount> <currency> <reference> <key>: one operator requests, a second approves (ADR 0021).
+deposit() {
+  local request approval_id
+  request="$(curl -fsS -X POST "${GATEWAY_URL}/api/v1/approvals" \
+    -H "$OPERATOR_AUTH" -H "Content-Type: application/json" -H "Idempotency-Key: $5" \
+    -d "{\"kind\":\"DEPOSIT\",\"account\":\"$1\",\"amount\":$2,\"currency\":\"$3\",\"reference\":\"$4\"}")"
+  approval_id="$(extract_json_field "$request" "id")"
+  curl -fsS -X POST "${GATEWAY_URL}/api/v1/approvals/${approval_id}/approval" \
+    -H "$CHECKER_AUTH" -H "Content-Type: application/json" -H "Idempotency-Key: $5-approval" -d '{}' >/dev/null
+}
 
 extract_json_field() {
   local json="$1"
@@ -51,21 +63,10 @@ EUR_ACC="$(extract_json_field "$EUR_RESP" "accountNumber")"
 echo "   EUR Account: ${EUR_ACC} (id=${EUR_ID})"
 
 # 2. Deposit funds into NAD, ZAR, and EUR accounts
-echo "2. Depositing initial balances..."
-curl -fsS -X POST "${GATEWAY_URL}/api/v1/accounts/${NAD_ID}/deposits" \
-  -H "$OPERATOR_AUTH" -H "Content-Type: application/json" \
-  -H "Idempotency-Key: seed-dep-nad-${RUN_TAG}" \
-  -d '{"amount":250000.00,"currency":"NAD","reference":"EXPORT-PROCEEDS-NAWVB"}' >/dev/null
-
-curl -fsS -X POST "${GATEWAY_URL}/api/v1/accounts/${ZAR_ID}/deposits" \
-  -H "$OPERATOR_AUTH" -H "Content-Type: application/json" \
-  -H "Idempotency-Key: seed-dep-zar-${RUN_TAG}" \
-  -d '{"amount":150000.00,"currency":"ZAR","reference":"CMA-TREASURY-ZADUR"}' >/dev/null
-
-curl -fsS -X POST "${GATEWAY_URL}/api/v1/accounts/${EUR_ID}/deposits" \
-  -H "$OPERATOR_AUTH" -H "Content-Type: application/json" \
-  -H "Idempotency-Key: seed-dep-eur-${RUN_TAG}" \
-  -d '{"amount":25000.00,"currency":"EUR","reference":"IMPORT-WORKING-CAP-DEHAM"}' >/dev/null
+echo "2. Depositing initial balances (requested by operator, approved by second-operator)..."
+deposit "$NAD_ACC" 250000.00 NAD EXPORT-PROCEEDS-NAWVB "seed-dep-nad-${RUN_TAG}"
+deposit "$ZAR_ACC" 150000.00 ZAR CMA-TREASURY-ZADUR "seed-dep-zar-${RUN_TAG}"
+deposit "$EUR_ACC" 25000.00 EUR IMPORT-WORKING-CAP-DEHAM "seed-dep-eur-${RUN_TAG}"
 
 # 3. Lock an FX quote (50,000.00 NAD -> EUR) and execute cross-currency transfer
 echo "3. Locking FX quote (50,000.00 NAD -> EUR) and executing cross-currency transfer..."

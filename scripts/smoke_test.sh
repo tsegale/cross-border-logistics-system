@@ -182,21 +182,44 @@ call 404 POST /api/v1/transfers \
   "{\"sourceAccount\":\"${EUR_ACC}\",\"targetAccount\":\"${NAD_ACC}\",\"amount\":1.00,\"currency\":\"EUR\",\"reference\":\"STEAL\"}" \
   "Idempotency-Key: smoke-steal-${RUN_ID}"
 
-# ---------------------------------------------------------------- deposits (operator), FX and transfers (customer)
+# ---------------------------------------------------------------- deposits (four eyes), FX and transfers (customer)
+# A deposit is requested by one operator and posted only when a different operator approves it (ADR 0021).
 as customer-namib-exports
-call 403 POST "/api/v1/accounts/${NAD_ID}/deposits" '{"amount":1.00,"currency":"NAD","reference":"SELF"}' \
+call 403 POST /api/v1/approvals \
+  "{\"kind\":\"DEPOSIT\",\"account\":\"${NAD_ACC}\",\"amount\":1.00,\"currency\":\"NAD\",\"reference\":\"SELF\"}" \
   "Idempotency-Key: smoke-selfdep-${RUN_ID}"
 as operator
-DEPOSIT="{\"amount\":100000.00,\"currency\":\"NAD\",\"reference\":\"SMOKE-DEP-${RUN_ID}\"}"
-call 201 POST "/api/v1/accounts/${NAD_ID}/deposits" "$DEPOSIT" "Idempotency-Key: smoke-dep-${RUN_ID}"
-DEPOSIT_ENTRY="$(field .id)"
-call 201 POST "/api/v1/accounts/${NAD_ID}/deposits" "$DEPOSIT" "Idempotency-Key: smoke-dep-${RUN_ID}"
-expect .id "$DEPOSIT_ENTRY"
-call 422 POST "/api/v1/accounts/${NAD_ID}/deposits" "{\"amount\":1.00,\"currency\":\"NAD\",\"reference\":\"OTHER\"}" \
+call 403 POST "/api/v1/accounts/${NAD_ID}/deposits" '{"amount":1.00,"currency":"NAD","reference":"ALONE"}' \
+  "Idempotency-Key: smoke-alone-${RUN_ID}"
+DEPOSIT="{\"kind\":\"DEPOSIT\",\"account\":\"${NAD_ACC}\",\"amount\":100000.00,\"currency\":\"NAD\",\"reference\":\"SMOKE-DEP-${RUN_ID}\"}"
+call 201 POST /api/v1/approvals "$DEPOSIT" "Idempotency-Key: smoke-dep-${RUN_ID}"
+expect .status PENDING
+DEPOSIT_APPROVAL="$(field .id)"
+call 201 POST /api/v1/approvals "$DEPOSIT" "Idempotency-Key: smoke-dep-${RUN_ID}"
+expect .id "$DEPOSIT_APPROVAL"
+call 422 POST /api/v1/approvals \
+  "{\"kind\":\"DEPOSIT\",\"account\":\"${NAD_ACC}\",\"amount\":1.00,\"currency\":\"NAD\",\"reference\":\"OTHER\"}" \
   "Idempotency-Key: smoke-dep-${RUN_ID}"
 expect .type https://freightflow.dev/problems/idempotency-key-payload-mismatch
-call 201 POST "/api/v1/accounts/${EUR_ID}/deposits" "{\"amount\":5000.00,\"currency\":\"EUR\",\"reference\":\"SMOKE-DEP-EUR\"}" \
+call 403 POST "/api/v1/approvals/${DEPOSIT_APPROVAL}/approval" '{}' "Idempotency-Key: smoke-selfapprove-${RUN_ID}"
+expect .type https://freightflow.dev/problems/four-eyes-required
+call 201 POST /api/v1/approvals \
+  "{\"kind\":\"DEPOSIT\",\"account\":\"${EUR_ACC}\",\"amount\":5000.00,\"currency\":\"EUR\",\"reference\":\"SMOKE-DEP-EUR\"}" \
   "Idempotency-Key: smoke-dep-eur-${RUN_ID}"
+EUR_APPROVAL="$(field .id)"
+as auditor
+call 200 GET /api/v1/approvals
+call 403 POST "/api/v1/approvals/${DEPOSIT_APPROVAL}/approval" '{}' "Idempotency-Key: smoke-auditor-approve-${RUN_ID}"
+as second-operator
+call 200 POST "/api/v1/approvals/${DEPOSIT_APPROVAL}/approval" '{"comment":"Smoke test"}' \
+  "Idempotency-Key: smoke-approve-${RUN_ID}"
+expect .status APPROVED
+DEPOSIT_ENTRY="$(field .postedEntryId)"
+call 409 POST "/api/v1/approvals/${DEPOSIT_APPROVAL}/approval" '{}' "Idempotency-Key: smoke-approve-again-${RUN_ID}"
+expect .type https://freightflow.dev/problems/approval-not-pending
+call 200 POST "/api/v1/approvals/${EUR_APPROVAL}/approval" '{}' "Idempotency-Key: smoke-approve-eur-${RUN_ID}"
+call 200 GET "/api/v1/journal-entries/${DEPOSIT_ENTRY}"
+expect .approvalId "$DEPOSIT_APPROVAL"
 
 as customer-namib-exports
 call 200 GET "/api/v1/fx-rates?base=EUR"
@@ -214,9 +237,20 @@ expect .actor ""
 as operator
 call 200 GET "/api/v1/journal-entries/${JE_ID}"
 expect .actor.clientId freightflow-web
-call 201 POST "/api/v1/journal-entries/${JE_ID}/reversals" '{"reason":"Smoke test correction"}' "Idempotency-Key: smoke-rev-${RUN_ID}"
+# Operators no longer transfer out of a customer's account; they correct with a four-eyes reversal (ADR 0021).
+call 403 POST /api/v1/transfers \
+  "{\"sourceAccount\":\"${NAD_ACC}\",\"targetAccount\":\"${EUR_ACC}\",\"amount\":1.00,\"currency\":\"NAD\",\"reference\":\"OPERATOR\"}" \
+  "Idempotency-Key: smoke-op-transfer-${RUN_ID}"
+call 201 POST /api/v1/approvals "{\"kind\":\"REVERSAL\",\"journalEntryId\":\"${JE_ID}\",\"reason\":\"Smoke test correction\"}" \
+  "Idempotency-Key: smoke-rev-${RUN_ID}"
+REVERSAL_APPROVAL="$(field .id)"
+as second-operator
+call 200 POST "/api/v1/approvals/${REVERSAL_APPROVAL}/approval" '{}' "Idempotency-Key: smoke-rev-approve-${RUN_ID}"
+REVERSAL_ENTRY="$(field .postedEntryId)"
+call 200 GET "/api/v1/journal-entries/${REVERSAL_ENTRY}"
 expect .reversesEntryId "$JE_ID"
-call 409 POST "/api/v1/journal-entries/${JE_ID}/reversals" '{"reason":"Again"}' "Idempotency-Key: smoke-rev2-${RUN_ID}"
+call 409 POST /api/v1/approvals "{\"kind\":\"REVERSAL\",\"journalEntryId\":\"${JE_ID}\",\"reason\":\"Again\"}" \
+  "Idempotency-Key: smoke-rev2-${RUN_ID}"
 expect .type https://freightflow.dev/problems/journal-entry-already-reversed
 as customer-namib-exports
 call 422 POST /api/v1/transfers \
