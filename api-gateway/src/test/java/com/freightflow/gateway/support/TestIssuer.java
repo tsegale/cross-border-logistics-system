@@ -59,11 +59,14 @@ public final class TestIssuer {
 
     public static void register(DynamicPropertyRegistry registry) {
         registry.add("KEYCLOAK_ISSUER_URI", () -> ISSUER);
-        registry.add("KEYCLOAK_JWK_SET_URI", () -> JWKS.baseUrl() + "/certs");
+        registry.add("KEYCLOAK_JWK_SET_URI", () -> url(JWKS) + "/certs");
         // The first key fetch of a context can be slow on a loaded machine; production keeps the 3 s default.
         registry.add("freightflow.security.jwks-timeout", () -> "10s");
-        registry.add("REDIS_HOST", REDIS::getHost);
+        // "localhost" resolves to ::1 first on Windows, and the first handshake then misses the 1 s timeout.
+        registry.add("REDIS_HOST", () -> "localhost".equals(REDIS.getHost()) ? "127.0.0.1" : REDIS.getHost());
         registry.add("REDIS_PORT", () -> REDIS.getMappedPort(6379));
+        // The JVM's first Redis connection also loads Lettuce and Netty; production keeps the 1 s default.
+        registry.add("REDIS_TIMEOUT", () -> "5s");
     }
 
     public static String customer() {
@@ -113,6 +116,14 @@ public final class TestIssuer {
         } catch (JOSEException ex) {
             throw new IllegalStateException(ex);
         }
+    }
+
+    /**
+     * A WireMock server's address as 127.0.0.1. Its own {@code baseUrl()} says "localhost", which tries ::1 first on
+     * Windows and costs every new connection a refused attempt.
+     */
+    public static String url(WireMockServer server) {
+        return "http://127.0.0.1:" + server.port();
     }
 
     public static String bearer(String token) {

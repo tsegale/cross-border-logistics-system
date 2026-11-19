@@ -21,6 +21,10 @@
         <java.version>21</java.version>
         <spring-cloud.version>2025.1.4</spring-cloud.version>
         <jacoco.version>0.8.16</jacoco.version>
+        <!-- One seed orders test classes (Surefire) and test methods (JUnit). It changes every build; Surefire
+             prints it, and -Dsurefire.runOrder.random.seed=<seed> replays that exact order. -->
+        <maven.build.timestamp.format>yyMMddHHmmss</maven.build.timestamp.format>
+        <surefire.runOrder.random.seed>${maven.build.timestamp}</surefire.runOrder.random.seed>
         <wiremock.version>3.13.2</wiremock.version>
     </properties>
 
@@ -101,6 +105,20 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <!-- No test may depend on another test's data or run order -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <runOrder>random</runOrder>
+                    <properties>
+                        <configurationParameters>
+                            junit.jupiter.testmethod.order.default = org.junit.jupiter.api.MethodOrderer$Random
+                            junit.jupiter.execution.order.random.seed = ${surefire.runOrder.random.seed}
+                        </configurationParameters>
+                    </properties>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>

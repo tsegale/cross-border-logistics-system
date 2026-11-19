@@ -3,6 +3,7 @@ package com.freightflow.gateway.ratelimit;
 import com.freightflow.gateway.support.TestIssuer;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -41,8 +42,8 @@ class RateLimitRedisDownTest {
         TestIssuer.register(registry);
         registry.add("REDIS_HOST", () -> "127.0.0.1");
         registry.add("REDIS_PORT", () -> 1);
-        registry.add("BANKING_SERVICE_URI", UPSTREAM::baseUrl);
-        registry.add("LOGISTICS_SERVICE_URI", UPSTREAM::baseUrl);
+        registry.add("BANKING_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
+        registry.add("LOGISTICS_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
     }
 
     @AfterAll
@@ -52,6 +53,12 @@ class RateLimitRedisDownTest {
 
     @LocalServerPort
     private int port;
+
+    /** Each test counts the requests that reached the upstream, so none may see another test's. */
+    @BeforeEach
+    void forgetEarlierRequests() {
+        UPSTREAM.resetRequests();
+    }
 
     private WebTestClient client() {
         return WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port).responseTimeout(Duration.ofSeconds(10))

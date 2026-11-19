@@ -3,6 +3,7 @@ package com.freightflow.gateway.ratelimit;
 import com.freightflow.gateway.support.TestIssuer;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -41,8 +42,8 @@ class RateLimitTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         TestIssuer.register(registry);
-        registry.add("BANKING_SERVICE_URI", UPSTREAM::baseUrl);
-        registry.add("LOGISTICS_SERVICE_URI", UPSTREAM::baseUrl);
+        registry.add("BANKING_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
+        registry.add("LOGISTICS_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
     }
 
     @AfterAll
@@ -57,6 +58,15 @@ class RateLimitTest {
         return WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port).responseTimeout(Duration.ofSeconds(10))
                 .build().post().uri("/api/v1/transfers").header(HttpHeaders.AUTHORIZATION, bearer(token))
                 .contentType(MediaType.APPLICATION_JSON).bodyValue("{}").exchange();
+    }
+
+    /**
+     * The bucket refills at 1 token/s, so the calls under test must not wait on a cold context (first Redis
+     * connection, Lua script load, upstream connection pool). A throwaway caller with its own bucket warms them.
+     */
+    @BeforeEach
+    void warmUp() {
+        transfer(TestIssuer.token(Map.of("roles", List.of("customer")))).expectStatus().isOk();
     }
 
     @Test
