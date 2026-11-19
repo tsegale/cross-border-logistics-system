@@ -80,7 +80,8 @@ jobs:
         run: |
           set -o pipefail
           python3 benchmarks/first_requests.py --json first-requests.json | tee first-requests.md
-          { echo "## First requests after a cold start"; echo; cat first-requests.md; } >> "$GITHUB_STEP_SUMMARY"
+          runner="$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1), $(nproc) vCPUs, $(free -m | awk '/^Mem:/ {print $2}') MiB"
+          { echo "## First requests after a cold start"; echo; echo "Runner: $runner"; echo; cat first-requests.md; } >> "$GITHUB_STEP_SUMMARY"
       - name: Seed demo data
         run: ./scripts/seed_demo.sh
       # docs/smoke-test.md as a script: stops at the first unexpected HTTP status.
