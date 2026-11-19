@@ -2,7 +2,6 @@ package com.freightflow.banking.journal;
 
 import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.journal.dto.JournalEntryResponse;
-import com.freightflow.banking.journal.dto.ReversalRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
