@@ -67,6 +67,23 @@ class RateLimitTest {
     @BeforeEach
     void warmUp() {
         transfer(TestIssuer.token(Map.of("roles", List.of("customer")))).expectStatus().isOk();
+        startOfASecond();
+    }
+
+    /**
+     * The limiter's Lua script refills by whole seconds of Redis TIME, so a burst that straddles a second boundary,
+     * however short, gets a token back. Each test's few calls start early in a second and finish well inside it.
+     */
+    private static void startOfASecond() {
+        long intoTheSecond = System.currentTimeMillis() % 1000;
+        if (intoTheSecond > 100) {
+            try {
+                Thread.sleep(1000 - intoTheSecond);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        }
     }
 
     @Test
