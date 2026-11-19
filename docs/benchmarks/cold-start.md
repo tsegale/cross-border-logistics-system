@@ -55,6 +55,22 @@ The same requests warm took 199-462 ms for all six, in every sample.
 - Requests that came after the first one to a service were already partly warm before; they change little.
 - The warm-up itself took 1.3-2.9 s per service. From `--force-recreate` to all three ready took 72-80 s.
 
-None of these first calls reached the gateway's 15 s response timeout on this laptop. CI's "Default stack starts"
-job runs the same script after `docker compose up --wait` on every push and writes its table to the job summary:
-that is a full cold start, Keycloak and the databases included, on a hosted runner.
+None of these first calls reached the gateway's 15 s response timeout on this laptop.
+
+## Hosted runner (GitHub `ubuntu-24.04`, CI run 44632903521, warm-up on)
+
+CI's "Default stack starts" job runs the same script after `docker compose up -d --wait --build` on every push and
+writes the table to the job summary. That is a full cold start, Keycloak and the databases included. This run did
+not record the runner's CPU; the step records it from the next run on.
+
+| Request | Reaches | First call | Second call |
+| --- | --- | ---: | ---: |
+| `GET /api/v1/fx-rates?base=EUR` | banking | 52 ms | 16 ms |
+| `POST /api/v1/quotes` | logistics, banking | 140 ms | 33 ms |
+| `GET /api/v1/shipments` | logistics | 55 ms | 19 ms |
+| `GET /api/v1/approvals` | banking | 37 ms | 16 ms |
+| `GET /api/v1/ledger/reconciliation` | banking | 39 ms | 16 ms |
+| `GET /api/v1/payment-commands` | logistics | 28 ms | 14 ms |
+| All six | | 350 ms | 114 ms |
+
+There is no hosted-runner "before": the step was added in the same push as the warm-up.
