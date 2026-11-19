@@ -3,7 +3,6 @@ package com.freightflow.banking.journal;
 import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
-import com.freightflow.banking.journal.dto.DepositRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.context.TestPropertySource;
 
@@ -24,8 +23,7 @@ class ShardedSystemPostingIntegrationTest extends SystemPostingModeContract {
     @Test
     void systemPostingRecordsItsShardAndTheShardsRunningBalance() {
         AccountResponse customer = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
-        var entry = ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
-                new DepositRequest(new BigDecimal("5.00"), "EUR", "S"), "s-" + UUID.randomUUID());
+        var entry = funding.deposit(customer.id().toString(), new BigDecimal("5.00"), "EUR", "S");
 
         Integer shard = jdbcTemplate.queryForObject(
                 "SELECT shard FROM postings WHERE journal_entry_id = ? AND account_id = ?",

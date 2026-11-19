@@ -4,9 +4,8 @@ import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
-import com.freightflow.banking.journal.LedgerService;
-import com.freightflow.banking.journal.dto.DepositRequest;
 import com.freightflow.banking.reconciliation.ReconciliationService;
+import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,8 +51,10 @@ class HoldIntegrationTest extends IntegrationTest {
     @Autowired
     private AccountService accountService;
 
+
     @Autowired
-    private LedgerService ledgerService;
+
+    private Funding funding;
 
     @Autowired
     private ReconciliationService reconciliationService;
@@ -113,7 +114,7 @@ class HoldIntegrationTest extends IntegrationTest {
         AccountResponse other = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
         mockMvc.perform(hold(payer, "900.00", "EUR", key())).andExpect(status().isCreated());
 
-        mockMvc.perform(post("/api/v1/transfers").header("Idempotency-Key", key())
+        mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB)).header("Idempotency-Key", key())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sourceAccount":"%s","targetAccount":"%s","amount":100.01,"currency":"EUR","reference":"T"}
@@ -435,7 +436,7 @@ class HoldIntegrationTest extends IntegrationTest {
 
     private AccountResponse funded(String currency, String amount) {
         AccountResponse account = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest(currency, TestCallers.NAMIB));
-        ledgerService.deposit(TestCallers.OPERATOR, account.id().toString(), new DepositRequest(new BigDecimal(amount), currency, "SEED"), key());
+        funding.deposit(account.id().toString(), new BigDecimal(amount), currency, "SEED");
         return account;
     }
 

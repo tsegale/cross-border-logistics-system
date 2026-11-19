@@ -12,9 +12,9 @@ import com.freightflow.banking.idempotency.IdempotencyService;
 import com.freightflow.banking.journal.JournalEntryRepository;
 import com.freightflow.banking.journal.LedgerService;
 import com.freightflow.banking.journal.PostingRepository;
-import com.freightflow.banking.journal.dto.DepositRequest;
 import com.freightflow.banking.reconciliation.ReconciliationService;
 import com.freightflow.banking.reconciliation.dto.ReconciliationReportResponse;
+import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
 import com.freightflow.banking.transfer.dto.CreateTransferRequest;
 import com.freightflow.banking.transfer.dto.TransferResponse;
@@ -64,6 +64,11 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
     @Autowired
     private LedgerService ledgerService;
 
+
+    @Autowired
+
+    private Funding funding;
+
     @Autowired
     private JournalEntryRepository journalEntryRepository;
 
@@ -100,10 +105,7 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
         AccountResponse target = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
 
         // Fund source with 5,000.00 NAD (enough for exactly 100 transfers of 50.00 NAD)
-        ledgerService.deposit(TestCallers.OPERATOR, source.id().toString(),
-                new DepositRequest(new BigDecimal("5000.00"), "NAD", "Hot account seed"),
-                "hot-seed-" + UUID.randomUUID()
-        );
+        funding.deposit(source.id().toString(), new BigDecimal("5000.00"), "NAD", "Hot account seed");
 
         int totalRequests = 200;
         CountDownLatch startGate = new CountDownLatch(1);
@@ -117,7 +119,7 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
                 final int idx = i;
                 tasks.add(() -> {
                     startGate.await();
-                    MvcResult res = mockMvc.perform(post("/api/v1/transfers")
+                    MvcResult res = mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                                     .header("Idempotency-Key", "drain-" + source.id() + "-" + idx)
                                     .contentType(MediaType.APPLICATION_JSON)
                                     .content("""
@@ -174,14 +176,8 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
         AccountResponse accountA = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
         AccountResponse accountB = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
 
-        ledgerService.deposit(TestCallers.OPERATOR, accountA.id().toString(),
-                new DepositRequest(new BigDecimal("10000.00"), "NAD", "Seed A"),
-                "seed-a-" + UUID.randomUUID()
-        );
-        ledgerService.deposit(TestCallers.OPERATOR, accountB.id().toString(),
-                new DepositRequest(new BigDecimal("10000.00"), "NAD", "Seed B"),
-                "seed-b-" + UUID.randomUUID()
-        );
+        funding.deposit(accountA.id().toString(), new BigDecimal("10000.00"), "NAD", "Seed A");
+        funding.deposit(accountB.id().toString(), new BigDecimal("10000.00"), "NAD", "Seed B");
 
         int pairs = 100;
         CountDownLatch startGate = new CountDownLatch(1);
@@ -193,7 +189,7 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
                 final int idx = i;
                 tasks.add(() -> {
                     startGate.await();
-                    MvcResult res = mockMvc.perform(post("/api/v1/transfers")
+                    MvcResult res = mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                                     .header("Idempotency-Key", "ab-" + accountA.id() + "-" + idx)
                                     .contentType(MediaType.APPLICATION_JSON)
                                     .content("""
@@ -213,7 +209,7 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
                 });
                 tasks.add(() -> {
                     startGate.await();
-                    MvcResult res = mockMvc.perform(post("/api/v1/transfers")
+                    MvcResult res = mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                                     .header("Idempotency-Key", "ba-" + accountB.id() + "-" + idx)
                                     .contentType(MediaType.APPLICATION_JSON)
                                     .content("""
@@ -256,10 +252,7 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
         AccountResponse source = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
         AccountResponse target = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
 
-        ledgerService.deposit(TestCallers.OPERATOR, source.id().toString(),
-                new DepositRequest(new BigDecimal("1000.00"), "NAD", "Seed idemp"),
-                "seed-idemp-" + UUID.randomUUID()
-        );
+        funding.deposit(source.id().toString(), new BigDecimal("1000.00"), "NAD", "Seed idemp");
 
         String sharedKey = "concurrent-idemp-" + UUID.randomUUID();
         String body = """
@@ -280,7 +273,7 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
             for (int i = 0; i < callers; i++) {
                 futures.add(executor.submit(() -> {
                     startGate.await();
-                    return mockMvc.perform(post("/api/v1/transfers")
+                    return mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                                     .header("Idempotency-Key", sharedKey)
                                     .contentType(MediaType.APPLICATION_JSON)
                                     .content(body))
@@ -329,10 +322,7 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
         AccountResponse accountA = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
         AccountResponse accountB = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
 
-        ledgerService.deposit(TestCallers.OPERATOR, accountA.id().toString(),
-                new DepositRequest(new BigDecimal("2500.00"), "NAD", "Cond Seed A"),
-                "cond-seed-a-" + UUID.randomUUID()
-        );
+        funding.deposit(accountA.id().toString(), new BigDecimal("2500.00"), "NAD", "Cond Seed A");
 
         BankingProperties conditionalProps = new BankingProperties(
                 properties.supportedCurrencies(),
@@ -360,7 +350,7 @@ class TransferConcurrencyIntegrationTest extends IntegrationTest {
                 futures.add(executor.submit(() -> {
                     startGate.await();
                     try {
-                        TransferResponse resp = conditionalService.createTransfer(TestCallers.OPERATOR, new CreateTransferRequest(
+                        TransferResponse resp = conditionalService.createTransfer(TestCallers.CUSTOMER_NAMIB, new CreateTransferRequest(
                                         accountA.accountNumber(),
                                         accountB.accountNumber(),
                                         new BigDecimal("50.00"),

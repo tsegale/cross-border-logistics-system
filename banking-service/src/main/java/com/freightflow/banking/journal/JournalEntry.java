@@ -60,6 +60,10 @@ public class JournalEntry {
     @Column(name = "request_id", length = 64, updatable = false)
     private String requestId;
 
+    // The four-eyes approval that posted it (ADR 0021); the database refuses a deposit or reversal without one.
+    @Column(name = "approval_id", updatable = false)
+    private UUID approvalId;
+
     public record PostingInstruction(UUID accountId, BigDecimal signedAmount, String currency) {
     }
 
@@ -91,6 +95,16 @@ public class JournalEntry {
         this.actorOrganizationId = actor.organizationId();
         this.requestId = actor.requestId();
         return this;
+    }
+
+    /** Records the approval this entry carries out; must be called before it is saved. */
+    public JournalEntry approvedUnder(UUID approvalId) {
+        this.approvalId = approvalId;
+        return this;
+    }
+
+    public UUID getApprovalId() {
+        return approvalId;
     }
 
     public Actor getActor() {

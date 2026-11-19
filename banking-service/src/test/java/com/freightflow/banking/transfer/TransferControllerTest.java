@@ -74,7 +74,7 @@ class TransferControllerTest {
         given(transferService.createTransfer(any(), any(), eq(null)))
                 .willThrow(new MissingIdempotencyKeyException("Idempotency-Key header is required"));
 
-        mockMvc.perform(post("/api/v1/transfers").contentType(MediaType.APPLICATION_JSON).content(BODY))
+        mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB)).contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/idempotency-key-missing"));
     }
@@ -118,7 +118,7 @@ class TransferControllerTest {
     }
 
     private static RequestBuilder transfer(String key, String body) {
-        return post("/api/v1/transfers")
+        return post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                 .header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body);

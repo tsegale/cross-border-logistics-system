@@ -54,6 +54,11 @@ freightflow:
       max-lifetime: ${HOLD_MAX_LIFETIME:120d}
       sweep-interval: ${HOLD_SWEEP_INTERVAL:60s}
       sweep-batch: ${HOLD_SWEEP_BATCH:100}
+    # Four-eyes approvals for deposits and reversals (ADR 0021)
+    approvals:
+      ttl: ${APPROVAL_TTL:24h}
+      sweep-interval: ${APPROVAL_SWEEP_INTERVAL:60s}
+      sweep-batch: ${APPROVAL_SWEEP_BATCH:100}
     # locked | unlocked | sharded (ADR 0010). The benchmark switches it by recreating the container.
     system-accounts:
       posting-mode: ${SYSTEM_ACCOUNT_POSTING_MODE:unlocked}

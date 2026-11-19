@@ -3,9 +3,8 @@ package com.freightflow.banking.account;
 import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
-import com.freightflow.banking.journal.LedgerService;
-import com.freightflow.banking.journal.dto.DepositRequest;
 import com.freightflow.banking.reconciliation.ReconciliationService;
+import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,8 +36,10 @@ class SystemBalanceCheckpointsIntegrationTest extends IntegrationTest {
     @Autowired
     private AccountService accountService;
 
+
     @Autowired
-    private LedgerService ledgerService;
+
+    private Funding funding;
 
     @Autowired
     private ReconciliationService reconciliationService;
@@ -87,8 +88,7 @@ class SystemBalanceCheckpointsIntegrationTest extends IntegrationTest {
         try (ExecutorService pool = Executors.newSingleThreadExecutor()) {
             // A deposit whose transaction is open while the roll-up runs, and commits only after it.
             Future<?> slowDeposit = pool.submit(() -> transactions.executeWithoutResult(status -> {
-                ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
-                        new DepositRequest(new BigDecimal("7.00"), "EUR", "LATE"), "late-" + UUID.randomUUID());
+                funding.deposit(customer.id().toString(), new BigDecimal("7.00"), "EUR", "LATE");
                 posted.countDown();
                 await(checkpointTaken);
             }));
@@ -152,8 +152,7 @@ class SystemBalanceCheckpointsIntegrationTest extends IntegrationTest {
     }
 
     private void deposit(AccountResponse account, String amount) {
-        ledgerService.deposit(TestCallers.OPERATOR, account.id().toString(), new DepositRequest(new BigDecimal(amount), "EUR", "SEED"),
-                "checkpoint-" + UUID.randomUUID());
+        funding.deposit(account.id().toString(), new BigDecimal(amount), "EUR", "SEED");
     }
 
     private BigDecimal sumOfAllPostings() {

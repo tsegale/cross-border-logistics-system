@@ -58,10 +58,15 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/holds", "/api/v1/holds/**").hasAuthority("SCOPE_" + Caller.HOLDS_SCOPE)
                         // Indicative rates: any authenticated caller, logistics' pricing included.
                         .requestMatchers(HttpMethod.GET, "/api/v1/fx-rates").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/accounts/*/deposits").hasRole(Caller.OPERATOR)
-                        .requestMatchers(HttpMethod.POST, "/api/v1/journal-entries/*/reversals").hasRole(Caller.OPERATOR)
+                        // Deposits and reversals: one operator requests, a different one approves (ADR 0021).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/approvals", "/api/v1/approvals/*/approval",
+                                "/api/v1/approvals/*/rejection").hasRole(Caller.OPERATOR)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/approvals", "/api/v1/approvals/**")
+                                .hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
                         .requestMatchers("/api/v1/ledger/**").hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
-                        .requestMatchers(HttpMethod.POST, "/api/v1/accounts", "/api/v1/transfers", "/api/v1/fx-quotes")
+                        // Only the owning customer moves its money; an operator corrects through a reversal (ADR 0021).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/transfers").hasRole(Caller.CUSTOMER)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/accounts", "/api/v1/fx-quotes")
                                 .hasAnyRole(Caller.CUSTOMER, Caller.OPERATOR)
                         .requestMatchers(HttpMethod.GET, "/**").hasAnyRole(Caller.CUSTOMER, Caller.OPERATOR, Caller.AUDITOR)
                         .anyRequest().denyAll())

@@ -105,6 +105,87 @@
         },
         "type" : "object"
       },
+      "ApprovalListResponse" : {
+        "description" : "Approval requests in one status, oldest first",
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ApprovalResponse"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "ApprovalResponse" : {
+        "description" : "A four-eyes approval request (ADR 0021): who asked, who decided, and the entry it posted",
+        "properties" : {
+          "account" : {
+            "description" : "DEPOSIT: the customer account number",
+            "type" : [ "string", "null" ]
+          },
+          "amount" : {
+            "description" : "DEPOSIT: the amount",
+            "type" : [ "number", "null" ]
+          },
+          "currency" : {
+            "type" : [ "string", "null" ]
+          },
+          "decidedAt" : {
+            "format" : "date-time",
+            "type" : [ "string", "null" ]
+          },
+          "decidedBy" : {
+            "$ref" : "#/components/schemas/Actor",
+            "description" : "The checker; null while pending and for an expired request",
+            "type" : "null"
+          },
+          "decisionComment" : {
+            "type" : [ "string", "null" ]
+          },
+          "expiresAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "journalEntryId" : {
+            "description" : "REVERSAL: the entry to reverse",
+            "format" : "uuid",
+            "type" : [ "string", "null" ]
+          },
+          "kind" : {
+            "enum" : [ "DEPOSIT", "REVERSAL" ],
+            "type" : "string"
+          },
+          "postedEntryId" : {
+            "description" : "The journal entry the approval posted",
+            "format" : "uuid",
+            "type" : [ "string", "null" ]
+          },
+          "reason" : {
+            "type" : [ "string", "null" ]
+          },
+          "reference" : {
+            "type" : [ "string", "null" ]
+          },
+          "requestedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "requestedBy" : {
+            "$ref" : "#/components/schemas/Actor",
+            "description" : "The maker"
+          },
+          "status" : {
+            "enum" : [ "PENDING", "APPROVED", "REJECTED", "EXPIRED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "CaptureHoldRequest" : {
         "description" : "Capture a hold, fully or in part. A hold is captured at most once; the rest is released.",
         "properties" : {
@@ -135,6 +216,58 @@
           }
         },
         "required" : [ "currency" ],
+        "type" : "object"
+      },
+      "CreateApprovalRequest" : {
+        "description" : "A deposit or reversal for a second operator to approve (ADR 0021). A DEPOSIT names account, amount, currency and reference; a REVERSAL names journalEntryId and, optionally, reason.",
+        "properties" : {
+          "account" : {
+            "description" : "DEPOSIT: the customer account, by id or account number",
+            "example" : "FF14EUR000000001",
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : [ "string", "null" ]
+          },
+          "amount" : {
+            "description" : "DEPOSIT: positive amount in the currency's minor units",
+            "example" : 50000.0,
+            "minimum" : 0.01,
+            "type" : [ "number", "null" ]
+          },
+          "currency" : {
+            "description" : "DEPOSIT: ISO 4217 code matching the account",
+            "example" : "NAD",
+            "maxLength" : 3,
+            "minLength" : 3,
+            "type" : [ "string", "null" ]
+          },
+          "journalEntryId" : {
+            "description" : "REVERSAL: the entry to reverse",
+            "format" : "uuid",
+            "type" : [ "string", "null" ]
+          },
+          "kind" : {
+            "description" : "What the approval posts",
+            "enum" : [ "DEPOSIT", "REVERSAL" ],
+            "example" : "DEPOSIT",
+            "type" : "string"
+          },
+          "reason" : {
+            "description" : "REVERSAL: why; defaults to \"Reversal of <id>\"",
+            "example" : "Duplicate deposit",
+            "maxLength" : 160,
+            "minLength" : 0,
+            "type" : [ "string", "null" ]
+          },
+          "reference" : {
+            "description" : "DEPOSIT: audit reference, such as the bank statement line",
+            "example" : "DEP-BANK-WINDHOEK-001",
+            "maxLength" : 160,
+            "minLength" : 0,
+            "type" : [ "string", "null" ]
+          }
+        },
+        "required" : [ "kind" ],
         "type" : "object"
       },
       "CreateFxQuoteRequest" : {
@@ -272,31 +405,17 @@
         },
         "type" : "object"
       },
-      "DepositRequest" : {
-        "description" : "Request to credit a customer account from the currency's CLEARING account",
+      "DecisionRequest" : {
+        "description" : "The checker's note on a decision: optional for an approval, required for a rejection",
         "properties" : {
-          "amount" : {
-            "description" : "Positive deposit amount in minor units",
-            "example" : 50000.0,
-            "minimum" : 0.01,
-            "type" : "number"
-          },
-          "currency" : {
-            "description" : "ISO 4217 currency code matching the account",
-            "example" : "NAD",
-            "maxLength" : 3,
-            "minLength" : 3,
-            "type" : "string"
-          },
-          "reference" : {
-            "description" : "Audit reference for the deposit",
-            "example" : "DEP-BANK-WINDHOEK-20261107",
-            "maxLength" : 160,
+          "comment" : {
+            "description" : "Why it was approved or rejected",
+            "example" : "Matches bank statement line 2026-11-19/14",
+            "maxLength" : 500,
             "minLength" : 0,
-            "type" : "string"
+            "type" : [ "string", "null" ]
           }
         },
-        "required" : [ "amount", "currency", "reference" ],
         "type" : "object"
       },
       "ExtendHoldRequest" : {
@@ -448,8 +567,13 @@
         "properties" : {
           "actor" : {
             "$ref" : "#/components/schemas/Actor",
-            "description" : "Who made the entry (ADR 0020); shown to operators and auditors only",
+            "description" : "Who made the entry (ADR 0020): for a deposit or reversal, the operator who approved it. Shown to operators and auditors only",
             "type" : "null"
+          },
+          "approvalId" : {
+            "description" : "The four-eyes approval that posted a deposit or reversal (ADR 0021); it names the operator who requested it. Shown to operators and auditors only",
+            "format" : "uuid",
+            "type" : [ "string", "null" ]
           },
           "createdAt" : {
             "format" : "date-time",
@@ -589,19 +713,6 @@
               "$ref" : "#/components/schemas/CurrencyTrialBalance"
             },
             "type" : "array"
-          }
-        },
-        "type" : "object"
-      },
-      "ReversalRequest" : {
-        "description" : "Optional reason when reversing a journal entry",
-        "properties" : {
-          "reason" : {
-            "description" : "Reason for reversing the entry",
-            "example" : "Duplicate booking charge correction",
-            "maxLength" : 160,
-            "minLength" : 0,
-            "type" : "string"
           }
         },
         "type" : "object"
@@ -848,96 +959,6 @@
         "tags" : [ "Accounts" ]
       }
     },
-    "/api/v1/accounts/{id}/deposits" : {
-      "post" : {
-        "operationId" : "deposit",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "description" : "Idempotency-Key header",
-          "in" : "header",
-          "name" : "Idempotency-Key",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "example" : {
-                "amount" : 50000.0,
-                "currency" : "NAD",
-                "reference" : "DEP-BANK-WINDHOEK-001"
-              },
-              "schema" : {
-                "$ref" : "#/components/schemas/DepositRequest"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "201" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/JournalEntryResponse"
-                }
-              }
-            },
-            "description" : "Deposit journal entry recorded"
-          },
-          "400" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description" : "Invalid amount, currency or missing Idempotency-Key"
-          },
-          "404" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description" : "Account not found"
-          },
-          "409" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description" : "Currency mismatch, inactive account or idempotency key in flight"
-          },
-          "422" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description" : "Idempotency key reused with a different payload"
-          }
-        },
-        "summary" : "Credit a customer account from the currency's CLEARING account",
-        "tags" : [ "Accounts" ]
-      }
-    },
     "/api/v1/accounts/{id}/postings" : {
       "get" : {
         "operationId" : "getStatement",
@@ -999,6 +1020,340 @@
         },
         "summary" : "Keyset-paginated account statement (newest first) with running balance after each posting",
         "tags" : [ "Accounts" ]
+      }
+    },
+    "/api/v1/approvals" : {
+      "get" : {
+        "operationId" : "list",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "status",
+          "required" : false,
+          "schema" : {
+            "default" : "PENDING",
+            "enum" : [ "PENDING", "APPROVED", "REJECTED", "EXPIRED" ],
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "default" : 50,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApprovalListResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Approval requests in one status, oldest first (default: the pending queue)",
+        "tags" : [ "Approvals" ]
+      },
+      "post" : {
+        "operationId" : "request",
+        "parameters" : [ {
+          "description" : "Idempotency-Key header",
+          "in" : "header",
+          "name" : "Idempotency-Key",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "examples" : {
+                "deposit" : {
+                  "description" : "deposit",
+                  "value" : {
+                    "account" : "FF14NAD000000001",
+                    "amount" : 50000.0,
+                    "currency" : "NAD",
+                    "kind" : "DEPOSIT",
+                    "reference" : "DEP-BANK-WINDHOEK-001"
+                  }
+                },
+                "reversal" : {
+                  "description" : "reversal",
+                  "value" : {
+                    "journalEntryId" : "0193a0e0-1111-7000-8000-000000000001",
+                    "kind" : "REVERSAL",
+                    "reason" : "Duplicate deposit"
+                  }
+                }
+              },
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateApprovalRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApprovalResponse"
+                }
+              }
+            },
+            "description" : "Request recorded, PENDING"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Fields missing for the kind, invalid amount or currency, missing Idempotency-Key"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Account or journal entry not found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Currency mismatch, entry already reversed or a reversal already requested"
+          },
+          "422" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Idempotency key reused with a different payload"
+          }
+        },
+        "summary" : "Request a deposit or a reversal for a second operator to approve",
+        "tags" : [ "Approvals" ]
+      }
+    },
+    "/api/v1/approvals/{id}" : {
+      "get" : {
+        "operationId" : "get",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApprovalResponse"
+                }
+              }
+            },
+            "description" : "The request"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Approval request not found"
+          }
+        },
+        "summary" : "Get an approval request",
+        "tags" : [ "Approvals" ]
+      }
+    },
+    "/api/v1/approvals/{id}/approval" : {
+      "post" : {
+        "operationId" : "approve",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        }, {
+          "description" : "Idempotency-Key header",
+          "in" : "header",
+          "name" : "Idempotency-Key",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DecisionRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApprovalResponse"
+                }
+              }
+            },
+            "description" : "APPROVED, with the posted entry"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "The requester tried to approve their own request"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Approval request not found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Already decided, expired, insufficient funds, or the entry was reversed meanwhile"
+          },
+          "422" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Idempotency key reused with a different payload"
+          }
+        },
+        "summary" : "Approve a request and post its journal entry; the approver must not be the requester",
+        "tags" : [ "Approvals" ]
+      }
+    },
+    "/api/v1/approvals/{id}/rejection" : {
+      "post" : {
+        "operationId" : "reject",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DecisionRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApprovalResponse"
+                }
+              }
+            },
+            "description" : "REJECTED"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "No comment"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "The requester tried to reject their own request"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Approval request not found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Already decided or expired"
+          }
+        },
+        "summary" : "Reject a request; nothing is posted. The rejecter must not be the requester",
+        "tags" : [ "Approvals" ]
       }
     },
     "/api/v1/fx-quotes" : {
@@ -1536,84 +1891,6 @@
         "tags" : [ "Journal Entries" ]
       }
     },
-    "/api/v1/journal-entries/{id}/reversals" : {
-      "post" : {
-        "operationId" : "reverseJournalEntry",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "required" : true,
-          "schema" : {
-            "format" : "uuid",
-            "type" : "string"
-          }
-        }, {
-          "description" : "Idempotency-Key header (RFC draft-ietf-httpapi-idempotency-key-header-08)",
-          "in" : "header",
-          "name" : "Idempotency-Key",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "example" : {
-                "reason" : "Duplicate transfer correction"
-              },
-              "schema" : {
-                "$ref" : "#/components/schemas/ReversalRequest"
-              }
-            }
-          }
-        },
-        "responses" : {
-          "201" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/JournalEntryResponse"
-                }
-              }
-            },
-            "description" : "Reversal entry created"
-          },
-          "404" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description" : "Original journal entry not found"
-          },
-          "409" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description" : "Already reversed, insufficient funds or idempotency key in flight"
-          },
-          "422" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description" : "Idempotency key reused with a different payload"
-          }
-        },
-        "summary" : "Reverse a journal entry by appending a compensating entry with opposite postings",
-        "tags" : [ "Journal Entries" ]
-      }
-    },
     "/api/v1/ledger/reconciliation" : {
       "get" : {
         "operationId" : "reconcile",
@@ -1777,22 +2054,25 @@
     "description" : "Read-only indicative rates; banking-service is the only owner of FX",
     "name" : "FX Rates"
   }, {
-    "description" : "Immutable double-entry journal entries and reversals",
-    "name" : "Journal Entries"
-  }, {
     "description" : "Authorise, capture and release freight charges. Not routed by the gateway.",
     "name" : "Holds (internal)"
   }, {
     "description" : "Idempotent same-currency and cross-currency ledger transfers",
     "name" : "Transfers"
   }, {
-    "description" : "Customer and system ledger accounts, deposits and statements",
+    "description" : "Customer and system ledger accounts and statements; deposits are four-eyes approvals",
     "name" : "Accounts"
+  }, {
+    "description" : "Deposits and reversals one operator requests and a different operator approves",
+    "name" : "Approvals"
   }, {
     "description" : "Short-lived foreign exchange quotes for cross-currency transfers",
     "name" : "FX Quotes"
   }, {
     "description" : "Double-entry trial balance and account balance reconciliation",
     "name" : "Ledger Reconciliation"
+  }, {
+    "description" : "Immutable double-entry journal entries; reversals are four-eyes approvals",
+    "name" : "Journal Entries"
   } ]
 }

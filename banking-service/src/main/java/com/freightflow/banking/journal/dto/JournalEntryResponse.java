@@ -21,15 +21,19 @@ public record JournalEntryResponse(
         BigDecimal fxRate,
         Instant createdAt,
         List<PostingResponse> postings,
-        @Schema(description = "Who made the entry (ADR 0020); shown to operators and auditors only", nullable = true)
-        Actor actor
+        @Schema(description = "Who made the entry (ADR 0020): for a deposit or reversal, the operator who approved it. "
+                + "Shown to operators and auditors only", nullable = true)
+        Actor actor,
+        @Schema(description = "The four-eyes approval that posted a deposit or reversal (ADR 0021); it names the operator "
+                + "who requested it. Shown to operators and auditors only", nullable = true)
+        UUID approvalId
 ) {
 
     /** What a customer sees: the same entry without who made it. */
     public JournalEntryResponse forCaller(Caller caller) {
         return caller.seesEverything() ? this
                 : new JournalEntryResponse(id, entryType, reference, reversesEntryId, fxQuoteId, fxRate, createdAt,
-                postings, null);
+                postings, null, null);
     }
 
     public static JournalEntryResponse from(JournalEntry entry, List<PostingResponse> postings) {
@@ -42,7 +46,8 @@ public record JournalEntryResponse(
                 entry.getFxRate(),
                 entry.getCreatedAt(),
                 postings,
-                entry.getActor()
+                entry.getActor(),
+                entry.getApprovalId()
         );
     }
 }

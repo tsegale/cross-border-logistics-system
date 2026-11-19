@@ -4,10 +4,14 @@ import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
-import com.freightflow.banking.journal.dto.DepositRequest;
 import com.freightflow.banking.journal.dto.JournalEntryResponse;
 import com.freightflow.banking.reconciliation.ReconciliationService;
 import com.freightflow.banking.reconciliation.dto.ReconciliationReportResponse;
+import com.freightflow.banking.approval.ApprovalKind;
+import com.freightflow.banking.approval.ApprovalService;
+import com.freightflow.banking.approval.dto.ApprovalResponse;
+import com.freightflow.banking.approval.dto.CreateApprovalRequest;
+import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,7 +45,10 @@ abstract class SystemPostingModeContract extends IntegrationTest {
     AccountService accountService;
 
     @Autowired
-    LedgerService ledgerService;
+    Funding funding;
+
+    @Autowired
+    ApprovalService approvals;
 
     @Autowired
     ReconciliationService reconciliationService;
@@ -69,8 +76,7 @@ abstract class SystemPostingModeContract extends IntegrationTest {
             for (AccountResponse customer : customers) {
                 futures.add(pool.submit(() -> {
                     start.await();
-                    return ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
-                            new DepositRequest(new BigDecimal("10.00"), "EUR", "HOT-" + mode()), "hot-" + UUID.randomUUID());
+                    return funding.deposit(customer.id().toString(), new BigDecimal("10.00"), "EUR", "HOT-" + mode());
                 }));
             }
             start.countDown();
@@ -92,8 +98,7 @@ abstract class SystemPostingModeContract extends IntegrationTest {
     @Test
     void customerPostingsAlwaysCarryARunningBalance() {
         AccountResponse customer = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
-        JournalEntryResponse entry = ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
-                new DepositRequest(new BigDecimal("25.00"), "EUR", "RUN"), "run-" + UUID.randomUUID());
+        JournalEntryResponse entry = funding.deposit(customer.id().toString(), new BigDecimal("25.00"), "EUR", "RUN");
 
         assertThat(entry.postings()).filteredOn(p -> p.accountId().equals(customer.id()))
                 .singleElement()
@@ -107,6 +112,12 @@ abstract class SystemPostingModeContract extends IntegrationTest {
      */
     Duration depositWhileClearingRowIsLocked(Duration hold) throws Exception {
         AccountResponse customer = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
+        // The request is set-up; the approval is the step that posts against CLEARING, so only it is timed. One
+        // deposit first, unblocked: methods run in random order, and the first approval in a context is cold.
+        funding.deposit(customer.id().toString(), new BigDecimal("1.00"), "EUR", "WARM-UP");
+        ApprovalResponse requested = approvals.request(TestCallers.OPERATOR, new CreateApprovalRequest(
+                ApprovalKind.DEPOSIT, customer.id().toString(), new BigDecimal("1.00"), "EUR", "BLOCKED", null, null),
+                "blocked-" + java.util.UUID.randomUUID());
         CountDownLatch locked = new CountDownLatch(1);
         try (ExecutorService pool = Executors.newSingleThreadExecutor()) {
             Future<?> holder = pool.submit(() -> {
@@ -124,8 +135,7 @@ abstract class SystemPostingModeContract extends IntegrationTest {
             });
             assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
             long started = System.nanoTime();
-            ledgerService.deposit(TestCallers.OPERATOR, customer.id().toString(),
-                    new DepositRequest(new BigDecimal("1.00"), "EUR", "BLOCKED"), "blocked-" + UUID.randomUUID());
+            approvals.approve(TestCallers.SECOND_OPERATOR, requested.id(), null, "blocked-approval-" + java.util.UUID.randomUUID());
             Duration took = Duration.ofNanos(System.nanoTime() - started);
             holder.get(30, TimeUnit.SECONDS);
             return took;

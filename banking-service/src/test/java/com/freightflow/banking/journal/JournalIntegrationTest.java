@@ -3,8 +3,8 @@ package com.freightflow.banking.journal;
 import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountRepository;
 import com.freightflow.banking.account.AccountType;
-import com.freightflow.banking.idempotency.IdempotencyCleanupJob;
-import com.freightflow.banking.idempotency.IdempotencyService;
+import com.freightflow.banking.journal.dto.JournalEntryResponse;
+import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,14 +22,12 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -52,31 +50,15 @@ class JournalIntegrationTest extends IntegrationTest {
     private AccountRepository accountRepository;
 
     @Autowired
-    private IdempotencyService idempotencyService;
-
-    @Autowired
-    private IdempotencyCleanupJob cleanupJob;
+    private Funding funding;
 
     @Test
     void appendOnlyTriggerRejectsUpdateAndDeleteOnPostingsAndJournalEntries() throws Exception {
         String accountId = createCustomerAccount("Walvis Bay Exports", "NAD");
 
-        MvcResult depositResult = mockMvc.perform(post("/api/v1/accounts/" + accountId + "/deposits")
-                        .header("Idempotency-Key", "dep-append-only-1")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 1000.00,
-                                  "currency": "NAD",
-                                  "reference": "DEP-APPEND-ONLY"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andReturn();
-
-        JsonNode entry = JSON.readTree(depositResult.getResponse().getContentAsByteArray());
-        UUID entryId = UUID.fromString(entry.get("id").asString());
-        UUID postingId = UUID.fromString(entry.get("postings").get(0).get("id").asString());
+        JournalEntryResponse entry = funding.deposit(accountId, new BigDecimal("1000.00"), "NAD", "DEP-APPEND-ONLY");
+        UUID entryId = entry.id();
+        UUID postingId = entry.postings().get(0).id();
 
         // Attempting UPDATE on postings is rejected by trg_postings_append_only
         assertThatThrownBy(() -> jdbcTemplate.update(
@@ -143,145 +125,33 @@ class JournalIntegrationTest extends IntegrationTest {
     }
 
     @Test
-    void depositsReversalsIdempotencyAndKeysetStatementPaginationWorkEndToEnd() throws Exception {
+    void approvedDepositsAndReversalsGiveExactRunningBalancesAndAKeysetStatement() throws Exception {
         String accountId = createCustomerAccount("Swakopmund Salt Co", "NAD");
 
-        // Deposit 1: 1,000.00 NAD
-        MvcResult dep1 = mockMvc.perform(post("/api/v1/accounts/" + accountId + "/deposits")
-                        .header("Idempotency-Key", "dep-swakop-1")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 1000.00,
-                                  "currency": "NAD",
-                                  "reference": "DEP-001"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.entryType").value("DEPOSIT"))
-                .andExpect(jsonPath("$.postings.length()").value(2))
-                .andReturn();
-        String dep1Id = JSON.readTree(dep1.getResponse().getContentAsByteArray()).get("id").asString();
+        JournalEntryResponse dep1 = funding.deposit(accountId, new BigDecimal("1000.00"), "NAD", "DEP-001");
+        assertThat(dep1.entryType()).isEqualTo(JournalEntryType.DEPOSIT);
+        assertThat(dep1.postings()).hasSize(2);
+        funding.deposit(accountId, new BigDecimal("500.00"), "NAD", "DEP-002");
 
-        // Replaying with same Idempotency-Key and body returns identical journal entry ID without double-crediting
-        mockMvc.perform(post("/api/v1/accounts/" + accountId + "/deposits")
-                        .header("Idempotency-Key", "dep-swakop-1")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 1000.00,
-                                  "currency": "NAD",
-                                  "reference": "DEP-001"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(dep1Id));
+        // Reverse deposit 1 (-1,000.00 NAD, running balance = 500.00)
+        JournalEntryResponse reversal = funding.reverse(dep1.id(), "Correcting duplicate deposit");
+        assertThat(reversal.entryType()).isEqualTo(JournalEntryType.REVERSAL);
+        assertThat(reversal.reversesEntryId()).isEqualTo(dep1.id());
 
-        // Reusing same Idempotency-Key with different amount -> 422
-        mockMvc.perform(post("/api/v1/accounts/" + accountId + "/deposits")
-                        .header("Idempotency-Key", "dep-swakop-1")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 2000.00,
-                                  "currency": "NAD",
-                                  "reference": "DEP-001"
-                                }
-                                """))
-                .andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/idempotency-key-payload-mismatch"));
-
-        // Missing Idempotency-Key -> 400
-        mockMvc.perform(post("/api/v1/accounts/" + accountId + "/deposits")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 500.00,
-                                  "currency": "NAD",
-                                  "reference": "DEP-NO-KEY"
-                                }
-                                """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/idempotency-key-missing"));
-
-        // In-flight Idempotency-Key -> 409 with Retry-After
-        var inFlightCanonical = Map.of(
-                "accountId", accountId,
-                "amount", "300.00",
-                "currency", "NAD",
-                "reference", "DEP-IN-FLIGHT"
-        );
-        idempotencyService.markInProgress("deposit:" + accountId, TestCallers.OPERATOR, "dep-inflight-key", inFlightCanonical);
-        mockMvc.perform(post("/api/v1/accounts/" + accountId + "/deposits")
-                        .header("Idempotency-Key", "dep-inflight-key")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 300.00,
-                                  "currency": "NAD",
-                                  "reference": "DEP-IN-FLIGHT"
-                                }
-                                """))
-                .andExpect(status().isConflict())
-                .andExpect(header().string("Retry-After", "1"))
-                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/idempotency-key-in-flight"));
-
-        // Deposit 2: 500.00 NAD (running balance = 1,500.00)
-        mockMvc.perform(post("/api/v1/accounts/" + accountId + "/deposits")
-                        .header("Idempotency-Key", "dep-swakop-2")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 500.00,
-                                  "currency": "NAD",
-                                  "reference": "DEP-002"
-                                }
-                                """))
-                .andExpect(status().isCreated());
-
-        // Reverse Deposit 1 (-1,000.00 NAD, running balance = 500.00)
-        MvcResult revResult = mockMvc.perform(post("/api/v1/journal-entries/" + dep1Id + "/reversals")
-                        .header("Idempotency-Key", "rev-swakop-1")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "reason": "Correcting duplicate deposit"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.entryType").value("REVERSAL"))
-                .andExpect(jsonPath("$.reversesEntryId").value(dep1Id))
-                .andReturn();
-        String revId = JSON.readTree(revResult.getResponse().getContentAsByteArray()).get("id").asString();
-
-        // GET journal entry by ID
-        mockMvc.perform(get("/api/v1/journal-entries/" + revId))
+        mockMvc.perform(get("/api/v1/journal-entries/" + reversal.id()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.reversesEntryId").value(dep1Id));
+                .andExpect(jsonPath("$.reversesEntryId").value(dep1.id().toString()))
+                .andExpect(jsonPath("$.approvalId").isNotEmpty());
 
-        // Second reversal with a new Idempotency-Key is rejected with 409 journal-entry-already-reversed
-        mockMvc.perform(post("/api/v1/journal-entries/" + dep1Id + "/reversals")
-                        .header("Idempotency-Key", "rev-swakop-second")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "reason": "Second attempt"
-                                }
-                                """))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/journal-entry-already-reversed"));
-
-        // Reversing the reversal entry itself is also rejected with 409
-        mockMvc.perform(post("/api/v1/journal-entries/" + revId + "/reversals")
-                        .header("Idempotency-Key", "rev-of-rev")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "reason": "Reverse reversal"
-                                }
-                                """))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/journal-entry-already-reversed"));
+        // Reversing it again, or reversing the reversal, is refused before anyone is asked to approve it
+        for (UUID entry : List.of(dep1.id(), reversal.id())) {
+            mockMvc.perform(post("/api/v1/approvals")
+                            .header("Idempotency-Key", "rev-again-" + UUID.randomUUID())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"kind\":\"REVERSAL\",\"journalEntryId\":\"" + entry + "\"}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/journal-entry-already-reversed"));
+        }
 
         // Account materialised balance is now 500.00 NAD
         mockMvc.perform(get("/api/v1/accounts/" + accountId))
@@ -319,37 +189,6 @@ class JournalIntegrationTest extends IntegrationTest {
                 new BigDecimal("1500.00"),
                 new BigDecimal("1000.00")
         );
-
-        // Verify expired idempotency cleanup job
-        jdbcTemplate.update("UPDATE idempotency_keys SET expires_at = now() - interval '1 hour' WHERE idempotency_key = 'dep-inflight-key'");
-        assertThat(cleanupJob.purgeExpiredKeys()).isGreaterThanOrEqualTo(1);
-
-        // Verify error responses for currency mismatch, invalid cursor, and unknown journal entry
-        mockMvc.perform(post("/api/v1/accounts/" + accountId + "/deposits")
-                        .header("Idempotency-Key", "dep-bad-curr")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 100.00,
-                                  "currency": "EUR",
-                                  "reference": "DEP-WRONG-CURR"
-                                }
-                                """))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/currency-mismatch"));
-
-        mockMvc.perform(post("/api/v1/accounts/" + accountId + "/deposits")
-                        .header("Idempotency-Key", "dep-bad-scale")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 100.123,
-                                  "currency": "NAD",
-                                  "reference": "DEP-BAD-SCALE"
-                                }
-                                """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/invalid-amount"));
 
         mockMvc.perform(get("/api/v1/accounts/" + accountId + "/postings")
                         .param("cursor", "invalid-cursor"))

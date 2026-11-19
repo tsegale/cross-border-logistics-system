@@ -4,8 +4,7 @@ import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
-import com.freightflow.banking.journal.LedgerService;
-import com.freightflow.banking.journal.dto.DepositRequest;
+import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
 import com.freightflow.banking.transfer.TransferService;
 import com.freightflow.banking.transfer.dto.CreateTransferRequest;
@@ -29,8 +28,10 @@ class ReconciliationIntegrationTest extends IntegrationTest {
     @Autowired
     private AccountService accountService;
 
+
     @Autowired
-    private LedgerService ledgerService;
+
+    private Funding funding;
 
     @Autowired
     private TransferService transferService;
@@ -43,11 +44,8 @@ class ReconciliationIntegrationTest extends IntegrationTest {
         AccountResponse a = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
         AccountResponse b = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
 
-        ledgerService.deposit(TestCallers.OPERATOR, a.id().toString(),
-                new DepositRequest(new BigDecimal("1500.00"), "NAD", "Recon deposit"),
-                "recon-dep-" + UUID.randomUUID()
-        );
-        transferService.createTransfer(TestCallers.OPERATOR, new CreateTransferRequest(a.accountNumber(), b.accountNumber(), new BigDecimal("350.25"), "NAD", "Recon transfer", null),
+        funding.deposit(a.id().toString(), new BigDecimal("1500.00"), "NAD", "Recon deposit");
+        transferService.createTransfer(TestCallers.CUSTOMER_NAMIB, new CreateTransferRequest(a.accountNumber(), b.accountNumber(), new BigDecimal("350.25"), "NAD", "Recon transfer", null),
                 "recon-tx-" + UUID.randomUUID()
         );
 
