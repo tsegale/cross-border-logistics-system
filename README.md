@@ -75,7 +75,7 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/shipments
 - **No endpoint answers without a valid token** except the public tracking view and health; a request sent straight
   to a service, around the gateway, is refused too: each service validates the token for its own audience (ADR 0017).
 - **Object-level authorisation** (OWASP API1, ADR 0018): the policy table below is data in each service's
-  `AuthorisationMatrixTest`, run for every endpoint, role and own/foreign object (140 cases in banking, 91 in
+  `AuthorisationMatrixTest`, run for every endpoint, role and own/foreign object (208 cases in banking, 91 in
   logistics). A foreign object is the same 404 as a missing one.
 - **Service-to-service credentials** (ADR 0019): holds need logistics' own client-credentials token. With Keycloak
   paused, payment commands stay pending and nothing is lost or duplicated (`BankingFaultInjectionTest`).
@@ -88,8 +88,9 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/shipments
 
 | Endpoint | Customer (own / foreign) | Operator | Auditor | Carrier (assigned) | logistics-service | Anonymous |
 | --- | --- | --- | --- | --- | --- | --- |
-| Accounts, statements, transfers, FX quotes, journal entries | own / 404 | all | read | 403 | 403 | 401 |
-| Deposits, reversals | 403 | yes | 403 | 403 | 403 | 401 |
+| Accounts, statements, FX quotes, journal entries | own / 404 | all | read | 403 | 403 | 401 |
+| Transfers | own / 404 | 403 (ADR 0021) | read | 403 | 403 | 401 |
+| Deposits, reversals: request / approve (four eyes, ADR 0021) | 403 | request; approve only another's | read | 403 | 403 | 401 |
 | Reconciliation, payment commands | 403 | yes | read | 403 | 403 | 401 |
 | Holds (internal) | 403 | 403 | 403 | 403 | yes | 401 |
 | Quotes, shipments, cancellations | own / 404 | all | read | read (assigned) | 403 | 401 |

@@ -18,6 +18,9 @@ banking-service recreated with `SYSTEM_ACCOUNT_POSTING_MODE` before every block 
 `GET /api/v1/ledger/reconciliation` balanced after every run (the harness stops otherwise; it never had to).
 
 - `deposits`: VU *i* deposits 1.00 EUR into its own customer account; every deposit posts against `CLEARING-EUR`.
+  Since ADR 0021 a deposit is a request by one operator and an approval by another: the harness makes the request
+  untimed and times the approval, the request that posts. The tables below were measured before that change, on
+  the one-step deposit endpoint.
 - `fx_transfers`: VU *i* locks an FX quote and transfers 20.00 NAD to its own EUR account; every transfer posts
   against `FX_POSITION-NAD` and `FX_POSITION-EUR`. Only the transfer is timed.
 - 3 rounds per mode with the order rotated (round 1: locked, unlocked, sharded; round 2: sharded, unlocked, locked;

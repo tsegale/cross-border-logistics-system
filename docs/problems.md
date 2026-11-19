@@ -42,6 +42,12 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/same-account-transfer` | `422 Unprocessable Content` | Source and destination accounts must differ | — | Transfer source and destination resolve to the same account |
 | `https://freightflow.dev/problems/journal-entry-not-found` | `404 Not Found` | Journal entry not found | `entryId` | Journal entry UUID does not exist |
 | `https://freightflow.dev/problems/journal-entry-already-reversed` | `409 Conflict` | Journal entry has already been reversed | `entryId` | Attempted to reverse an entry a second time (`uq_journal_entries_reverses_once`) |
+| `https://freightflow.dev/problems/approval-not-found` | `404 Not Found` | Approval request not found | `approvalId` | No four-eyes approval request with this id (ADR 0021) |
+| `https://freightflow.dev/problems/four-eyes-required` | `403 Forbidden` | A second operator must decide | `approvalId` | The operator who requested a deposit or reversal tried to approve or reject it (ADR 0021) |
+| `https://freightflow.dev/problems/approval-not-pending` | `409 Conflict` | Approval request already decided | `approvalId`, `approvalStatus` | Approving or rejecting a request that is already `APPROVED`, `REJECTED` or `EXPIRED`; the loser of two concurrent approvals |
+| `https://freightflow.dev/problems/approval-expired` | `409 Conflict` | Approval request has expired | `approvalId`, `expiresAt` | Deciding a request past its expiry; request it again |
+| `https://freightflow.dev/problems/reversal-already-requested` | `409 Conflict` | A reversal is already waiting for approval | `journalEntryId` | A second reversal request for an entry while one is `PENDING` |
+| `https://freightflow.dev/problems/invalid-approval-request` | `400 Bad Request` | Invalid approval request | — | A `DEPOSIT` without account, amount, currency or reference, a `REVERSAL` without an entry, fields of the other kind, a rejection without a comment, or a list `limit` outside 1..100 |
 | `https://freightflow.dev/problems/transfer-not-found` | `404 Not Found` | Transfer not found | `transferId` | Transfer UUID does not exist |
 | `https://freightflow.dev/problems/fx-quote-not-found` | `404 Not Found` | FX quote not found | `quoteId` | FX quote UUID does not exist |
 | `https://freightflow.dev/problems/fx-quote-expired` | `409 Conflict` | FX quote has expired | `quoteId`, `expiresAt` | FX quote `expiresAt` is not after `clock.instant()` |

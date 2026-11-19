@@ -1,4 +1,4 @@
-# Threat model (Phase 3)
+# Threat model (Phase 3, insider misuse added in Phase 4)
 
 STRIDE per trust boundary. Every threat names the control that stops it and the test or check that proves the
 control works. "Residual" is what remains, and where it is addressed.
@@ -42,7 +42,7 @@ Residual: plain HTTP in compose. Production terminates TLS in front of the gatew
 | --- | --- | --- | --- |
 | Spoofing | A container on the network calls a service directly with forged identity | Each service validates the token itself, for its own audience (ADR 0017) | both `AuthorisationMatrixTest`s: every endpoint anonymous is 401 |
 | Spoofing | A carrier's token used against banking directly | Carrier tokens have no `banking-service` audience (ADR 0016) | `KeycloakRealmIntegrationTest.aCarrierTokenNamesTheGatewayAndLogisticsButNeverBanking` |
-| Elevation of privilege | BOLA: a customer changes an id to reach another tenant's object | Ownership checked on the loaded object; foreign is 404 (ADR 0018) | both `AuthorisationMatrixTest`s (231 cases) |
+| Elevation of privilege | BOLA: a customer changes an id to reach another tenant's object | Ownership checked on the loaded object; foreign is 404 (ADR 0018) | both `AuthorisationMatrixTest`s (299 cases) |
 | Information disclosure | Lists include other tenants' shipments | Visibility in the query | `AuthorisationMatrixTest.listsOnlyShowWhatTheCallerMaySee` |
 | Tampering | Idempotency key reuse across tenants returns another tenant's response | Keys scoped to the caller (ADR 0020) | `AuthorisationMatrixTest.sameKeyFromTwoTenantsIs...` (both services) |
 | Denial of service | Keycloak down makes services answer 500 or 401 | 503 `issuer-unavailable` when keys cannot be fetched | `IssuerOutageTest`; `IssuerOutageFilter` in both services |
@@ -82,3 +82,24 @@ Residual: one database user per service owns its schema; separate migration and 
 
 Residual: Keycloak's admin console is reachable on 8180 locally; production exposes only the realm's public
 endpoints and keeps the admin console on an internal network.
+
+## 6. Insider misuse (staff with valid credentials)
+
+The boundaries above stop outsiders. These threats come from someone who legitimately holds an operator login, or
+who has taken over one session.
+
+| STRIDE | Threat | Control | Proof |
+| --- | --- | --- | --- |
+| Elevation of privilege | One operator creates money: a deposit from CLEARING into an account they control | Deposits are four-eyes: requested by one operator, posted only by a different operator's approval (ADR 0021) | `ApprovalIntegrationTest.aDepositPostsOnlyWhenASecondOperatorApprovesItAndRecordsBoth`; matrix rows `POST approval` |
+| Elevation of privilege | One operator moves a customer's money out with a transfer | Operators may not `POST /transfers`; only the owning customer moves its money (ADR 0021) | matrix rows `POST transfer from account`, `POST transfer with fx quote` (operator 403) |
+| Tampering | One operator reverses a legitimate entry, or a whole day's | Reversals are four-eyes; one open reversal per entry | `ApprovalIntegrationTest.aRequestIsCheckedBeforeAnyoneIsAskedToApproveIt` |
+| Tampering | A code path or a direct SQL session posts a deposit or reversal without approval | `trg_journal_entries_require_approval`; `chk_approval_four_eyes`; `journal_entries.approval_id` unique | `ApprovalIntegrationTest.theDatabaseRefusesWhatTheServiceWouldNeverDo` |
+| Tampering | Two checkers race and post one approval twice | Row lock on the request, unique `approval_id` | `ApprovalIntegrationTest.twoCheckersApprovingAtOnceProduceExactlyOneEntry` |
+| Repudiation | Maker or checker denies their part | Both recorded with subject, client and request id; the entry's actor is the checker, its approval the maker | `AuthorisationMatrixTest.everyMoneyMovementRecordsWhoMadeItAndOnlyStaffSeeIt` |
+| Denial of service | A stale request is approved days later, after the facts changed | Requests expire (24 h); an expired request cannot be approved | `ApprovalIntegrationTest.anUnansweredRequestExpiresAndCanNoLongerBeApproved` |
+| Elevation of privilege | An auditor changes something | Auditors read approvals and the ledger, decide nothing | matrix: auditor 403 on every POST |
+
+Residual: two colluding operators, or one person with two operator logins, defeat any four-eyes control. Each person
+gets one account (an organisational control); a Phase 5 alert flags a pair of operators who approve each other far
+more than the rest. A Keycloak realm administrator can create operator accounts and is outside this model; production
+restricts the admin console (section 5).

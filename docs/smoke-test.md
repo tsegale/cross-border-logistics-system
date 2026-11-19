@@ -59,13 +59,21 @@ curl -s -H "$CUSTOMER" "${GATEWAY}/api/v1/accounts/${NAD_ACC}"          # 200, o
 curl -s -H "$OTHER_CUSTOMER" "${GATEWAY}/api/v1/accounts/${NAD_ACC}"    # 404 account-not-found (ADR 0018)
 ```
 
-## 3. Deposits (operator), FX and a transfer (customer)
+## 3. Deposits (four eyes), FX and a transfer (customer)
+
+A deposit is requested by one operator and posted only when a different operator approves it (ADR 0021).
 
 ```bash
-curl -s -X POST -H "$OPERATOR" -H "Content-Type: application/json" -H "Idempotency-Key: dep-${RUN_ID}" \
-  "${GATEWAY}/api/v1/accounts/${NAD_ID}/deposits" -d '{"amount":100000.00,"currency":"NAD","reference":"DEP"}'
-curl -s -X POST -H "$OPERATOR" -H "Content-Type: application/json" -H "Idempotency-Key: dep-eur-${RUN_ID}" \
-  "${GATEWAY}/api/v1/accounts/${EUR_ID}/deposits" -d '{"amount":5000.00,"currency":"EUR","reference":"DEP"}'
+CHECKER="Authorization: Bearer $(scripts/token.sh second-operator)"
+REQ=$(curl -s -X POST -H "$OPERATOR" -H "Content-Type: application/json" -H "Idempotency-Key: dep-${RUN_ID}" \
+  "${GATEWAY}/api/v1/approvals" \
+  -d "{\"kind\":\"DEPOSIT\",\"account\":\"${NAD_ACC}\",\"amount\":100000.00,\"currency\":\"NAD\",\"reference\":\"DEP\"}")
+APPROVAL=$(echo "$REQ" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')   # status PENDING
+curl -s -X POST -H "$OPERATOR" -H "Idempotency-Key: self-${RUN_ID}" \
+  "${GATEWAY}/api/v1/approvals/${APPROVAL}/approval"          # 403 four-eyes-required
+curl -s -X POST -H "$CHECKER" -H "Idempotency-Key: approve-${RUN_ID}" \
+  "${GATEWAY}/api/v1/approvals/${APPROVAL}/approval"          # 200 APPROVED, postedEntryId
+# The EUR account is funded the same way.
 
 QUOTE=$(curl -s -X POST -H "$CUSTOMER" -H "Content-Type: application/json" "${GATEWAY}/api/v1/fx-quotes" \
   -d '{"sellCurrency":"NAD","buyCurrency":"EUR","sellAmount":20000.00}')      # buyAmount 995.00
