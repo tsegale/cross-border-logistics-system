@@ -1,6 +1,8 @@
 package com.freightflow.banking.support;
 
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -21,8 +23,19 @@ public final class SharedContainers {
             .withCommand("postgres", "-c", "max_connections=400")
             .withStartupTimeout(STARTUP_TIMEOUT);
 
+    /** The broker as compose runs it, SCRAM and ACLs included (ADR 0022); banking logs in as its own user. */
+    public static final KafkaBroker KAFKA = new KafkaBroker();
+
     static {
         POSTGRES.start();
+        KAFKA.start();
+    }
+
+    @DynamicPropertySource
+    static void kafka(DynamicPropertyRegistry registry) {
+        registry.add("spring.kafka.bootstrap-servers", KAFKA::bootstrapServers);
+        registry.add("KAFKA_USERNAME", () -> "banking");
+        registry.add("freightflow.kafka.password", () -> KAFKA.password("banking"));
     }
 
     private SharedContainers() {

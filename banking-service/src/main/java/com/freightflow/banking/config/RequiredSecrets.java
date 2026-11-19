@@ -19,7 +19,8 @@ import java.util.List;
 public class RequiredSecrets implements EnvironmentPostProcessor, Ordered {
 
     static final List<String> REQUIRED = List.of(
-            "spring.datasource.password");
+            "spring.datasource.password",
+            "freightflow.kafka.password");
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
@@ -28,7 +29,7 @@ public class RequiredSecrets implements EnvironmentPostProcessor, Ordered {
         }
         List<String> missing = REQUIRED.stream().filter(key -> !StringUtils.hasText(environment.getProperty(key))).toList();
         if (!missing.isEmpty()) {
-            throw new IllegalStateException("Missing secrets " + missing + ": mount secrets/banking_db_password (compose secret) or set BANKING_DB_PASSWORD. There are no defaults.");
+            throw new IllegalStateException("Missing secrets " + missing + ": mount secrets/banking_db_password and secrets/kafka_banking_password (compose secrets, the second as kafka_password), or set BANKING_DB_PASSWORD and KAFKA_PASSWORD. There are no defaults.");
         }
     }
 

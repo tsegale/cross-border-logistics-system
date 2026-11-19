@@ -118,7 +118,11 @@ class BankingFaultInjectionTest {
                 "BANKING_DB_USER", BANKING_DB.getUsername(),
                 "BANKING_DB_PASSWORD", BANKING_DB.getPassword(),
                 "KEYCLOAK_ISSUER_URI", com.freightflow.logistics.support.RealmKeycloak.ISSUER,
-                "KEYCLOAK_JWK_SET_URI", "http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs"));
+                "KEYCLOAK_JWK_SET_URI", "http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs",
+                // No broker on this network: banking starts without one, as it does when Kafka is down (ADR 0022).
+                // The faults under test are on HTTP; nothing listens on port 9.
+                "KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:9",
+                "KAFKA_PASSWORD", "no-broker-here"));
         BANKING.start();
         TOXIPROXY.start();
         try {

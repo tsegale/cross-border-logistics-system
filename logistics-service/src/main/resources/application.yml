@@ -39,6 +39,17 @@ spring:
     hibernate:
       # Flyway owns the schema; Hibernate only checks that the entities match it.
       ddl-auto: validate
+  # Its own SCRAM user on the broker; the ACLs let it write only its own topics (ADR 0022).
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    security:
+      protocol: SASL_PLAINTEXT
+    properties:
+      sasl.mechanism: SCRAM-SHA-512
+      sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_USERNAME:logistics}" password="${freightflow.kafka.password}";
+    admin:
+      # The service starts without the broker (events wait in the outbox); a slow broker delays it at most this long.
+      operation-timeout: 10s
   flyway:
     enabled: true
   mvc:
@@ -69,6 +80,11 @@ freightflow:
       - "/api/v1/quotes"
       - "/api/v1/payment-commands"
   # Who signs the tokens logistics accepts (ADRs 0016, 0017). No default issuer: logistics does not start without one.
+  kafka:
+    # From the compose secret kafka_password (its own, ADR 0022) or the environment; no default (ADR 0019).
+    password: ${kafka_password:${KAFKA_PASSWORD:}}
+    # 1 on the single local broker; 3 in a real cluster, with min.insync.replicas 2.
+    replication-factor: ${KAFKA_REPLICATION_FACTOR:1}
   security:
     issuer-uri: ${KEYCLOAK_ISSUER_URI:}
     jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
@@ -161,6 +177,9 @@ management:
 
 # JSON on stdout.
 logging:
+  level:
+    # The Kafka clients log their whole configuration at INFO on every connect.
+    org.apache.kafka: WARN
   structured:
     format:
       console: ecs
