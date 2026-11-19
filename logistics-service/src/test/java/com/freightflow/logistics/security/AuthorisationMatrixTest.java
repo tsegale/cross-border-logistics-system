@@ -28,6 +28,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import static com.freightflow.logistics.support.LogisticsFixtures.JSON;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -219,7 +220,10 @@ class AuthorisationMatrixTest extends IntegrationTest {
                 .willReturn(com.freightflow.logistics.support.BankingStubs.respond(com.freightflow.logistics.support.BankingStubs.HOLD_CREATED)));
         relay.relayOnce();
 
-        List<LoggedRequest> holds = BankingStub.SERVER.findAll(postRequestedFor(urlPathEqualTo("/api/v1/holds")));
+        // The relay sends every due command in the shared database, not only this test's: pick out this shipment's.
+        List<LoggedRequest> holds = BankingStub.SERVER.findAll(postRequestedFor(urlPathEqualTo("/api/v1/holds"))
+                .withHeader("Idempotency-Key", equalTo("shipment-" + fixture.shipment() + "-authorise")));
+        assertThat(holds).isNotEmpty();
         JsonNode body = JSON.readTree(holds.getLast().getBodyAsString());
         assertThat(body.get("payerOrganizationId").asString()).isEqualTo(TestCallers.NAMIB.toString());
         assertThat(body.get("onBehalfOfSubject").asString()).isEqualTo(TestCallers.CUSTOMER_NAMIB.subject());
