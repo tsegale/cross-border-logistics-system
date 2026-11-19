@@ -23,6 +23,11 @@ concurrency:
 permissions:
   contents: read
 
+# bash -eo pipefail: a harness piped into tee must fail the step when it fails.
+defaults:
+  run:
+    shell: bash
+
 env:
   K6_VERSION: v2.3.0
   COMPOSE: docker compose -f docker-compose.yml -f benchmarks/compose.bench.yml
@@ -78,7 +83,7 @@ jobs:
         env:
           BENCH_ROUNDS: ${{ inputs.rounds }}
           BENCH_SWITCH_ENV: SYSTEM_ACCOUNT_POSTING_MODE
-          BENCH_SWITCH_INFO: transfer.systemPostingMode
+          BENCH_SWITCH_INFO: ledger.systemPostingMode
           BENCH_STRATEGIES: locked,unlocked,sharded
           BENCH_WORKLOADS: deposits,fx_transfers
         run: |
@@ -93,13 +98,23 @@ jobs:
         run: |
           mkdir -p benchmarks/out/payment-flow
           # Warm-up, discarded: the first run after a start measures the JIT, not the relay.
-          tokens() { printf -- '-e OPERATOR_TOKEN=%s -e CHECKER_TOKEN=%s -e CUSTOMER_TOKEN=%s' "$(scripts/token.sh operator)" "$(scripts/token.sh second-operator)" "$(scripts/token.sh customer-namib-exports)"; }
-          k6 run -q $(tokens) -e VUS=4 -e ITERATIONS_PER_VU=10 -e RUN_TAG="warmup-$GITHUB_RUN_ID" benchmarks/k6/payment_flow.js
+          # Fresh tokens for each run (they live 5 minutes); a token that cannot be fetched fails the step.
+          tokens() {
+            local operator checker customer
+            operator="$(scripts/token.sh operator)" || return 1
+            checker="$(scripts/token.sh second-operator)" || return 1
+            customer="$(scripts/token.sh customer-namib-exports)" || return 1
+            printf -- '-e OPERATOR_TOKEN=%s -e CHECKER_TOKEN=%s -e CUSTOMER_TOKEN=%s' "$operator" "$checker" "$customer"
+          }
+          args="$(tokens)"
+          k6 run -q $args -e VUS=4 -e ITERATIONS_PER_VU=10 -e RUN_TAG="warmup-$GITHUB_RUN_ID" benchmarks/k6/payment_flow.js
           for vus in 8 16; do
-            k6 run -q $(tokens) -e VUS=$vus -e ITERATIONS_PER_VU=25 -e RUN_TAG="run-$GITHUB_RUN_ID-$vus" \
+            args="$(tokens)"
+            k6 run -q $args -e VUS=$vus -e ITERATIONS_PER_VU=25 -e RUN_TAG="run-$GITHUB_RUN_ID-$vus" \
               -e SUMMARY_FILE="benchmarks/out/payment-flow/payment-$vus.json" benchmarks/k6/payment_flow.js
           done
-          curl -fsS -H "Authorization: Bearer $(scripts/token.sh operator)" http://127.0.0.1:8080/api/v1/ledger/reconciliation \
+          operator="$(scripts/token.sh operator)"
+          curl -fsS -H "Authorization: Bearer $operator" http://127.0.0.1:8080/api/v1/ledger/reconciliation \
             | tee benchmarks/out/payment-flow/reconciliation.json
           grep -q '"balanced":true' benchmarks/out/payment-flow/reconciliation.json
 
