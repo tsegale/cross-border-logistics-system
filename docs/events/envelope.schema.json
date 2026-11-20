@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightflow.dev/events/envelope.schema.json",
+  "title": "FreightFlow event envelope",
+  "description": "Every event on every freightflow.<aggregate>.v<n> topic (ADR 0023). The record key is aggregateId; the headers repeat eventId, type, schemaVersion, aggregateId and sequence.",
+  "type": "object",
+  "required": [
+    "eventId",
+    "type",
+    "schemaVersion",
+    "occurredAt",
+    "aggregateId",
+    "sequence",
+    "actor",
+    "requestId",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": {
+      "description": "UUIDv7, unique per event. Consumers deduplicate on it.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "type": {
+      "description": "<aggregate>.<what happened>, e.g. hold.captured.",
+      "type": "string",
+      "pattern": "^[a-z]+(-[a-z]+)*\\.[a-z]+(-[a-z]+)*$"
+    },
+    "schemaVersion": {
+      "description": "Version of this type's schema within its topic version. An additive change raises it; a breaking change needs a new topic (ADR 0023).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurredAt": {
+      "description": "When the change committed in the producer's database.",
+      "$ref": "common.schema.json#/$defs/instant"
+    },
+    "aggregateId": {
+      "description": "The aggregate the event is about; also the Kafka record key.",
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "sequence": {
+      "description": "1, 2, 3, ... per aggregate, without gaps, in commit order. A consumer that has applied n treats anything at or below n as stale.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "actor": {
+      "description": "Who caused the event (ADR 0020), or null for a scheduled job such as hold expiry.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "subject",
+            "clientId",
+            "organizationId"
+          ],
+          "properties": {
+            "subject": {
+              "description": "The token's subject: an opaque Keycloak id, never a name or an email (ADR 0024).",
+              "x-pseudonymous": true,
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 64
+            },
+            "clientId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 64
+            },
+            "organizationId": {
+              "oneOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "requestId": {
+      "description": "X-Request-Id of the request behind the event (ADR 0015); for an outcome of a logistics payment command, the command's key; null for a scheduled job.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 128
+    },
+    "payload": {
+      "type": "object"
+    }
+  }
+}

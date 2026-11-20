@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightflow.dev/events/shipment.booked.schema.json",
+  "title": "shipment.booked",
+  "description": "A customer booked a shipment from a quote. It awaits payment: banking is asked for a hold in the same transaction (ADR 0012). Shipper and consignee names, addresses and contacts stay in logistics (ADR 0024).",
+  "x-topic": "freightflow.shipment.v1",
+  "x-producer": "logistics-service",
+  "x-consumers": [
+    "notification-service"
+  ],
+  "$ref": "envelope.schema.json",
+  "properties": {
+    "type": {
+      "const": "shipment.booked"
+    },
+    "schemaVersion": {
+      "enum": [
+        1
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shipmentId",
+        "trackingNumber",
+        "organizationId",
+        "payerOrganizationId",
+        "quoteId",
+        "origin",
+        "destination",
+        "mode",
+        "incoterm",
+        "status",
+        "paymentStatus",
+        "quotedTotal",
+        "chargeableWeightKg",
+        "plannedPickupDate"
+      ],
+      "properties": {
+        "shipmentId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "trackingNumber": {
+          "description": "The public tracking number, printed on the waybill.",
+          "type": "string",
+          "pattern": "^FF-[0-9A-HJKMNP-TV-Z]{8}-[0-9A-HJKMNP-TV-Z]$"
+        },
+        "organizationId": {
+          "description": "The organisation that booked.",
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "payerOrganizationId": {
+          "description": "The organisation that pays.",
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "quoteId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "origin": {
+          "$ref": "common.schema.json#/$defs/unlocode"
+        },
+        "destination": {
+          "$ref": "common.schema.json#/$defs/unlocode"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "SEA_LCL",
+            "AIR"
+          ]
+        },
+        "incoterm": {
+          "type": "string",
+          "enum": [
+            "EXW",
+            "FCA",
+            "DAP",
+            "DDP"
+          ]
+        },
+        "status": {
+          "$ref": "common.schema.json#/$defs/shipmentStatus"
+        },
+        "paymentStatus": {
+          "$ref": "common.schema.json#/$defs/paymentStatus"
+        },
+        "quotedTotal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "amount",
+            "currency"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "common.schema.json#/$defs/amount"
+            },
+            "currency": {
+              "$ref": "common.schema.json#/$defs/currency"
+            }
+          }
+        },
+        "chargeableWeightKg": {
+          "$ref": "common.schema.json#/$defs/amount"
+        },
+        "plannedPickupDate": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/localDate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "eventId": "0193a5b2-7c4f-7e2b-a04c-3d6e9f2a5b7c",
+      "type": "shipment.booked",
+      "schemaVersion": 1,
+      "occurredAt": "2026-11-20T08:20:13.870Z",
+      "aggregateId": "0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b",
+      "sequence": 1,
+      "actor": {
+        "subject": "6a1f0c2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b",
+        "clientId": "freightflow-web",
+        "organizationId": "0b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091"
+      },
+      "requestId": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+      "payload": {
+        "shipmentId": "0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b",
+        "trackingNumber": "FF-0000004D-K",
+        "organizationId": "0b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091",
+        "payerOrganizationId": "0b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091",
+        "quoteId": "0193a5b0-0f1e-7d2c-9b3a-4c5d6e7f8091",
+        "origin": "NAWVB",
+        "destination": "DEHAM",
+        "mode": "SEA_LCL",
+        "incoterm": "FCA",
+        "status": "AWAITING_PAYMENT",
+        "paymentStatus": "AUTHORISATION_PENDING",
+        "quotedTotal": {
+          "amount": "1840.5000",
+          "currency": "EUR"
+        },
+        "chargeableWeightKg": "1250.0000",
+        "plannedPickupDate": "2026-11-25"
+      }
+    }
+  ]
+}
