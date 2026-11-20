@@ -1,6 +1,7 @@
 package com.freightflow.logistics.payment;
 
 import com.freightflow.logistics.common.UuidV7;
+import com.freightflow.logistics.outbox.OutboxClaims;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -25,11 +26,17 @@ import java.util.UUID;
 @Component
 public class PaymentCommands {
 
+    /** Commands of one shipment need no order between them: each is enqueued only after the one it follows. */
+    public static final OutboxClaims.Table TABLE =
+            OutboxClaims.Table.unordered("shipment_payments", "{row}.status = 'PENDING'");
+
     private final JdbcTemplate jdbcTemplate;
+    private final OutboxClaims claims;
     private final Clock clock;
 
-    public PaymentCommands(JdbcTemplate jdbcTemplate, Clock clock) {
+    public PaymentCommands(JdbcTemplate jdbcTemplate, OutboxClaims claims, Clock clock) {
         this.jdbcTemplate = jdbcTemplate;
+        this.claims = claims;
         this.clock = clock;
     }
 
@@ -83,27 +90,12 @@ public class PaymentCommands {
     }
 
     /**
-     * Claims up to {@code limit} due commands for this relay: {@code FOR UPDATE SKIP LOCKED} lets several instances
-     * claim side by side without blocking or picking the same row, and pushing {@code next_attempt_at} out by the
-     * lease keeps the row away from other relays while the HTTP call runs outside any transaction. If this
-     * instance dies mid-call, the lease runs out and another relay sends the command again, with the same key.
+     * Claims up to {@code limit} due commands for this relay, leased (ADR 0025, {@link OutboxClaims}): the HTTP call
+     * runs outside any transaction, and if this instance dies mid-call, the lease runs out and another relay sends
+     * the command again, with the same key.
      */
-    @Transactional
     public List<UUID> claimDue(int limit, Duration lease) {
-        Instant now = clock.instant();
-        return jdbcTemplate.queryForList("""
-                UPDATE shipment_payments
-                SET next_attempt_at = ?, attempts = attempts + 1, updated_at = ?
-                WHERE id IN (
-                    SELECT id FROM shipment_payments
-                    WHERE status = 'PENDING' AND next_attempt_at <= ?
-                    ORDER BY next_attempt_at
-                    LIMIT ?
-                    FOR UPDATE SKIP LOCKED
-                )
-                RETURNING id
-                """, UUID.class,
-                Timestamp.from(now.plus(lease)), Timestamp.from(now), Timestamp.from(now), limit);
+        return claims.claim(TABLE, limit, lease, "id", (rs, row) -> rs.getObject("id", UUID.class));
     }
 
     /** Gives back an attempt that never reached banking (circuit open or bulkhead full): it was not a real try. */

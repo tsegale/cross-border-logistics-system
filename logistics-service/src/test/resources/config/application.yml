@@ -4,6 +4,10 @@ freightflow:
   # On only in WarmUpIntegrationTest: elsewhere its requests would land in the stubs' request journals.
   warm-up:
     enabled: false
+  # Tests that publish drive EventRelay.relayOnce() themselves, so nothing races them for the outbox.
+  events:
+    outbox:
+      relay-enabled: false
   # Testcontainers provides the connections; RequiredSecretsTest checks the real rule.
   secrets:
     required: false

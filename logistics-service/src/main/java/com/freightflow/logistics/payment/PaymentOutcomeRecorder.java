@@ -1,5 +1,8 @@
 package com.freightflow.logistics.payment;
 
+import com.freightflow.logistics.events.LogisticsEvents;
+import com.freightflow.logistics.outbox.Backoff;
+import com.freightflow.logistics.shipment.ShipmentStatus;
 import com.freightflow.logistics.shipment.Shipment;
 import com.freightflow.logistics.shipment.ShipmentRepository;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -14,7 +17,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Records the outcome of one attempt and moves the shipment on (ADR 0012), in one transaction. A tracking event
@@ -30,11 +32,13 @@ public class PaymentOutcomeRecorder {
     private final ShipmentRepository shipments;
     private final PaymentProperties properties;
     private final MeterRegistry meters;
+    private final LogisticsEvents events;
     private final Clock clock;
 
     public PaymentOutcomeRecorder(PaymentCommandRepository commands, PaymentCommands outbox,
                                   ShipmentRepository shipments, PaymentProperties properties, MeterRegistry meters,
-                                  Clock clock) {
+                                  LogisticsEvents events, Clock clock) {
+        this.events = events;
         this.commands = commands;
         this.outbox = outbox;
         this.shipments = shipments;
@@ -66,6 +70,7 @@ public class PaymentOutcomeRecorder {
     private String succeeded(PaymentCommand command, PaymentOutcome.Succeeded ok, Instant now) {
         command.succeed(ok.holdId(), now);
         Shipment shipment = shipment(command);
+        ShipmentStatus previous = shipment.getStatus();
         switch (command.getCommand()) {
             case AUTHORISE -> {
                 if (shipment.paymentAuthorised(ok.holdId(), ok.holdExpiresAt(), now)) {
@@ -82,6 +87,9 @@ public class PaymentOutcomeRecorder {
                 }
             }
         }
+        // Flushed first: the shipment row is locked before the event sequence row, as on every other path.
+        shipments.flush();
+        events.statusChanged(shipment, previous, null, null);
         log.info("{} for shipment {} succeeded (hold {}, attempt {})", command.getCommand(), shipment.getId(),
                 ok.holdId(), command.getAttempts());
         return "succeeded";
@@ -90,11 +98,16 @@ public class PaymentOutcomeRecorder {
     private String refused(PaymentCommand command, PaymentOutcome.Refused no, Instant now) {
         command.fail(no.problemType(), no.detail(), now);
         Shipment shipment = shipment(command);
+        ShipmentStatus previous = shipment.getStatus();
         if (command.getCommand() == PaymentCommandType.AUTHORISE) {
             shipment.paymentRefused(no.problemType(), no.detail(), now);
         } else {
             shipment.paymentSettlementFailed(no.problemType(), no.detail(), now);
         }
+        shipments.flush();
+        events.statusChanged(shipment, previous, null, null);
+        events.paymentFailed(shipment, command.getCommand(), no.problemType(), command.getAmount(),
+                command.getCurrency(), null);
         log.warn("{} for shipment {} refused by banking: {} {}", command.getCommand(), shipment.getId(),
                 no.problemType(), no.detail());
         return "refused";
@@ -114,11 +127,8 @@ public class PaymentOutcomeRecorder {
         return "unknown";
     }
 
-    /** Exponential backoff with full jitter: base x 2^(attempt-1), capped, then a random point in [cap/2, cap]. */
     Duration backoff(int attempt) {
-        long base = properties.retryBackoff().toMillis();
-        long cap = Math.min(properties.maxRetryBackoff().toMillis(), base << Math.min(Math.max(attempt - 1, 0), 20));
-        return Duration.ofMillis(cap / 2 + ThreadLocalRandom.current().nextLong(cap / 2 + 1));
+        return new Backoff(properties.retryBackoff(), properties.maxRetryBackoff()).after(attempt);
     }
 
     private Shipment shipment(PaymentCommand command) {
