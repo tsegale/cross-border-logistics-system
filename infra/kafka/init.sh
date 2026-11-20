@@ -39,16 +39,23 @@ for service in banking logistics notification; do
   echo "kafka-init: user ${service}"
 done
 
-declare -A OWNED CONSUMED CONSUMER_GROUP
+# A name ending in * is a prefix: it covers every topic or group that starts with it (retry topics, ADR 0026).
+declare -A OWNED_LITERAL OWNED_PREFIXED READ_LITERAL READ_PREFIXED GROUP_LITERAL GROUP_PREFIXED
+pattern() { [[ "$1" == *\* ]] && echo PREFIXED || echo LITERAL; }
 while read -r kind topic owner consumers; do
   [[ -z "${kind}" || "${kind}" == \#* ]] && continue
   [[ "${kind}" == topic ]] || { echo "kafka-init: unknown line '${kind} ${topic}'" >&2; exit 1; }
-  OWNED[$owner]+=" --topic ${topic}"
+  declare -n owned="OWNED_$(pattern "$topic")" readers="READ_$(pattern "$topic")"
+  owned[$owner]+=" --topic ${topic%\*}"
   for consumer in ${consumers}; do
     principal="${consumer%%:*}"
-    CONSUMED[$principal]+=" --topic ${topic}"
-    CONSUMER_GROUP[$principal]="${consumer#*:}"
+    group="${consumer#*:}"
+    readers[$principal]+=" --topic ${topic%\*}"
+    declare -n groups="GROUP_$(pattern "$group")"
+    [[ " ${groups[$principal]:-} " == *" --group ${group%\*} "* ]] || groups[$principal]+=" --group ${group%\*}"
+    unset -n groups
   done
+  unset -n owned readers
 done < "$ACLS"
 
 acl() {
@@ -56,16 +63,24 @@ acl() {
   "$BIN/kafka-acls.sh" --bootstrap-server "$BOOTSTRAP" --command-config "$ADMIN_CONFIG" --add $@ > /dev/null
 }
 
-for owner in "${!OWNED[@]}"; do
-  # shellcheck disable=SC2086
-  acl --allow-principal "User:${owner}" ${OWNED[$owner]} \
-    --operation Create --operation Describe --operation DescribeConfigs --operation AlterConfigs --operation Write
-  echo "kafka-init: ${owner} owns${OWNED[$owner]//--topic/}"
-done
-for consumer in "${!CONSUMED[@]}"; do
-  # shellcheck disable=SC2086
-  acl --allow-principal "User:${consumer}" ${CONSUMED[$consumer]} --operation Read --operation Describe
-  acl --allow-principal "User:${consumer}" --group "${CONSUMER_GROUP[$consumer]}" --operation Read --operation Describe
-  echo "kafka-init: ${consumer} reads${CONSUMED[$consumer]//--topic/} as group ${CONSUMER_GROUP[$consumer]}"
+for type in LITERAL PREFIXED; do
+  declare -n owned="OWNED_${type}" readers="READ_${type}" groups="GROUP_${type}"
+  pattern_type="--resource-pattern-type ${type,,}"
+  for owner in "${!owned[@]}"; do
+    # shellcheck disable=SC2086
+    acl ${pattern_type} --allow-principal "User:${owner}" ${owned[$owner]}       --operation Create --operation Describe --operation DescribeConfigs --operation AlterConfigs --operation Write
+    echo "kafka-init: ${owner} owns (${type,,})${owned[$owner]//--topic/}"
+  done
+  for consumer in "${!readers[@]}"; do
+    # shellcheck disable=SC2086
+    acl ${pattern_type} --allow-principal "User:${consumer}" ${readers[$consumer]} --operation Read --operation Describe
+    echo "kafka-init: ${consumer} reads (${type,,})${readers[$consumer]//--topic/}"
+  done
+  for consumer in "${!groups[@]}"; do
+    # shellcheck disable=SC2086
+    acl ${pattern_type} --allow-principal "User:${consumer}" ${groups[$consumer]} --operation Read --operation Describe
+    echo "kafka-init: ${consumer} uses groups (${type,,})${groups[$consumer]//--group/}"
+  done
+  unset -n owned readers groups
 done
 echo "kafka-init: done"
