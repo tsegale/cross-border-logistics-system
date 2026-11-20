@@ -7,7 +7,7 @@ settles through an internal double-entry ledger with accounts in `NAD`, `ZAR` an
 Java 21, Spring Boot 4.1, Spring Cloud Gateway, PostgreSQL 17, Kafka, Docker. Built in phases; each phase ships
 with tests, CI, architecture decision records and measured numbers.
 
-> **Status:** Phase 3 complete: every request carries a Keycloak identity, the gateway and each service validate it, and every endpoint checks that the caller may touch that specific account, hold or shipment. Phase 2 paid for shipments through an authorise, capture and release saga; Phase 1 built the double-entry ledger, transfers and FX (`banking-service`) and quotes, shipments and tracking (`logistics-service`).
+> **Status:** Phase 4 complete: banking and logistics publish their changes as events through transactional outboxes, logistics heals holds banking expired, and notification-service emails customers in German or English, once per event. Phase 3 gave every request a Keycloak identity checked by the gateway and each service, object by object; Phase 2 paid for shipments through an authorise, capture and release saga; Phase 1 built the ledger, transfers and FX (`banking-service`) and quotes, shipments and tracking (`logistics-service`).
 
 ## Architecture
 
@@ -24,8 +24,98 @@ with tests, CI, architecture decision records and measured numbers.
               ┌──────▼──────┐           ┌──────▼──────┐
               │ banking-db  │           │ logistics-db│     one PostgreSQL per service (ADR 0001)
               └─────────────┘           └─────────────┘
-                     │   outbox → Kafka (KRaft) → notification-service :8083   (Phase 4)
+                     │                         │
+                     └── outbox ──▶ Kafka (KRaft, SCRAM, ACLs) ◀── outbox ──┘
+                                        │            │
+                                        │            └──▶ logistics (hold.expired, hold.captured)
+                                        ▼
+                          notification-service :8083 ──SMTP──▶ Mailpit     (Phase 4; own Postgres)
 ```
+
+## Phase 4: events
+
+banking and logistics now tell the rest of the system what happened, and notification-service emails customers about
+it in German or English. Nothing is lost when the broker or a relay dies, and no customer gets the same email twice.
+
+```mermaid
+flowchart LR
+    subgraph logistics-service
+      LS[booking, cancellation,<br/>tracking, payment outcome] -->|same transaction| LO[(event_outbox)]
+      LO --> LR[relay]
+      HC[hold events consumer] -->|REAUTHORISE| PC[(payment outbox)]
+    end
+    subgraph banking-service
+      BS[hold, capture, release,<br/>expiry, journal entry,<br/>approval] -->|same transaction| BO[(event_outbox)]
+      BO --> BR[relay]
+    end
+    LR -->|acks=all, idempotent| T1[[freightflow.shipment.v1]]
+    BR -->|acks=all, idempotent| T2[[freightflow.hold.v1]]
+    BR --> T3[[account / journal-entry /<br/>approval .v1]]
+    T2 -->|group logistics-service| HC
+    T1 -->|group notification-service| N[notification-service]
+    T2 -->|group notification-service| N
+    N -->|retry topics, then DLT| N
+    N -->|SMTP| M[(Mailpit)]
+```
+
+- **Contracts** (ADR 0023). One envelope for every event (UUIDv7 `eventId`, per-aggregate `sequence`, actor, request
+  id) and a JSON Schema per type in [`docs/events/`](docs/events/), catalogued in [`docs/events.md`](docs/events.md).
+  Producer tests validate every event the services write; consumer tests deserialise every example; CI refuses a
+  schema change that is not compatible with `main`. JSON Schema in the repository over Avro on a registry, for the
+  reasons in the ADR.
+- **No personal data in events** (ADR 0024). Ids, amounts, states and codes only: a retained, replayed log is out of
+  reach of an erasure request. A schema that marks or names personal data fails the build.
+- **Transactional outbox** (ADR 0025) in both services: the event row commits with the change; a polling relay
+  publishes with an idempotent `acks=all` producer, one event per aggregate in flight (order kept across instances),
+  marks rows only after the acknowledgement and prunes them after seven days. logistics' payment commands and its
+  events share one claim mechanism. Tested against a real broker: paused, a relay dying between send and mark, four
+  relays racing.
+- **logistics reacts to what banking did on its own** (ADR 0028): an expired hold on a shipment waiting for pickup is
+  re-authorised; a capture logistics never asked for raises an alert metric. Payment commands stay HTTP.
+- **notification-service** (ADR 0026, ADR 0027): its own Postgres; settings and history per organisation
+  (`/api/v1/notification-settings`, `/api/v1/notifications`, through the gateway, matrix-tested); processed events by
+  id; non-blocking retry topics, a dead-letter topic, and `/api/v1/dead-letters` to list and redrive (the operator is
+  recorded); stale status events dropped by `sequence`; an email is sent at most once, even if its sender crashes.
+- **Operations**: outbox backlog, age and lag, consumer lag, dead letters, emails sent and failed, each with the
+  condition that should page someone ([`docs/operations.md`](docs/operations.md)).
+
+### What it guarantees, and how it is tested
+
+| Guarantee | Test |
+| --- | --- |
+| Every event matches its schema and carries no personal data | `EventContractIntegrationTest` (banking, logistics), `EventSchemaFilesTest`, `theBookingEventCarriesNothingOfTheParties`, CI "Event schemas stay compatible" |
+| An event exists if and only if its change committed | the outbox row is written in the change's transaction; a replayed request writes no second event (`aReplayedRequestWritesNoSecondEvent`) |
+| Broker down: events wait, nothing is lost, order holds | `eventsWaitWhileTheBrokerIsDownAndAllArriveInOrderOnceItIsBack` (paused broker, both services) |
+| A relay that dies after sending sends again, never skips | `aRelayThatDiesBeforeMarkingSendsTheEventAgainAndNeverSkipsOne` |
+| Racing relays keep every aggregate in order | `relaysRacingOnSeveralInstancesKeepEveryAggregateInOrder` (4 relays, 64 events) |
+| A duplicate event changes nothing | `aRedeliveredExpiryChangesNothingTheSecondTime`, `aReplayedEventSendsNoSecondEmail`, CI smoke test |
+| An expired hold before pickup is re-authorised | `anExpiredHoldOfAShipmentAwaitingPickupIsAuthorisedAgain` |
+| A failing event is retried, dead-lettered and redriven | `aHoldEventForAnUnknownShipmentIsRetriedThenDeadLetteredAndRedrivenOnceTheShipmentIsKnown` |
+| An email is never sent twice | `anEmailWhoseSenderDiedWhileSendingIsNeverSentAgain`, unique `(event_id, recipient)` |
+
+### Example email
+
+Rendered from the templates for a booking by Hanseatic Imports (the CI smoke test waits for this subject in Mailpit):
+
+```
+Subject: Sendung gebucht: FF-00010003-0
+
+Guten Tag,
+
+Ihre Sendung FF-00010003-0 von NAWVB nach DEHAM ist gebucht. Der Frachtbetrag wird auf Ihrem Konto reserviert
+und erst bei Abholung belastet.
+
+Sendungsnummer: FF-00010003-0
+Strecke: NAWVB → DEHAM
+Betrag: 524,75 €
+Geplante Abholung: 27.11.2026
+
+Mit freundlichen Grüßen
+Ihr FreightFlow-Team
+```
+
+The same email for an English-speaking organisation says `Amount: €524.75` and `Planned pickup: 27 Nov 2026`; both
+are also sent as HTML.
 
 ## Phase 3: every request has an identity
 
@@ -367,8 +457,8 @@ Integration tests start their own PostgreSQL 17 in Testcontainers, so Docker mus
 | 1 | Ledger and shipments core: double-entry ledger, idempotent transfers, FX quotes, freight quotes, shipment state machine | Done |
 | 2 | Settlement across services: holds, payment saga, resilient HTTP client, contract and fault-injection tests, edge policy | Done |
 | 3 | Security: Keycloak with organisations, token relay validated in every service, object-level authorisation, service-to-service credentials, caller-scoped idempotency, audit actors, threat model | Done |
-| 4 | Events: transactional outbox, Kafka, notification service, dead-letter topics, contract tests | Next |
-| 5 | Observability: OpenTelemetry traces, metrics and logs, Grafana dashboards, SLOs and alerts | Planned |
+| 4 | Events: transactional outbox, Kafka with SCRAM and ACLs, JSON Schema contracts, notification service in German and English, retry and dead-letter topics, four-eyes approvals | Done |
+| 5 | Observability: OpenTelemetry traces, metrics and logs, Grafana dashboards, SLOs and alerts | Next |
 | 6 | Real-world data: live exchange rates, customs duties and Incoterms, carrier tracking feeds | Planned |
 | 7 | Hardening: load and chaos tests, TLS and mTLS, cloud deployment | Planned |
 
