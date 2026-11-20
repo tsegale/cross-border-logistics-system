@@ -27,3 +27,6 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | [0020](0020-caller-scoped-idempotency-and-audit-actors.md) | Caller-scoped idempotency keys and audit actors | Accepted |
 | [0021](0021-four-eyes-approvals-for-operator-money-operations.md) | Four-eyes approvals for operator money operations | Accepted |
 | [0022](0022-kafka-authentication-acls-and-topics.md) | Kafka authentication, ACLs and topic ownership | Accepted |
+| [0023](0023-event-envelope-and-schema-evolution.md) | Event envelope, JSON Schema contracts and schema evolution | Accepted |
+| [0024](0024-personal-data-stays-out-of-events.md) | Personal data stays out of events | Accepted |
+| [0028](0028-logistics-reacts-to-banking-hold-events.md) | logistics reacts to banking's hold events; payment commands stay HTTP | Accepted |
