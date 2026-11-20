@@ -142,7 +142,8 @@ jobs:
           mkdir -p benchmarks/out/cdc
           set -o pipefail
           $COMPOSE up -d --wait
-          python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 30 --cdc --json benchmarks/out/cdc/cdc.json 2>&1 | tee benchmarks/out/cdc/cdc.log
+          $COMPOSE exec -T logistics-db sh -c 'psql -U "$POSTGRES_USER" -d logistics -tAc "SHOW wal_level"'
+          python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 30 --cdc --json benchmarks/out/cdc/cdc.json 2>&1 | tee benchmarks/out/cdc/cdc.log             || { $COMPOSE logs --tail 300 debezium cdc-topic logistics-db; exit 1; }
           { echo; echo "## Relay against Debezium"; echo; echo '```'; cat benchmarks/out/cdc/cdc.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Container memory at the end of the run
