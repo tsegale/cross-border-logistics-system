@@ -25,7 +25,8 @@ export DEBEZIUM_SOURCE_OFFSET_STORAGE_FILE_FILENAME=/tmp/offsets.dat
 export DEBEZIUM_SOURCE_OFFSET_FLUSH_INTERVAL_MS=1000
 
 # The outbox event router: one record per inserted row, keyed by the aggregate, the envelope as the value, to the
-# shadow topic. The relay's updates (published_at) and the pruner's deletes are not events and are skipped.
+# shadow topic. The relay's updates (published_at) and the pruner's deletes are not events: skipped, each with a
+# warning (the router offers warn, error or fatal).
 export DEBEZIUM_TRANSFORMS=outbox
 export DEBEZIUM_TRANSFORMS_OUTBOX_TYPE=io.debezium.transforms.outbox.EventRouter
 export DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_FIELD_EVENT_ID=id
@@ -33,7 +34,7 @@ export DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_FIELD_EVENT_KEY=aggregate_id
 export DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_FIELD_EVENT_PAYLOAD=envelope
 export DEBEZIUM_TRANSFORMS_OUTBOX_ROUTE_BY_FIELD=topic
 export DEBEZIUM_TRANSFORMS_OUTBOX_ROUTE_TOPIC_REPLACEMENT=freightflow.shipment.v1.cdc
-export DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_OP_INVALID_BEHAVIOR=debug
+export DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_OP_INVALID_BEHAVIOR=warn
 
 # Sink: the broker, idempotent with acks=all like the relay (ADR 0025).
 export DEBEZIUM_SINK_TYPE=kafka
