@@ -75,6 +75,9 @@ Every error emitted by `banking-service`, `logistics-service` and `notification-
 | `https://freightflow.dev/problems/invalid-shipment-state-transition` | `409 Conflict` | Invalid shipment state transition | `currentStatus`, `requestedStatus`, `allowedNextStatuses` | Requested state transition is not in `currentStatus.allowedNextStatuses()` |
 | `https://freightflow.dev/problems/payment-command-not-found` | `404 Not Found` | Payment command not found | `commandId` | Internal operator API: no such payment command |
 | `https://freightflow.dev/problems/payment-command-not-parked` | `409 Conflict` | Payment command is not parked | `commandId`, `commandStatus` | Operator retry of a command that is not `PARKED` |
+| `https://freightflow.dev/problems/dead-letter-not-found` | `404 Not Found` | Dead letter not found | — | `/api/v1/logistics/dead-letters/{id}`: no dead letter with that id (ADR 0026) |
+| `https://freightflow.dev/problems/dead-letter-already-redriven` | `409 Conflict` | Dead letter already redriven | — | The dead letter was redriven before |
+| `https://freightflow.dev/problems/dead-letter-redrive-failed` | `409 Conflict` | Redrive failed | `redriveAttempts` | Handling the stored hold event failed again (for example a poison record); it stays `NEW` with the error recorded |
 | `https://freightflow.dev/problems/precondition-failed` | `412 Precondition Failed` | Precondition failed | `expectedETag`, `currentETag` | `If-Match` header does not match current `shipments.version` ETag |
 
 ---

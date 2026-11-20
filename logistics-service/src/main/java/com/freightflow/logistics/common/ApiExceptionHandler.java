@@ -1,5 +1,8 @@
 package com.freightflow.logistics.common;
 
+import com.freightflow.logistics.deadletter.DeadLetterExceptions.DeadLetterAlreadyRedrivenException;
+import com.freightflow.logistics.deadletter.DeadLetterExceptions.DeadLetterNotFoundException;
+import com.freightflow.logistics.deadletter.DeadLetterExceptions.RedriveFailedException;
 import com.freightflow.logistics.idempotency.IdempotencyKeyInFlightException;
 import com.freightflow.logistics.idempotency.IdempotencyPayloadMismatchException;
 import com.freightflow.logistics.idempotency.MissingIdempotencyKeyException;
@@ -143,6 +146,25 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 "Payment command is not parked", ex.getMessage());
         problem.setProperty("commandId", ex.getId());
         problem.setProperty("commandStatus", ex.getStatus());
+        return problem;
+    }
+
+    @ExceptionHandler(DeadLetterNotFoundException.class)
+    public ProblemDetail handleDeadLetterNotFound(DeadLetterNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "dead-letter-not-found", "Dead letter not found", ex.getMessage());
+    }
+
+    @ExceptionHandler(DeadLetterAlreadyRedrivenException.class)
+    public ProblemDetail handleDeadLetterAlreadyRedriven(DeadLetterAlreadyRedrivenException ex) {
+        return problem(HttpStatus.CONFLICT, "dead-letter-already-redriven", "Dead letter already redriven",
+                ex.getMessage());
+    }
+
+    @ExceptionHandler(RedriveFailedException.class)
+    public ProblemDetail handleRedriveFailed(RedriveFailedException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "dead-letter-redrive-failed", "Redrive failed",
+                ex.getMessage());
+        problem.setProperty("redriveAttempts", ex.attempts());
         return problem;
     }
 

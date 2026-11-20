@@ -147,6 +147,10 @@ class GatewaySecurityTest {
             "auditor,  GET,  /api/v1/dead-letters,                       200",
             "auditor,  POST, /api/v1/dead-letters/x/redrive,             403",
             "operator, POST, /api/v1/dead-letters/x/redrive,             200",
+            "customer, GET,  /api/v1/logistics/dead-letters,             403",
+            "auditor,  GET,  /api/v1/logistics/dead-letters/x,           200",
+            "auditor,  POST, /api/v1/logistics/dead-letters/x/redrive,   403",
+            "operator, POST, /api/v1/logistics/dead-letters/x/redrive,   200",
     })
     void coarseRoleRulesAtTheEdge(String role, String method, String path, int expected) {
         client().method(HttpMethod.valueOf(method)).uri(path)

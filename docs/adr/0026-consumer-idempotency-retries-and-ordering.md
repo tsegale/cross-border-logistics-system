@@ -65,9 +65,15 @@ Operators list them (`GET /api/v1/dead-letters`, auditors too) and redrive one
 (`POST /api/v1/dead-letters/{id}/redrive`): the stored record goes through the same handler in one transaction with the
 status change, and the operator is recorded as `redriven_by` (ADR 0020). A redrive that fails again is a 409
 `dead-letter-redrive-failed`, counted, and the letter stays `NEW`. It needs no second operator: it repeats what the
-consumer would have done and moves no money (ADR 0021). logistics' dead-letter topic is inspected and replayed with
-Kafka's own tools for now: it receives only what failed twenty seconds of retries on two event types, and the alert on
-its size (docs/operations.md) is the trigger.
+consumer would have done and moves no money (ADR 0021).
+
+logistics does the same at `/api/v1/logistics/dead-letters` (the gateway routes `/api/v1/dead-letters` to
+notification-service). Its error handler writes the record to its own `dead_letters` table, idempotent on the original
+topic, partition and offset, before publishing it to `freightflow.hold.v1.logistics-service.dlt`: if either step fails
+the handler recovers the record again, and the table ignores the second copy. A redrive hands the stored event to
+`BankingHoldEvents`, the consumer's handler, so a re-authorisation it causes is a payment command like any other
+(ADR 0012) and an event that was handled in the meantime changes nothing. The dead-letter topic stays, as the copy
+on the broker.
 
 ## Consequences
 - An event is acted on at most once per consumer, whatever the broker or the relay does; tests replay events by hand

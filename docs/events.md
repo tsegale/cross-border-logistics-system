@@ -30,7 +30,7 @@ consumers in [ADR 0026](adr/0026-consumer-idempotency-retries-and-ordering.md), 
 | `freightflow.hold.v1` | banking-service | 6 | logistics-service, notification-service |
 | `freightflow.approval.v1` | banking-service | 3 | |
 | `freightflow.shipment.v1` | logistics-service | 6 | notification-service |
-| `freightflow.hold.v1.logistics-service.dlt` | logistics-service | 1 | (read by hand) |
+| `freightflow.hold.v1.logistics-service.dlt` | logistics-service | 1 | (a copy; operators use `/api/v1/logistics/dead-letters`) |
 
 Topics without a consumer today exist for the ones to come (reporting, audit) and cost nothing while idle.
 

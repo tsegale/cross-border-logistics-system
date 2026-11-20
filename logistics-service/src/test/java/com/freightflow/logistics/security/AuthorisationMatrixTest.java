@@ -1,6 +1,8 @@
 package com.freightflow.logistics.security;
 
+import com.freightflow.logistics.common.UuidV7;
 import com.freightflow.logistics.support.BankingStub;
+import com.freightflow.logistics.support.EventSchemas;
 import com.freightflow.logistics.support.IntegrationTest;
 import com.freightflow.logistics.support.LogisticsFixtures;
 import com.freightflow.logistics.support.TestCallers;
@@ -18,7 +20,9 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -79,6 +83,9 @@ class AuthorisationMatrixTest extends IntegrationTest {
         table.put("POST payment retry",      new int[] {403, 403, 200, 403, 403, 403, 401});
         table.put("GET public tracking",     new int[] {200, 200, 200, 200, 200, 200, 200});
         table.put("GET api docs",            new int[] {200, 200, 200, 200, 403, 403, 401});
+        table.put("GET dead letters",        new int[] {403, 403, 200, 200, 403, 403, 401});
+        table.put("GET dead letter",         new int[] {403, 403, 200, 200, 403, 403, 401});
+        table.put("POST dead letter redrive", new int[] {403, 403, 200, 403, 403, 403, 401});
         List<Arguments> cases = new ArrayList<>();
         table.forEach((endpoint, expected) -> {
             for (Who who : Who.values()) {
@@ -94,7 +101,8 @@ class AuthorisationMatrixTest extends IntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    private record Fixture(String quote, String shipment, String trackingNumber, String parkedCommand) {
+    private record Fixture(String quote, String shipment, String trackingNumber, String parkedCommand,
+                           UUID deadLetter) {
     }
 
     private Fixture fixture;
@@ -110,7 +118,7 @@ class AuthorisationMatrixTest extends IntegrationTest {
                 .andExpect(status().isOk());
         String command = jdbcTemplate.queryForObject(
                 "UPDATE shipment_payments SET status = 'PARKED' WHERE shipment_id = ?::uuid RETURNING id::text", String.class, id);
-        fixture = new Fixture(quote, id, shipment.get("trackingNumber").asString(), command);
+        fixture = new Fixture(quote, id, shipment.get("trackingNumber").asString(), command, deadLetter());
     }
 
     @ParameterizedTest(name = "{0} as {1} -> {2}")
@@ -148,6 +156,9 @@ class AuthorisationMatrixTest extends IntegrationTest {
             case "POST payment retry" -> post("/api/v1/payment-commands/{id}/retry", f.parkedCommand());
             case "GET public tracking" -> get("/api/v1/shipments/track/{tn}", f.trackingNumber());
             case "GET api docs" -> get("/docs/logistics/v3/api-docs");
+            case "GET dead letters" -> get("/api/v1/logistics/dead-letters");
+            case "GET dead letter" -> get("/api/v1/logistics/dead-letters/{id}", f.deadLetter());
+            case "POST dead letter redrive" -> post("/api/v1/logistics/dead-letters/{id}/redrive", f.deadLetter());
             default -> throw new IllegalArgumentException(endpoint);
         };
     }
@@ -267,6 +278,21 @@ class AuthorisationMatrixTest extends IntegrationTest {
         List<String> ids = new ArrayList<>();
         page.get("items").forEach(item -> ids.add(item.get("id").asString()));
         return ids;
+    }
+
+    /** A stored dead letter whose event logistics ignores (hold.authorised), so a redrive succeeds. */
+    private UUID deadLetter() {
+        UUID id = UUID.randomUUID();
+        ObjectNode event = (ObjectNode) EventSchemas.files().get("hold.authorised.schema.json").path("examples").get(0)
+                .deepCopy();
+        UUID eventId = UuidV7.next(Clock.systemUTC());
+        event.put("eventId", eventId.toString());
+        jdbcTemplate.update("""
+                INSERT INTO dead_letters (id, original_topic, record_partition, record_offset, record_key, record_value,
+                                          event_id, event_type, error, received_at, status)
+                VALUES (?, 'freightflow.hold.v1', 0, ?, 'k', ?, ?, 'hold.authorised', 'test', now(), 'NEW')
+                """, id, System.nanoTime(), event.toString(), eventId);
+        return id;
     }
 
     private static String key() {

@@ -80,11 +80,13 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.POST, "/api/v1/payment-commands/*/retry").hasRole("operator")
                         .pathMatchers("/api/v1/ledger/**", "/api/v1/payment-commands", "/api/v1/payment-commands/**")
                                 .hasAnyRole("operator", "auditor")
-                        // notification-service (ADR 0027): an organisation's own settings; operators redrive dead
-                        // letters, auditors read them.
+                        // notification-service (ADR 0027): an organisation's own settings. Dead letters of
+                        // notification and logistics (ADR 0026): operators redrive, auditors read.
                         .pathMatchers("/api/v1/notification-settings").hasRole("customer")
-                        .pathMatchers(HttpMethod.POST, "/api/v1/dead-letters/*/redrive").hasRole("operator")
-                        .pathMatchers("/api/v1/dead-letters", "/api/v1/dead-letters/**")
+                        .pathMatchers(HttpMethod.POST, "/api/v1/dead-letters/*/redrive",
+                                "/api/v1/logistics/dead-letters/*/redrive").hasRole("operator")
+                        .pathMatchers("/api/v1/dead-letters", "/api/v1/dead-letters/**",
+                                "/api/v1/logistics/dead-letters", "/api/v1/logistics/dead-letters/**")
                                 .hasAnyRole("operator", "auditor")
                         // Carriers report tracking events and read the shipments assigned to them, nothing else.
                         .pathMatchers(HttpMethod.POST, "/api/v1/shipments/*/tracking-events").hasAnyRole("carrier", "operator")

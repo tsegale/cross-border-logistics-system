@@ -16,6 +16,7 @@ import com.freightflow.logistics.support.EventSchemas;
 import com.freightflow.logistics.support.IntegrationTest;
 import com.freightflow.logistics.support.LogisticsFixtures;
 import com.freightflow.logistics.support.SharedContainers;
+import com.freightflow.logistics.support.TestCallers;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -44,7 +46,12 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.freightflow.logistics.support.TestCallers.as;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.endsWith;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * logistics reacts to banking's hold events (ADR 0028) through its real listener on the real broker: events are
@@ -174,6 +181,55 @@ class HoldEventConsumerIntegrationTest extends IntegrationTest {
         assertThat(new String(dead.headers().lastHeader("kafka_dlt-exception-fqcn").value())
                 + new String(dead.headers().lastHeader("kafka_dlt-exception-message").value()))
                 .contains("Not a readable event");
+
+        // And kept for operators, who see it and cannot make it readable by redriving it.
+        UUID letter = await(() -> jdbcTemplate.query("SELECT id FROM dead_letters WHERE record_key = ?",
+                (rs, row) -> rs.getObject("id", UUID.class), key).stream().findFirst().orElse(null));
+        mockMvc.perform(get("/api/v1/logistics/dead-letters").param("status", "NEW").with(as(TestCallers.AUDITOR)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.id == '%s')].error".formatted(letter)).value(
+                        org.hamcrest.Matchers.hasItem(org.hamcrest.Matchers.containsString("Not a readable event"))));
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/v1/logistics/dead-letters/{id}/redrive", letter).with(as(TestCallers.OPERATOR)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value(endsWith("/dead-letter-redrive-failed")))
+                .andExpect(jsonPath("$.redriveAttempts").value(1));
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM dead_letters WHERE id = ?", String.class, letter))
+                .isEqualTo("NEW");
+    }
+
+    @Test
+    void aRedrivenExpiryAuthorisesAgainOnceAndRecordsTheOperator() throws Exception {
+        UUID shipment = UUID.fromString(fixtures.bookAndPay().get("id").asString());
+        UUID hold = shipments.findById(shipment).orElseThrow().getHoldId();
+        String expired = holdEvent("hold.expired", shipment, hold, UUID.randomUUID());
+        UUID letter = UUID.randomUUID();
+        // As the error handler stores it after the retries ran out (banking's shipment lookup failing, say).
+        jdbcTemplate.update("""
+                INSERT INTO dead_letters (id, original_topic, record_partition, record_offset, record_key, record_value,
+                                          event_id, event_type, error, received_at, status)
+                VALUES (?, ?, 0, ?, ?, ?, ?, 'hold.expired', 'java.lang.IllegalStateException: test', now(), 'NEW')
+                """, letter, EventTopics.BANKING_HOLD, System.nanoTime(), hold.toString(), expired,
+                UUID.fromString(JSON.readTree(expired).path("eventId").asString()));
+
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/v1/logistics/dead-letters/{id}/redrive", letter).with(as(TestCallers.OPERATOR)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REDRIVEN"))
+                .andExpect(jsonPath("$.redrivenBy").value(TestCallers.OPERATOR.subject()));
+        assertThat(reauthorisation(shipment)).isNotNull();
+
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/v1/logistics/dead-letters/{id}/redrive", letter).with(as(TestCallers.OPERATOR)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value(endsWith("/dead-letter-already-redriven")));
+        mockMvc.perform(get("/api/v1/logistics/dead-letters/{id}", UUID.randomUUID()).with(as(TestCallers.OPERATOR)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value(endsWith("/dead-letter-not-found")));
+        // The same event arriving late from Kafka changes nothing: it was processed by the redrive.
+        publish(expired);
+        UUID marker = UUID.randomUUID();
+        publish(holdEvent("hold.authorised", shipment, hold, marker), hold);
+        await(() -> processed(marker) ? true : null);
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM shipment_payments WHERE shipment_id = ? "
+                + "AND command = 'REAUTHORISE'", Integer.class, shipment)).isEqualTo(1);
     }
 
     // ------------------------------------------------------------------ helpers

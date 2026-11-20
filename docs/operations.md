@@ -14,7 +14,7 @@ means and the one condition that should page someone. Names are as Prometheus sh
 | Send failures | `freightflow_outbox_send_failures_total` | any increase for 5 minutes in a row | one failure is a blip; failures every minute mean the broker or an ACL is wrong |
 | Consumer lag | `kafka_consumer_fetch_manager_records_lag_max` (by `client_id`; groups `logistics-service`, `notification-service*`) | above 1000 for 10 minutes | consumers handle tens of events a second; a thousand behind for ten minutes is a consumer that stopped or is failing every record |
 | Dead letters (notification) | `freightflow_dead_letters{status="NEW"}` | above 0 for 15 minutes | every dead letter is an event a customer may not have been told about; an operator redrives or explains it |
-| Dead letters (logistics) | `freightflow_events_dead_lettered_total{topic="freightflow.hold.v1"}` | any increase | an expiry or capture logistics could not act on: a hold may need re-authorising by hand |
+| Dead letters (logistics) | `freightflow_dead_letters{status="NEW"}` on logistics-service | above 0 for 15 minutes | an expiry or capture logistics could not act on: an operator redrives it (`POST /api/v1/logistics/dead-letters/{id}/redrive`) or re-authorises the hold |
 | Unexpected captures | `freightflow_payment_unexpected_captures_total` | any increase | money left a customer account without a pickup logistics asked for (ADR 0028) |
 
 ## Emails (ADR 0027)
