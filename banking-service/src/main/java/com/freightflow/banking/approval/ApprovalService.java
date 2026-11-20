@@ -12,6 +12,7 @@ import com.freightflow.banking.approval.dto.ApprovalResponse;
 import com.freightflow.banking.approval.dto.CreateApprovalRequest;
 import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.config.BankingProperties;
+import com.freightflow.banking.events.BankingEvents;
 import com.freightflow.banking.idempotency.IdempotencyService;
 import com.freightflow.banking.journal.LedgerService;
 import com.freightflow.banking.journal.LedgerService.ValidatedDeposit;
@@ -55,11 +56,13 @@ public class ApprovalService {
     private final BankingProperties banking;
     private final JdbcTemplate jdbcTemplate;
     private final MeterRegistry meters;
+    private final BankingEvents events;
     private final Clock clock;
 
     public ApprovalService(ApprovalRepository approvals, AccountRepository accounts, LedgerService ledger,
                            IdempotencyService idempotency, ApprovalProperties properties, BankingProperties banking,
-                           JdbcTemplate jdbcTemplate, MeterRegistry meters, Clock clock) {
+                           JdbcTemplate jdbcTemplate, MeterRegistry meters, BankingEvents events, Clock clock) {
+        this.events = events;
         this.approvals = approvals;
         this.accounts = accounts;
         this.ledger = ledger;
@@ -125,6 +128,7 @@ public class ApprovalService {
         ApprovalRequest decided = approvals.findById(id).orElseThrow(() -> new ApprovalNotFoundException(id));
         decided.approve(checker, now, comment, entry.id());
         approvals.saveAndFlush(decided);
+        events.approvalDecided(decided, checker);
         count("approved", decided.getKind());
         log.info("Approval {} approved by {}: entry {}", id, checker.subject(), entry.id());
         return toResponse(decided);
@@ -142,6 +146,7 @@ public class ApprovalService {
         ApprovalRequest request = lockPending(id, checker, now);
         request.reject(checker, now, reason);
         approvals.saveAndFlush(request);
+        events.approvalDecided(request, checker);
         count("rejected", request.getKind());
         log.info("Approval {} rejected by {}", id, checker.subject());
         return toResponse(request);
@@ -157,6 +162,7 @@ public class ApprovalService {
         }
         request.expire(now);
         approvals.saveAndFlush(request);
+        events.approvalDecided(request, null);
         count("expired", request.getKind());
         return true;
     }

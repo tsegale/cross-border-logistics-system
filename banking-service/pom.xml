@@ -21,6 +21,7 @@
         <java.version>21</java.version>
         <springdoc.version>3.2.0</springdoc.version>
         <jacoco.version>0.8.16</jacoco.version>
+        <json-schema-validator.version>3.0.9</json-schema-validator.version>
         <!-- One seed orders test classes (Surefire) and test methods (JUnit). It changes every build; Surefire
              prints it, and -Dsurefire.runOrder.random.seed=<seed> replays that exact order. -->
         <maven.build.timestamp.format>yyMMddHHmmss</maven.build.timestamp.format>
@@ -85,6 +86,13 @@
         </dependency>
 
         <!-- Tests: integration tests run on real Postgres in Testcontainers, never H2 -->
+        <!-- Event contracts: docs/events/*.schema.json, JSON Schema 2020-12 on Jackson 3 (ADR 0023) -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>${json-schema-validator.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

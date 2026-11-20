@@ -11,6 +11,7 @@ import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.common.MoneyRounding;
 import com.freightflow.banking.common.UuidOrder;
 import com.freightflow.banking.config.BankingProperties;
+import com.freightflow.banking.events.BankingEvents;
 import com.freightflow.banking.journal.JournalEntry.PostingInstruction;
 import com.freightflow.banking.journal.dto.JournalEntryResponse;
 import com.freightflow.banking.journal.dto.PostingResponse;
@@ -48,6 +49,7 @@ public class LedgerService {
     private final BankingProperties properties;
     private final JdbcTemplate jdbcTemplate;
     private final EntityManager entityManager;
+    private final BankingEvents events;
     private final Clock clock;
 
     public LedgerService(
@@ -58,6 +60,7 @@ public class LedgerService {
             BankingProperties properties,
             JdbcTemplate jdbcTemplate,
             EntityManager entityManager,
+            BankingEvents events,
             Clock clock) {
         this.accountService = accountService;
         this.accounts = accounts;
@@ -66,6 +69,7 @@ public class LedgerService {
         this.properties = properties;
         this.jdbcTemplate = jdbcTemplate;
         this.entityManager = entityManager;
+        this.events = events;
         this.clock = clock;
     }
 
@@ -254,6 +258,12 @@ public class LedgerService {
             responses.put(instruction, PostingResponse.from(postings.save(posting), account.getAccountNumber()));
         }
         postings.flush();
+        // Same transaction as the postings (ADR 0025): every money movement is reported, or none happened.
+        events.journalEntryPosted(entry, instructions.stream()
+                .map(instruction -> BankingEvents.postingLine(instruction.accountId(),
+                        accountsById.get(instruction.accountId()).getOwnerOrganizationId(),
+                        instruction.signedAmount(), accountsById.get(instruction.accountId()).getCurrency()))
+                .toList(), actor);
         List<PostingResponse> postingResponses = instructions.stream().map(responses::get).toList();
         return JournalEntryResponse.from(entry, postingResponses);
     }

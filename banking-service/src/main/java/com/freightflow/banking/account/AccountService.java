@@ -5,6 +5,7 @@ import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
 import com.freightflow.banking.common.MoneyRounding;
 import com.freightflow.banking.config.BankingProperties;
+import com.freightflow.banking.events.BankingEvents;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,13 +21,15 @@ public class AccountService {
     private final AccountRepository accounts;
     private final BankingProperties properties;
     private final SystemAccountBalances systemBalances;
+    private final BankingEvents events;
     private final Clock clock;
 
     public AccountService(AccountRepository accounts, BankingProperties properties,
-                          SystemAccountBalances systemBalances, Clock clock) {
+                          SystemAccountBalances systemBalances, BankingEvents events, Clock clock) {
         this.accounts = accounts;
         this.properties = properties;
         this.systemBalances = systemBalances;
+        this.events = events;
         this.clock = clock;
     }
 
@@ -55,7 +58,9 @@ public class AccountService {
         long sequence = accounts.nextAccountSequence();
         String accountNumber = AccountNumber.generate(currency.getCurrencyCode(), sequence);
         Instant now = clock.instant();
-        Account saved = accounts.save(Account.createCustomer(accountNumber, owner, currency.getCurrencyCode(), now));
+        Account saved = accounts.saveAndFlush(
+                Account.createCustomer(accountNumber, owner, currency.getCurrencyCode(), now));
+        events.accountOpened(saved, caller.actor());
         return AccountResponse.from(saved);
     }
 

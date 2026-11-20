@@ -35,6 +35,21 @@ spring:
     admin:
       # The service starts without the broker (events wait in the outbox); a slow broker delays it at most this long.
       operation-timeout: 10s
+    # Only the outbox relay produces (ADR 0025). Idempotent with acks=all: a retry inside the client never writes
+    # an event twice, and an acknowledged event is on every in-sync replica.
+    producer:
+      acks: all
+      # lz4 is pure Java; zstd would need a native library the Alpine runtime image may not load.
+      compression-type: lz4
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        linger.ms: 5
+        # Waiting for metadata of a topic the broker does not know (or a broker that is down) ends the send.
+        max.block.ms: 5000
+        request.timeout.ms: 10000
+        # Within the relay's send-timeout (30 s), which is within its lease (60 s).
+        delivery.timeout.ms: 25000
   flyway:
     enabled: true
   mvc:
@@ -43,7 +58,8 @@ spring:
   task:
     scheduling:
       pool:
-        size: 2
+        # The event relay can wait up to the admin timeout for a broker that is down; the sweepers keep running.
+        size: 4
       thread-name-prefix: banking-sched-
 
 freightflow:
@@ -64,6 +80,12 @@ freightflow:
     password: ${kafka_password:${KAFKA_PASSWORD:}}
     # 1 on the single local broker; 3 in a real cluster, with min.insync.replicas 2.
     replication-factor: ${KAFKA_REPLICATION_FACTOR:1}
+  # Transactional outbox and relay (ADR 0025); defaults in OutboxProperties.
+  events:
+    outbox:
+      relay-enabled: ${EVENT_RELAY_ENABLED:true}
+      relay-interval: ${EVENT_RELAY_INTERVAL:200ms}
+      retention: ${EVENT_OUTBOX_RETENTION:7d}
   security:
     issuer-uri: ${KEYCLOAK_ISSUER_URI:}
     jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
