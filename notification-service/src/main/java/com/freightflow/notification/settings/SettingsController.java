@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -45,15 +46,17 @@ public class SettingsController {
 
     public record SettingsRequest(
             @NotBlank String language,
+            @Size(max = 64) String timeZone,
             @NotNull @Size(max = 10, message = "at most 10 recipients") List<@NotBlank @Email @Size(max = 320) String> recipients,
             @NotNull List<@NotBlank String> kinds) {
     }
 
-    public record SettingsResponse(UUID organizationId, String language, List<String> recipients, List<String> kinds,
-                                   long version, Instant updatedAt) {
+    public record SettingsResponse(UUID organizationId, String language, String timeZone, List<String> recipients,
+                                   List<String> kinds, long version, Instant updatedAt) {
 
         static SettingsResponse of(NotificationSettings settings) {
-            return new SettingsResponse(settings.organizationId(), settings.language(), settings.recipients(),
+            return new SettingsResponse(settings.organizationId(), settings.language(), settings.timeZone().getId(),
+                    settings.recipients(),
                     settings.kindCodes(), settings.version(), settings.updatedAt());
         }
     }
@@ -82,12 +85,18 @@ public class SettingsController {
         List<String> recipients = request.recipients().stream().map(String::trim)
                 .map(address -> address.toLowerCase(Locale.ROOT)).distinct().toList();
 
-        long current = store.find(organization).version();
+        NotificationSettings existing = store.find(organization);
+        // Optional: a client that does not send it keeps the zone saved before (UTC on a first save).
+        ZoneId timeZone = request.timeZone() == null ? existing.timeZone()
+                : NotificationSettings.zone(request.timeZone().trim()).orElseThrow(() -> new InvalidSettingsException(
+                        "timeZone must be an IANA time zone such as Europe/Berlin or Africa/Windhoek"));
+
+        long current = existing.version();
         long expected = ifMatch == null ? current : version(ifMatch);
         if (expected != current) {
             throw new SettingsChangedException(etag(expected), etag(current));
         }
-        store.save(organization, language, recipients, kinds, expected, caller.actor(), clock.instant())
+        store.save(organization, language, timeZone, recipients, kinds, expected, caller.actor(), clock.instant())
                 .orElseThrow(() -> new SettingsChangedException(etag(expected), etag(store.find(organization).version())));
         NotificationSettings saved = store.find(organization);
         return ResponseEntity.ok().eTag(etag(saved.version())).body(SettingsResponse.of(saved));

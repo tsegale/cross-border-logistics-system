@@ -71,6 +71,38 @@ class SettingsIntegrationTest extends IntegrationTest {
     }
 
     @Test
+    void theTimeZoneIsSavedKeptWhenLeftOutAndChecked() throws Exception {
+        UUID org = UUID.randomUUID();
+        mockMvc.perform(put("/api/v1/notification-settings").with(customer(org))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"language\":\"en\",\"recipients\":[],\"kinds\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timeZone").value("UTC"));
+        mockMvc.perform(put("/api/v1/notification-settings").with(customer(org))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"language\":\"en\",\"timeZone\":\"Africa/Windhoek\",\"recipients\":[],\"kinds\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timeZone").value("Africa/Windhoek"));
+        // A client that does not send the field keeps what was saved.
+        mockMvc.perform(put("/api/v1/notification-settings").with(customer(org))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"language\":\"de\",\"recipients\":[],\"kinds\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timeZone").value("Africa/Windhoek"));
+        for (String invalid : new String[] {"+02:00", "Europe/Atlantis", ""}) {
+            mockMvc.perform(put("/api/v1/notification-settings").with(customer(org))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"language\":\"en\",\"timeZone\":\"" + invalid
+                                    + "\",\"recipients\":[],\"kinds\":[]}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.type").value(
+                            "https://freightflow.dev/problems/invalid-notification-settings"));
+        }
+        assertThat(jdbcTemplate.queryForObject("SELECT time_zone FROM notification_settings WHERE organization_id = ?",
+                String.class, org)).isEqualTo("Africa/Windhoek");
+    }
+
+    @Test
     void aStaleIfMatchIs412() throws Exception {
         UUID org = UUID.randomUUID();
         String body = "{\"language\":\"en\",\"recipients\":[],\"kinds\":[]}";

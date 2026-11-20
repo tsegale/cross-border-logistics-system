@@ -390,8 +390,9 @@ consumed() {
 
 as customer-hanseatic-imports
 call 200 PUT /api/v1/notification-settings \
-  "{\"language\":\"de\",\"recipients\":[\"${RECIPIENT}\"],\"kinds\":[\"shipment-booked\",\"shipment-status\",\"payment-failed\",\"payment-captured\",\"payment-released\"]}"
+  "{\"language\":\"de\",\"timeZone\":\"Europe/Berlin\",\"recipients\":[\"${RECIPIENT}\"],\"kinds\":[\"shipment-booked\",\"shipment-status\",\"payment-failed\",\"payment-captured\",\"payment-released\"]}"
 expect .language de
+expect .timeZone Europe/Berlin
 call 200 GET /api/v1/notification-settings
 expect .recipients "[\"${RECIPIENT}\"]"
 as customer-namib-exports

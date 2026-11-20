@@ -131,7 +131,7 @@ inbox is at <http://127.0.0.1:8025> and its API at `/api/v1/...`. Without it the
 
 ```bash
 HANSEATIC_CUSTOMER="Authorization: Bearer $(python scripts/keycloak_token.py customer-hanseatic-imports)"
-curl -s -X PUT -H "$HANSEATIC_CUSTOMER" -H "Content-Type: application/json"   "${GATEWAY}/api/v1/notification-settings"   -d '{"language":"de","recipients":["ops@hanseatic-imports.example"],
+curl -s -X PUT -H "$HANSEATIC_CUSTOMER" -H "Content-Type: application/json"   "${GATEWAY}/api/v1/notification-settings"   -d '{"language":"de","timeZone":"Europe/Berlin","recipients":["ops@hanseatic-imports.example"],
        "kinds":["shipment-booked","shipment-status","payment-failed","payment-captured","payment-released"]}'
 # ... an operator opens and (four eyes) funds a EUR account for Hanseatic; the customer books on it ...
 curl -s "http://127.0.0.1:8025/api/v1/search?query=to%3Aops%40hanseatic-imports.example"   | python -c 'import json,sys; [print(m["Subject"]) for m in json.load(sys.stdin)["messages"]]'

@@ -19,8 +19,9 @@ released, expired), as group `notification-service` (ACLs, ADR 0022). Retry topi
 describes. A hold event names its shipment only by reference; the email needs the tracking number, so the projection
 built from `shipment.booked` provides it, and a hold event that arrives first is retried until the booking is there.
 
-**Who and how.** An organisation's customer sets `GET/PUT /api/v1/notification-settings`: language (`de`, `en`), up to
-ten recipients, and which kinds (`shipment-booked`, `shipment-status`, `payment-failed`, `payment-captured`,
+**Who and how.** An organisation's customer sets `GET/PUT /api/v1/notification-settings`: language (`de`, `en`), time zone (an
+IANA region such as `Europe/Berlin` or `Africa/Windhoek`; optional, kept when left out, `UTC` until set), up to ten
+recipients, and which kinds (`shipment-booked`, `shipment-status`, `payment-failed`, `payment-captured`,
 `payment-released`). The organisation comes from the token, never the request (ADR 0018); `ETag` and `If-Match` guard
 concurrent edits; who changed it is recorded (ADR 0020). An organisation without settings gets nothing: there is no
 recipient to guess. Recipients are the only personal data the service holds, entered by their owner, not taken from
@@ -33,7 +34,10 @@ The gateway routes both and checks roles first (ADR 0015, 0017); the service che
 with every word from `mail/messages.properties` (English, the base) and `messages_de.properties`. Each kind has a
 subject, an opening sentence and a few labelled facts. Amounts and dates are formatted in Java for the locale before
 the template sees them: de-DE `1.840,50 €` and `25.11.2026`, en-GB `€1,840.50` and `25 Nov 2026`, rounded half-even to
-the currency's minor units (CLAUDE.md money rules). Status names and banking's refusal reasons are translated.
+the currency's minor units (CLAUDE.md money rules). An instant is written as the calendar date in the organisation's
+time zone: a status change at 23:30 UTC on 24 November is dated the 25th for a Hamburg or Windhoek importer. A fixed
+offset such as `+02:00` is refused, since it does not follow daylight saving time. A planned pickup date is a date
+already and is not converted. Status names and banking's refusal reasons are translated.
 
 **Rendering and sending are separate.** The consumer renders the email and writes one `notifications` row per
 recipient in the transaction that consumes the event, unique on `(event_id, recipient)`: a redelivered event writes
@@ -66,4 +70,5 @@ like a failing consumer.
   for PENDING, FAILED and UNKNOWN, `freightflow.emails.delay`, `freightflow.dead-letters`; alerts in
   docs/operations.md.
 - A new kind of email is a message key pair, a `NotificationKind` and a branch in `EventNotifier`; the layout stays.
-- Per-organisation time zones are not modelled: dates are UTC calendar dates, which is what the services store.
+- Dates are in the organisation's time zone (`notification_settings.time_zone`, V2); the services still store and
+  send instants in UTC.

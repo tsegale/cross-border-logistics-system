@@ -10,6 +10,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -28,7 +29,7 @@ public class SettingsStore {
 
     public NotificationSettings find(UUID organizationId) {
         return jdbcTemplate.query("""
-                SELECT organization_id, language, recipients, kinds, version, updated_at
+                SELECT organization_id, language, time_zone, recipients, kinds, version, updated_at
                 FROM notification_settings WHERE organization_id = ?
                 """, SettingsStore::map, organizationId).stream().findFirst()
                 .orElseGet(() -> NotificationSettings.defaults(organizationId));
@@ -38,26 +39,27 @@ public class SettingsStore {
      * Saves the settings if {@code expectedVersion} is the current one (0: none saved yet). Returns the new version,
      * or empty if another change came first.
      */
-    public Optional<Long> save(UUID organizationId, String language, List<String> recipients,
+    public Optional<Long> save(UUID organizationId, String language, ZoneId timeZone, List<String> recipients,
                                List<NotificationKind> kinds, long expectedVersion, Actor actor, Instant now) {
         String[] kindCodes = kinds.stream().map(NotificationKind::code).toArray(String[]::new);
         String[] addresses = recipients.toArray(String[]::new);
         int updated;
         if (expectedVersion == 0) {
             updated = jdbcTemplate.update("""
-                    INSERT INTO notification_settings (organization_id, language, recipients, kinds, version, updated_at,
-                                                       updated_by_subject, updated_by_client_id, update_request_id)
-                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+                    INSERT INTO notification_settings (organization_id, language, time_zone, recipients, kinds, version,
+                                                       updated_at, updated_by_subject, updated_by_client_id,
+                                                       update_request_id)
+                    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
                     ON CONFLICT (organization_id) DO NOTHING
-                    """, organizationId, language, addresses, kindCodes, Timestamp.from(now), actor.subject(),
+                    """, organizationId, language, timeZone.getId(), addresses, kindCodes, Timestamp.from(now), actor.subject(),
                     actor.clientId(), actor.requestId());
         } else {
             updated = jdbcTemplate.update("""
                     UPDATE notification_settings
-                    SET language = ?, recipients = ?, kinds = ?, version = version + 1, updated_at = ?,
-                        updated_by_subject = ?, updated_by_client_id = ?, update_request_id = ?
+                    SET language = ?, time_zone = ?, recipients = ?, kinds = ?, version = version + 1,
+                        updated_at = ?, updated_by_subject = ?, updated_by_client_id = ?, update_request_id = ?
                     WHERE organization_id = ? AND version = ?
-                    """, language, addresses, kindCodes, Timestamp.from(now), actor.subject(), actor.clientId(),
+                    """, language, timeZone.getId(), addresses, kindCodes, Timestamp.from(now), actor.subject(), actor.clientId(),
                     actor.requestId(), organizationId, expectedVersion);
         }
         return updated == 1 ? Optional.of(expectedVersion + 1) : Optional.empty();
@@ -66,6 +68,7 @@ public class SettingsStore {
     private static NotificationSettings map(ResultSet rs, int row) throws SQLException {
         Timestamp updatedAt = rs.getTimestamp("updated_at");
         return new NotificationSettings(rs.getObject("organization_id", UUID.class), rs.getString("language"),
+                NotificationSettings.zone(rs.getString("time_zone")).orElse(NotificationSettings.DEFAULT_TIME_ZONE),
                 List.of(strings(rs.getArray("recipients"))),
                 Arrays.stream(strings(rs.getArray("kinds"))).map(NotificationKind::of).flatMap(Optional::stream)
                         .collect(Collectors.toSet()),
