@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
@@ -55,6 +56,10 @@ class Tokens:
                 token = keycloak_token.token_for(persona)
                 self._cache[persona] = (time.monotonic(), token)
             return token
+
+    def forget(self, persona: str) -> None:
+        with self._lock:
+            self._cache.pop(persona, None)
 
 
 TOKENS = Tokens()
@@ -110,9 +115,21 @@ def percentile(values: list[float], p: float) -> float:
 def setup(run: str) -> tuple[str, str]:
     """German settings, and a funded EUR account for Hanseatic (four eyes, ADR 0021)."""
     recipient = f"bench-{run}@hanseatic-imports.example"
-    call("customer-hanseatic-imports", "PUT", "/api/v1/notification-settings", {
-        "language": "de", "recipients": [recipient],
-        "kinds": ["shipment-booked", "shipment-status", "payment-failed", "payment-captured", "payment-released"]})
+    settings = {"language": "de", "recipients": [recipient],
+                "kinds": ["shipment-booked", "shipment-status", "payment-failed", "payment-captured",
+                          "payment-released"]}
+    keycloak_token.wait_until_serving()
+    # Straight after a start the first token can be refused; retry with a fresh one, and say so.
+    for attempt in range(1, 31):
+        try:
+            call("customer-hanseatic-imports", "PUT", "/api/v1/notification-settings", settings)
+            break
+        except urllib.error.HTTPError as error:
+            if error.code != 401 or attempt == 30:
+                raise
+            print(f"setup: first call refused with 401 (attempt {attempt}), retrying with a fresh token")
+            TOKENS.forget("customer-hanseatic-imports")
+            time.sleep(2)
     account = call("operator", "POST", "/api/v1/accounts", {"currency": "EUR", "organizationId": HANSEATIC},
                    expect=201)["accountNumber"]
     approval = call("operator", "POST", "/api/v1/approvals", {
