@@ -45,6 +45,19 @@ public class HoldExpiryPolicy {
         return target.isAfter(currentExpiry) ? Optional.of(target) : Optional.empty();
     }
 
+    /**
+     * The expiry a re-authorisation asks for (ADR 0028): towards the pickup target as a first authorisation does, or,
+     * if the pickup is close or past, {@code overdue-extension} from now. Capped like every request.
+     */
+    public Instant reauthorisationExpiry(LocalDate plannedPickup, Instant now) {
+        // Shipments booked before V7 have no pickup date: give them the overdue step.
+        Instant wanted = plannedPickup == null ? now : pickupExpiry(plannedPickup);
+        if (!wanted.isAfter(now.plus(properties.renewBefore()))) {
+            wanted = now.plus(properties.overdueExtension());
+        }
+        return earlier(wanted, now.plus(properties.maxTtl())).truncatedTo(ChronoUnit.SECONDS);
+    }
+
     /** A booking's planned pickup must be today or later and within the horizon (UTC dates). */
     public boolean isAcceptablePickup(LocalDate plannedPickup, Instant now) {
         LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);

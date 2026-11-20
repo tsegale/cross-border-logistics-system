@@ -41,7 +41,7 @@ public class BankingPayments {
     public PaymentOutcome send(PaymentCommand command) {
         try {
             Holds.Hold hold = calls.payment(() -> switch (command.getCommand()) {
-                case AUTHORISE -> banking.createHold(command.getIdempotencyKey(), new Holds.CreateHold(
+                case AUTHORISE, REAUTHORISE -> banking.createHold(command.getIdempotencyKey(), new Holds.CreateHold(
                         command.getPayerAccountNumber(), command.roundedAmount(), command.getCurrency(),
                         "SHIPMENT " + command.getShipmentId(), command.getExpiresAt(),
                         command.getPayerOrganizationId(), command.getOnBehalfOfSubject()));
@@ -84,7 +84,7 @@ public class BankingPayments {
                 case CAPTURE -> "CAPTURED".equals(holdStatus);
                 case RELEASE -> "RELEASED".equals(holdStatus) || "EXPIRED".equals(holdStatus);
                 case EXTEND -> "CAPTURED".equals(holdStatus) || "RELEASED".equals(holdStatus);
-                case AUTHORISE -> false;
+                case AUTHORISE, REAUTHORISE -> false;
             };
             if (done) {
                 log.info("{} for shipment {} was already applied or is moot (hold {})", command.getCommand(),

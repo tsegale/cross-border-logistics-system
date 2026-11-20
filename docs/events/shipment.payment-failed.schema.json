@@ -54,7 +54,8 @@
             "AUTHORISE",
             "CAPTURE",
             "RELEASE",
-            "EXTEND"
+            "EXTEND",
+            "REAUTHORISE"
           ]
         },
         "problemType": {

@@ -230,6 +230,34 @@ public class Shipment {
         return true;
     }
 
+    /**
+     * banking expired {@code expiredHoldId} on its own (ADR 0028). A shipment still waiting for pickup on that hold
+     * needs a new one: its payment goes back to AUTHORISATION_PENDING. Anything else (picked up, cancelled, another
+     * hold by now) is left alone.
+     *
+     * @return true if a re-authorisation is needed
+     */
+    public boolean holdExpiredByBanking(UUID expiredHoldId, Instant now) {
+        if (this.status != ShipmentStatus.BOOKED || this.paymentStatus != PaymentStatus.AUTHORISED
+                || !expiredHoldId.equals(this.holdId)) {
+            return false;
+        }
+        this.paymentStatus = PaymentStatus.AUTHORISATION_PENDING;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+        return true;
+    }
+
+    /**
+     * banking accepted the re-authorisation: the shipment is paid for again, by the new hold. If it was picked up or
+     * cancelled meanwhile, {@link #settleAfterStatusChange()} says what the new hold needs.
+     */
+    public void holdReauthorised(UUID holdId, Instant holdExpiresAt, Instant now) {
+        this.holdId = Objects.requireNonNull(holdId, "holdId");
+        this.holdExpiresAt = holdExpiresAt;
+        this.paymentStatus = PaymentStatus.AUTHORISED;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
     /** banking refused the hold: the shipment cannot be paid for as booked. */
     public void paymentRefused(String problemType, String detail, Instant now) {
         this.paymentStatus = PaymentStatus.FAILED;

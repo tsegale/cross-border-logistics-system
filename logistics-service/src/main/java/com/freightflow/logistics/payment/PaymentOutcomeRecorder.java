@@ -86,6 +86,19 @@ public class PaymentOutcomeRecorder {
                     shipment.holdExtended(ok.holdExpiresAt(), now);
                 }
             }
+            case REAUTHORISE -> {
+                shipment.holdReauthorised(ok.holdId(), ok.holdExpiresAt(), now);
+                // Picked up or cancelled while the new hold was being made: capture or release it now.
+                switch (shipment.settleAfterStatusChange()) {
+                    case CAPTURE -> outbox.enqueue(shipment.getId(), PaymentCommandType.CAPTURE, command.getAmount(),
+                            command.getCurrency(), command.getPayerAccountNumber(), ok.holdId(), null);
+                    case RELEASE -> outbox.enqueue(shipment.getId(), PaymentCommandType.RELEASE, command.getAmount(),
+                            command.getCurrency(), command.getPayerAccountNumber(), ok.holdId(), null);
+                    case NONE -> {
+                        // still waiting for pickup
+                    }
+                }
+            }
         }
         // Flushed first: the shipment row is locked before the event sequence row, as on every other path.
         shipments.flush();

@@ -50,7 +50,17 @@ spring:
     admin:
       # The service starts without the broker (events wait in the outbox); a slow broker delays it at most this long.
       operation-timeout: 10s
-    # Only the outbox relay produces (ADR 0025). Idempotent with acks=all: a retry inside the client never writes
+    # banking's hold events (ADR 0028), as group logistics-service. Offsets are committed after each record; the
+    # processed-events table makes a redelivery harmless (ADR 0026).
+    consumer:
+      group-id: logistics-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        partition.assignment.strategy: org.apache.kafka.clients.consumer.CooperativeStickyAssignor
+    listener:
+      ack-mode: record
+    # Only the outbox relay and dead-lettering produce (ADR 0025). Idempotent with acks=all: a retry inside the client never writes
     # an event twice, and an acknowledged event is on every in-sync replica.
     producer:
       acks: all
