@@ -46,14 +46,11 @@ jobs:
           # Compose resolves secrets/ files and keycloak's env_file while rendering the config.
           python3 scripts/generate_secrets.py
           docker compose config --quiet
-          docker compose --profile notifications config --quiet
-          # Kafka and its init job are part of the core stack (ADR 0022); the notification service stays optional.
-          for s in kafka kafka-init; do
+          docker compose --profile debug config --quiet
+          # Kafka (ADR 0022) and the notification service with its database and SMTP server (ADR 0027) are core.
+          for s in kafka kafka-init notification-service notification-db mailpit; do
             docker compose config --services | grep -qx "$s" || { echo "::error::$s is not in the default profile"; exit 1; }
           done
-          if docker compose config --services | grep -qx notification-service; then
-            echo "::error::notification-service is in the default profile"; exit 1
-          fi
 
   # The stack as a user starts it. Unit and integration tests can't see a broken compose file or env wiring.
   default-stack:
@@ -70,11 +67,11 @@ jobs:
           # The gateway's actuator is on its management port (8085); /actuator on 8080 is a 404 (ADR 0015).
           curl -fsS "http://127.0.0.1:8085/actuator/health/readiness"; echo
           # Services and databases publish nothing by default (ADR 0019): ask compose for their health.
-          for service in banking-service logistics-service keycloak kafka; do
+          for service in banking-service logistics-service notification-service keycloak kafka mailpit; do
             test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q "$service")")" = healthy
           done
           # A TCP connect, not curl: Postgres doesn't speak HTTP, so curl fails against a published database port too.
-          for port in 8081 8082 5441 5442 9092 29092; do
+          for port in 8081 8082 8083 5441 5442 5443 9092 29092 1025 8025; do
             if timeout 2 bash -c "</dev/tcp/127.0.0.1/$port" 2>/dev/null; then echo "::error::port $port is published"; exit 1; fi
           done
       # Straight after --wait and before anything else warms the stack: what the first users of a fresh start get.

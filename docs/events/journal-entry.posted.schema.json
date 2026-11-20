@@ -5,9 +5,7 @@
   "description": "A balanced journal entry was appended to the ledger: every money movement, with its postings (ADR 0004). The postings sum to zero per currency. References and reasons are free text and stay in banking.",
   "x-topic": "freightflow.journal-entry.v1",
   "x-producer": "banking-service",
-  "x-consumers": [
-    "notification-service"
-  ],
+  "x-consumers": [],
   "$ref": "envelope.schema.json",
   "properties": {
     "type": {

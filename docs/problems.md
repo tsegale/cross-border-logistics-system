@@ -4,9 +4,9 @@ Extension members never reuse the standard member names (`type`, `title`, `statu
 `status` is always the HTTP status code. Phase 1's `account-not-active` used `status` for the account status; since
 Phase 2 that member is `accountStatus`.
 
-Every error emitted by `banking-service` and `logistics-service` uses `Content-Type: application/problem+json` ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)) with a stable `type` URI under `https://freightflow.dev/problems/<slug>`.
+Every error emitted by `banking-service`, `logistics-service` and `notification-service` uses `Content-Type: application/problem+json` ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)) with a stable `type` URI under `https://freightflow.dev/problems/<slug>`.
 
-## Common Problem Types (`banking-service` & `logistics-service`)
+## Common Problem Types (`banking-service`, `logistics-service`, `notification-service`)
 
 | `type` URI | HTTP Status | Title | Extension Fields | When Returned |
 | --- | --- | --- | --- | --- |
@@ -78,6 +78,16 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/precondition-failed` | `412 Precondition Failed` | Precondition failed | `expectedETag`, `currentETag` | `If-Match` header does not match current `shipments.version` ETag |
 
 ---
+
+## `notification-service` Problem Types (ADR 0026, ADR 0027)
+
+| `type` URI | HTTP Status | Title | Extension Fields | When Returned |
+| --- | --- | --- | --- | --- |
+| `https://freightflow.dev/problems/invalid-notification-settings` | `400 Bad Request` | Invalid notification settings | — | `language` is not `de` or `en`, or a `kinds` entry is not one of `shipment-booked`, `shipment-status`, `payment-failed`, `payment-captured`, `payment-released` |
+| `https://freightflow.dev/problems/precondition-failed` | `412 Precondition Failed` | Precondition failed | `expectedETag`, `currentETag` | `PUT /notification-settings` with an `If-Match` that is no longer the settings' `ETag` |
+| `https://freightflow.dev/problems/dead-letter-not-found` | `404 Not Found` | Dead letter not found | — | No dead letter with that id |
+| `https://freightflow.dev/problems/dead-letter-already-redriven` | `409 Conflict` | Dead letter already redriven | — | The dead letter was redriven before; it is not handled twice |
+| `https://freightflow.dev/problems/dead-letter-redrive-failed` | `409 Conflict` | Redrive failed | `redriveAttempts` | Handling the stored event failed again (for example its shipment is still unknown); the letter stays `NEW` with the error recorded |
 
 ## `api-gateway` Problem Types (ADR 0015)
 

@@ -37,12 +37,15 @@ class WarmUpIntegrationTest {
 
     static final WireMockServer BANKING = new WireMockServer(wireMockConfig().dynamicPort());
     static final WireMockServer LOGISTICS = new WireMockServer(wireMockConfig().dynamicPort());
+    static final WireMockServer NOTIFICATION = new WireMockServer(wireMockConfig().dynamicPort());
 
     static {
         BANKING.start();
         LOGISTICS.start();
+        NOTIFICATION.start();
         BANKING.stubFor(get(anyUrl()).willReturn(okJson("{\"status\":\"UP\"}")));
         LOGISTICS.stubFor(get(anyUrl()).willReturn(okJson("{\"status\":\"UP\"}")));
+        NOTIFICATION.stubFor(get(anyUrl()).willReturn(okJson("{\"status\":\"UP\"}")));
         TestIssuer.serveKeys(TestIssuer.KEY);
     }
 
@@ -51,12 +54,14 @@ class WarmUpIntegrationTest {
         TestIssuer.register(registry);
         registry.add("BANKING_SERVICE_URI", () -> TestIssuer.url(BANKING));
         registry.add("LOGISTICS_SERVICE_URI", () -> TestIssuer.url(LOGISTICS));
+        registry.add("NOTIFICATION_SERVICE_URI", () -> TestIssuer.url(NOTIFICATION));
     }
 
     @AfterAll
     static void stop() {
         BANKING.stop();
         LOGISTICS.stop();
+        NOTIFICATION.stop();
     }
 
     @Autowired
@@ -75,21 +80,21 @@ class WarmUpIntegrationTest {
     private MeterRegistry meters;
 
     @Test
-    void warmsUpWhileRefusingTrafficThenGoesReadyWithKeysRedisAndBothServicesReached() {
+    void warmsUpWhileRefusingTrafficThenGoesReadyWithKeysRedisAndEveryServiceReached() {
         WarmUpRunner.Result result = warmUp.lastResult();
 
         assertThat(result).isNotNull();
         assertThat(result.readinessDuringWarmUp()).isEqualTo(ReadinessState.REFUSING_TRAFFIC);
         assertThat(result.overHttp()).isTrue();
-        assertThat(result.upstreams()).isEqualTo(2);
+        assertThat(result.upstreams()).isEqualTo(3);
         // Keys and Redis once, then per round each service and every path.
-        assertThat(result.steps()).isEqualTo(2 + properties.rounds() * (2 + properties.paths().size()));
+        assertThat(result.steps()).isEqualTo(2 + properties.rounds() * (3 + properties.paths().size()));
         assertThat(result.failed()).isZero();
         assertThat(availability.getReadinessState()).isEqualTo(ReadinessState.ACCEPTING_TRAFFIC);
         assertThat(meters.get("freightflow.warmup.duration").timer().count()).isEqualTo(1);
 
         // Each service saw only its readiness probe: the warm-up never sends an API request downstream.
-        for (WireMockServer service : new WireMockServer[] {BANKING, LOGISTICS}) {
+        for (WireMockServer service : new WireMockServer[] {BANKING, LOGISTICS, NOTIFICATION}) {
             assertThat(service.getAllServeEvents()).hasSize(properties.rounds());
             service.verify(properties.rounds(), getRequestedFor(urlPathEqualTo("/actuator/health/readiness")));
         }

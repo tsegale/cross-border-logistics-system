@@ -122,3 +122,26 @@ curl -s "${GATEWAY}/api/v1/shipments/track/${TRACK_NO}"                 # public
 
 The script also covers idempotent replays, payload mismatches, reversals, a cancellation that releases its hold, a
 payer that cannot pay (`PAYMENT_FAILED`), and every refusal above.
+
+## 5. Emails in German, once (ADR 0026, ADR 0027)
+
+Hanseatic Imports (Hamburg) wants its emails in German. Mailpit is the stack's SMTP server; with `--profile debug` its
+inbox is at <http://127.0.0.1:8025> and its API at `/api/v1/...`. Without it the script reads the API inside the network
+(`docker compose exec mailpit wget ...`), since nothing but the gateway and Keycloak is published.
+
+```bash
+HANSEATIC_CUSTOMER="Authorization: Bearer $(python scripts/keycloak_token.py customer-hanseatic-imports)"
+curl -s -X PUT -H "$HANSEATIC_CUSTOMER" -H "Content-Type: application/json"   "${GATEWAY}/api/v1/notification-settings"   -d '{"language":"de","recipients":["ops@hanseatic-imports.example"],
+       "kinds":["shipment-booked","shipment-status","payment-failed","payment-captured","payment-released"]}'
+# ... an operator opens and (four eyes) funds a EUR account for Hanseatic; the customer books on it ...
+curl -s "http://127.0.0.1:8025/api/v1/search?query=to%3Aops%40hanseatic-imports.example"   | python -c 'import json,sys; [print(m["Subject"]) for m in json.load(sys.stdin)["messages"]]'
+# Sendung gebucht: FF-...                 (from shipment.booked)
+# after the cancellation:
+# Reservierung freigegeben: FF-...        (from banking's hold.released)
+curl -s -H "$HANSEATIC_CUSTOMER" "${GATEWAY}/api/v1/notifications?limit=5"   # its own history
+```
+
+Then the script takes the booking event out of logistics' outbox, exactly as it was published, sends it to
+`freightflow.shipment.v1` again with `kafka-console-producer.sh` as `admin`, waits until notification-service counts it
+as a duplicate (`freightflow_events_consumed_total{type="shipment.booked",outcome="duplicate"}`) and checks that
+Mailpit still holds one "Sendung gebucht" email.

@@ -5,9 +5,7 @@
   "description": "banking reserved money on a customer account for a charge (ADR 0011).",
   "x-topic": "freightflow.hold.v1",
   "x-producer": "banking-service",
-  "x-consumers": [
-    "notification-service"
-  ],
+  "x-consumers": [],
   "$ref": "envelope.schema.json",
   "properties": {
     "type": {

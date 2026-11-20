@@ -1,8 +1,8 @@
 # FreightFlow local stack.
 #   cp .env.example .env && python scripts/generate_secrets.py && docker compose up --build
-# Default profile: the gateway, Keycloak, banking and logistics, each service with its own Postgres (ADR 0001).
-#   --profile debug           publishes the services and databases on 127.0.0.1 for local tools (ADR 0019)
-#   --profile notifications   adds the notification service
+# Default profile: the gateway, Keycloak, banking, logistics and notifications, each service with its own Postgres
+# (ADR 0001), Kafka, and Mailpit as the SMTP server.
+#   --profile debug           publishes the services, databases and Mailpit's web UI on 127.0.0.1 (ADR 0019)
 # Kafka (KRaft, ADR 0003) is in the default stack, with a SCRAM credential per service and ACLs (ADR 0022).
 # By default only the gateway (8080, management 8085) and Keycloak (8180, for logins) publish a port, on 127.0.0.1.
 # Every secret is a file in secrets/ mounted as a compose secret; none is in this file or an image (ADR 0019).
@@ -34,6 +34,21 @@ services:
     secrets: [logistics_db_password]
     volumes:
       - logistics-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  notification-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: notification
+      POSTGRES_USER: ${NOTIFICATION_DB_USER:?set in .env}
+      POSTGRES_PASSWORD_FILE: /run/secrets/notification_db_password
+    secrets: [notification_db_password]
+    volumes:
+      - notification-db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -131,8 +146,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      # A cold start next to Keycloak took 169 s on the benchmark laptop; the period does not count failures.
-      start_period: 240s
+      # A first start of the whole stack (four JVMs, Keycloak and Kafka at once) took up to 395 s on the benchmark
+      # laptop; the period does not count failures, and start_interval keeps probing every 3 s.
+      start_period: 420s
       start_interval: 3s
 
   logistics-service:
@@ -166,8 +182,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      # A cold start next to Keycloak took 169 s on the benchmark laptop; the period does not count failures.
-      start_period: 240s
+      # A first start of the whole stack (four JVMs, Keycloak and Kafka at once) took up to 395 s on the benchmark
+      # laptop; the period does not count failures, and start_interval keeps probing every 3 s.
+      start_period: 420s
       start_interval: 3s
 
   # Token buckets for the gateway's rate limits on money-moving routes (ADR 0017). Not published.
@@ -185,6 +202,7 @@ services:
     environment:
       BANKING_SERVICE_URI: http://banking-service:8081
       LOGISTICS_SERVICE_URI: http://logistics-service:8082
+      NOTIFICATION_SERVICE_URI: http://notification-service:8083
       # The iss in every token is Keycloak's public URL; keys come from inside the network (ADR 0017).
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
@@ -206,6 +224,8 @@ services:
         condition: service_healthy
       logistics-service:
         condition: service_healthy
+      notification-service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8085/actuator/health/readiness > /dev/null || exit 1"]
       interval: 10s
@@ -226,12 +246,19 @@ services:
         socat TCP-LISTEN:8082,fork,reuseaddr TCP:logistics-service:8082 &
         socat TCP-LISTEN:5441,fork,reuseaddr TCP:banking-db:5432 &
         socat TCP-LISTEN:5442,fork,reuseaddr TCP:logistics-db:5432 &
+        socat TCP-LISTEN:8083,fork,reuseaddr TCP:notification-service:8083 &
+        socat TCP-LISTEN:5443,fork,reuseaddr TCP:notification-db:5432 &
+        socat TCP-LISTEN:8025,fork,reuseaddr TCP:mailpit:8025 &
         wait
     ports:
       - "127.0.0.1:8081:8081"
       - "127.0.0.1:8082:8082"
+      - "127.0.0.1:8083:8083"
       - "127.0.0.1:5441:5441"
       - "127.0.0.1:5442:5442"
+      - "127.0.0.1:5443:5443"
+      # Mailpit's web UI and API: the emails the stack sent (ADR 0027).
+      - "127.0.0.1:8025:8025"
 
   # ---------------- Events ----------------
   # Single-node Kafka 4 in KRaft mode (ADR 0003): SCRAM-SHA-512 per service, ACLs, nothing published (ADR 0022).
@@ -266,20 +293,57 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # ---------------- Notifications (ADR 0027) ----------------
+  # An SMTP server that keeps what it receives and shows it (web UI and API on 8025, published by --profile debug).
+  # SMTP needs a login, the password from secrets/smtp_password, as a real relay would.
+  mailpit:
+    image: axllent/mailpit:v1.33.0
+    entrypoint: ["/bin/sh", "-c", "MP_SMTP_AUTH=\"freightflow:$$(cat /run/secrets/smtp_password)\" exec /mailpit"]
+    environment:
+      # Plain SMTP inside the compose network; a real relay takes STARTTLS (SMTP_STARTTLS=true).
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_MAX_MESSAGES: "5000"
+    secrets: [smtp_password]
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   notification-service:
-    profiles: [notifications]
     build: ./notification-service
-    ports:
-      - "127.0.0.1:8083:8083"
+    environment:
+      NOTIFICATION_DB_URL: jdbc:postgresql://notification-db:5432/notification
+      NOTIFICATION_DB_USER: ${NOTIFICATION_DB_USER:?set in .env}
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_USERNAME: notification
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USERNAME: freightflow
+    secrets:
+      - notification_db_password
+      - smtp_password
+      - source: kafka_notification_password
+        target: kafka_password
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+      notification-db:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8083/actuator/health/readiness > /dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 20s
+      # As banking and logistics: a first start of the whole stack took up to 395 s on the benchmark laptop.
+      start_period: 420s
+      start_interval: 3s
 
 secrets:
   # Generated by scripts/generate_secrets.py into secrets/ (git-ignored).
@@ -299,9 +363,14 @@ secrets:
     file: ./secrets/kafka_logistics_password
   kafka_notification_password:
     file: ./secrets/kafka_notification_password
+  notification_db_password:
+    file: ./secrets/notification_db_password
+  smtp_password:
+    file: ./secrets/smtp_password
 
 volumes:
   banking-db-data:
   logistics-db-data:
   keycloak-db-data:
   kafka-data:
+  notification-db-data:

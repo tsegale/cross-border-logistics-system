@@ -32,6 +32,8 @@ FILES = (
     "kafka_banking_password",
     "kafka_logistics_password",
     "kafka_notification_password",
+    "notification_db_password",
+    "smtp_password",
 )
 # Keycloak's environment: the realm's ${PLACEHOLDERS} and its own admin and database credentials.
 KEYCLOAK_GENERATED = (

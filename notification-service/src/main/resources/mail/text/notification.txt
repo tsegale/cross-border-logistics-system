@@ -1,0 +1,10 @@
+[(#{greeting})]
+
+[(${intro})]
+
+[# th:each="fact : ${facts}"][(${fact.label})]: [(${fact.value})]
+[/]
+[(#{closing})]
+
+--
+[(#{footer})]

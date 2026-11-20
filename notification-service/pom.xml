@@ -15,23 +15,69 @@
     <artifactId>notification-service</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <name>notification-service</name>
-    <description>Consumes shipment and ledger events from Kafka and notifies customers (built in Phase 4)</description>
+    <description>Emails organisations about their shipments and payments, from shipment and hold events</description>
 
     <properties>
         <java.version>21</java.version>
         <jacoco.version>0.8.16</jacoco.version>
+        <json-schema-validator.version>3.0.9</json-schema-validator.version>
         <!-- One seed orders test classes (Surefire) and test methods (JUnit). It changes every build; Surefire
              prints it, and -Dsurefire.runOrder.random.seed=<seed> replays that exact order. -->
         <maven.build.timestamp.format>yyMMddHHmmss</maven.build.timestamp.format>
         <surefire.runOrder.random.seed>${maven.build.timestamp}</surefire.runOrder.random.seed>
     </properties>
 
-    <!-- Skeleton only: Kafka, persistence and mail arrive with Phase 4. -->
     <dependencies>
+        <!-- Web, security, validation -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
+        <!-- Validates the relayed bearer token itself (ADR 0017) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Its own database (ADR 0001): settings, notifications, processed events, dead letters -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- Shipment and money events, retry topics and dead letters (ADR 0026) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-kafka</artifactId>
+        </dependency>
+
+        <!-- German and English emails over SMTP (ADR 0027) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
@@ -41,9 +87,42 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
+        <!-- Tests: real Postgres, Kafka and an SMTP server with an API (Mailpit), never mocks of them -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Event contracts: docs/events/*.schema.json, JSON Schema 2020-12 on Jackson 3 (ADR 0023) -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>${json-schema-validator.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

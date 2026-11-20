@@ -123,4 +123,22 @@ Events are acted on by their consumers, so a forged or altered event is as dange
 Residual: traffic on the compose network is not encrypted, so a process on the network could read events in transit
 (SCRAM protects the password, not the payload); TLS for the broker, Postgres and service HTTP is one production
 deployment decision. Removing a line from `acls.conf` does not revoke a grant (ADR 0022's runbook). Events carry no
-personal data (Phase 4, §2), which limits what a reader of the log could learn.
+personal data (ADR 0024), which limits what a reader of the log could learn.
+
+## 8. Events in the log, consumers and email
+
+What an event says is acted on later, elsewhere, possibly twice. ADRs 0023 to 0028.
+
+| STRIDE | Threat | Control | Proof |
+| --- | --- | --- | --- |
+| Information disclosure | Personal data copied into a retained, replayed log no erasure can reach | Events carry ids and business facts only; payload schemas list every field (`additionalProperties: false`); a schema that marks or names personal data fails the build | `EventSchemaFilesTest.noSchemaCarriesPersonalData`, `check_event_schemas.py`, `theBookingEventCarriesNothingOfTheParties` |
+| Tampering | A producer publishes an event its consumers misread (a renamed field, a number for money) | JSON Schema contract per type; every outbox row validated in the producer's tests; changes checked for compatibility against `main` | `EventContractIntegrationTest` (both producers), CI "Event schemas stay compatible" |
+| Repudiation | Nobody can say who caused an email or a re-authorisation | Every event carries the actor and request id of the change (ADR 0020); a redrive records the operator | envelope schema; `DeadLetterIntegrationTest` (`redrivenBy`) |
+| Denial of service | A poison message blocks a partition, or one customer's failing event delays every other email | Poison goes straight to the dead-letter topic; notification retries off the main partition (retry topics) | `aPoisonMessageIsDeadLetteredWithoutRetries`, `aPoisonMessageGoesStraightToTheDeadLetterTopic` |
+| Tampering | A duplicate or replayed event re-authorises a hold or emails a customer twice | `processed_events` per consumer, in the effect's transaction; emails unique per event and recipient; a crashed send is never resent | `aRedeliveredExpiryChangesNothingTheSecondTime`, `aReplayedEventSendsNoSecondEmail`, `anEmailWhoseSenderDiedWhileSendingIsNeverSentAgain`, CI smoke test |
+| Elevation of privilege | An operator uses redrive to push arbitrary content into a consumer | Redrive replays only a stored dead letter through the normal handler and its checks; it can send no email the original event could not | `DeadLetterController`, ADR 0026 |
+| Information disclosure | A customer reads another organisation's recipients or email history | Settings and history are scoped by the token's organisation; matrix test per role | notification `AuthorisationMatrixTest` |
+| Spoofing | Someone sends mail through the stack's SMTP server | Mailpit requires SMTP auth (`secrets/smtp_password`) and is not published | compose `mailpit`; CI port check (1025, 8025 closed) |
+
+Residual: an email that was being sent when its sender died is marked `UNKNOWN` and not resent, so a customer can miss
+one; SMTP on the compose network is plaintext, a production relay takes STARTTLS (`SMTP_STARTTLS=true`).

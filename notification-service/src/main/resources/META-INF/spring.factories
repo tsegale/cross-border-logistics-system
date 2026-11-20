@@ -1,0 +1,1 @@
+org.springframework.boot.EnvironmentPostProcessor=com.freightflow.notification.config.RequiredSecrets

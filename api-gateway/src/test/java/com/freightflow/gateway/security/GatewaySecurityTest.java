@@ -50,6 +50,7 @@ class GatewaySecurityTest {
         TestIssuer.register(registry);
         registry.add("BANKING_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
         registry.add("LOGISTICS_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
+        registry.add("NOTIFICATION_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
     }
 
     @AfterAll
@@ -135,6 +136,17 @@ class GatewaySecurityTest {
             "auditor,  GET,  /api/v1/payment-commands,                  200",
             "operator, POST, /api/v1/payment-commands/x/retry,          200",
             "customer, GET,  /api/v1/accounts/FF14EUR000000001,          200",
+            "customer, GET,  /api/v1/notification-settings,              200",
+            "customer, PUT,  /api/v1/notification-settings,              200",
+            "operator, PUT,  /api/v1/notification-settings,              403",
+            "auditor,  GET,  /api/v1/notification-settings,              403",
+            "carrier,  GET,  /api/v1/notifications,                      403",
+            "customer, GET,  /api/v1/notifications,                      200",
+            "auditor,  GET,  /api/v1/notifications,                      200",
+            "customer, GET,  /api/v1/dead-letters,                       403",
+            "auditor,  GET,  /api/v1/dead-letters,                       200",
+            "auditor,  POST, /api/v1/dead-letters/x/redrive,             403",
+            "operator, POST, /api/v1/dead-letters/x/redrive,             200",
     })
     void coarseRoleRulesAtTheEdge(String role, String method, String path, int expected) {
         client().method(HttpMethod.valueOf(method)).uri(path)

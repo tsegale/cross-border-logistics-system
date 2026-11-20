@@ -80,6 +80,12 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.POST, "/api/v1/payment-commands/*/retry").hasRole("operator")
                         .pathMatchers("/api/v1/ledger/**", "/api/v1/payment-commands", "/api/v1/payment-commands/**")
                                 .hasAnyRole("operator", "auditor")
+                        // notification-service (ADR 0027): an organisation's own settings; operators redrive dead
+                        // letters, auditors read them.
+                        .pathMatchers("/api/v1/notification-settings").hasRole("customer")
+                        .pathMatchers(HttpMethod.POST, "/api/v1/dead-letters/*/redrive").hasRole("operator")
+                        .pathMatchers("/api/v1/dead-letters", "/api/v1/dead-letters/**")
+                                .hasAnyRole("operator", "auditor")
                         // Carriers report tracking events and read the shipments assigned to them, nothing else.
                         .pathMatchers(HttpMethod.POST, "/api/v1/shipments/*/tracking-events").hasAnyRole("carrier", "operator")
                         .pathMatchers(HttpMethod.GET, "/api/v1/shipments", "/api/v1/shipments/**")
