@@ -436,7 +436,14 @@ Every run ends with a balanced ledger reconciliation. The reports hold the metho
 | [System balance read](docs/benchmarks/hot-accounts.md#reading-an-unlocked-balance-at-a-million-postings-phase-3) | Reading an unlocked system balance at 1,000,000 postings (ADR 0010) | 175 ms median without a checkpoint, 0.48 ms with one |
 | [Cold start](docs/benchmarks/cold-start.md) | First requests through the gateway after a restart, before and after the warm-up | First banking request 1.7-3.4 s before, 159-306 ms after; first quote 2.0-4.2 s before, 0.7-2.6 s after |
 
-These are laptop numbers. `.github/workflows/benchmarks.yml` runs the same workloads on a GitHub-hosted runner and
+On a GitHub-hosted runner (Xeon 6975P-C, 4 vCPUs, 15.3 GiB; run 44744962828, Phase 4 code) each report now opens
+with its hosted numbers: `conditional-update` ahead of `pessimistic` in every workload, `unlocked` deposits at 182.5/s
+against 123.3/s `locked` at 32 VUs, 25.0 shipments booked/s at 16 VUs with p99 0.79 s to `BOOKED`, and a 0.30 ms
+checkpointed balance read. Phase 4 adds [Events](docs/benchmarks/events.md): booking to the customer's German email
+p50 368 ms, p95 618 ms, p99 658 ms at 2 bookings/s; outbox lag p95 at most 224 ms; a 30 s broker outage under load
+drained 7.7 s after the restart, with every email delivered.
+
+The table above is laptop numbers. `.github/workflows/benchmarks.yml` runs the same workloads on a GitHub-hosted runner and
 records its CPU and memory; its results lead the reports once it has run.
 
 ## Running the tests

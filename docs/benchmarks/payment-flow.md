@@ -1,5 +1,18 @@
 # Payment flow under load (ADR 0012, ADR 0013)
 
+## Hosted runner (Phase 4, run [44744962828](https://github.com/tsegale/cross-border-logistics-system/actions/runs/44744962828))
+
+GitHub-hosted `ubuntu-24.04`: Intel Xeon 6975P-C, 4 vCPUs, 15,701 MiB, Docker 28.0.4, the whole default stack running, Phase 4 code (outbox relays and notification-service included).
+
+| VUs | Shipments | Booked per s | Booking p50 / p95 ms | Time to `BOOKED` p50 / p95 / p99 ms | Not booked |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 200 | 13.5 | 16.7 / 41.6 | 558 / 675 / 702 | 0 |
+| 16 | 400 | 25.0 | 18.1 / 49.7 | 638 / 757 / 788 | 0 |
+
+The ledger reconciled afterwards (`balanced: true`, 1,039 accounts). Each booking now also writes a
+`shipment.booked` event and each authorisation a `shipment.status-changed`, in the same transactions. Booking to the
+customer's email is in [events.md](events.md).
+
 ## Question
 A booking answers `201 AWAITING_PAYMENT` at once; the payment relay then authorises a hold in banking-service and the
 shipment becomes `BOOKED`. How long does a customer wait for `BOOKED`, how many shipments per second does the relay
