@@ -92,6 +92,27 @@ jobs:
       - if: failure()
         run: docker compose logs --tail 200
 
+  # A changed event schema must stay compatible with the one already on main (ADR 0023): consumers built against
+  # either read events written under the other. A breaking change goes to a new topic version instead.
+  event-schemas:
+    name: Event schemas stay compatible
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/check_event_schemas.py --self-test
+      - name: Compatible with the base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A pull request is compared with its target; a push to main with main as it was before the push.
+          if [ "$EVENT_NAME" = pull_request ]; then base="origin/$BASE_REF"; else base="$BEFORE"; fi
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then base="HEAD~1"; fi
+          python3 scripts/check_event_schemas.py --base "$base"
+
   # Secrets in the whole history, not just this push. Reviewed findings go in .gitleaksignore.
   gitleaks:
     name: Secret scan (gitleaks)
