@@ -1,16 +1,14 @@
 # syntax=docker/dockerfile:1
 # ---- build ----
-FROM eclipse-temurin:21-jdk AS build
+# Maven as the wrapper pins it (.mvn/wrapper/maven-wrapper.properties; change both together). The image carries
+# Maven, so a build never downloads it: the wrapper's one unretried fetch from Maven Central kept failing CI.
+FROM maven:3.10.0-eclipse-temurin-21 AS build
 WORKDIR /src
-# The Maven wrapper pins the Maven version, so the build image only needs a JDK.
-COPY --chmod=755 mvnw .
-COPY .mvn ./.mvn
 COPY pom.xml .
-# One Maven cache per service: compose builds them in parallel, and two wrappers unpacking Maven into one shared
-# cache collided ("unable to remove target: Directory not empty").
-RUN --mount=type=cache,id=m2-banking-service,target=/root/.m2 ./mvnw -B -q dependency:go-offline
+# One Maven cache per service: compose builds them in parallel, and parallel writers to one cache can collide.
+RUN --mount=type=cache,id=m2-banking-service,target=/root/.m2 mvn -B -q dependency:go-offline
 COPY src ./src
-RUN --mount=type=cache,id=m2-banking-service,target=/root/.m2 ./mvnw -B -q package -DskipTests \
+RUN --mount=type=cache,id=m2-banking-service,target=/root/.m2 mvn -B -q package -DskipTests \
  && java -Djarmode=tools -jar target/*.jar extract --layers --launcher --destination target/extracted
 
 # ---- runtime ----
