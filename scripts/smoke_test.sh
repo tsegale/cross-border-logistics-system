@@ -385,8 +385,7 @@ wait_for_mail() {
 # consumed <type> <outcome> : notification-service's count of consumed events of this type and outcome
 consumed() {
   dc exec -T notification-service wget -qO- http://127.0.0.1:8083/actuator/prometheus \
-    | awk -v type="$1" -v outcome="$2" '$1 ~ /^freightflow_events_consumed_total\{/ && index($1, "type=\"" type "\"")
-        && index($1, "outcome=\"" outcome "\"") { sum += $2 } END { printf "%d\n", sum }'
+    | awk -v type="$1" -v outcome="$2" '$1 ~ /^freightflow_events_consumed_total\{/ && index($1, "type=\"" type "\"") && index($1, "outcome=\"" outcome "\"") { sum += $2 } END { printf "%d\n", sum }'
 }
 
 as customer-hanseatic-imports
