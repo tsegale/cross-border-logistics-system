@@ -7,6 +7,11 @@ Reads the outbox relays' lag (commit to broker acknowledgement) from banking and
 Kafka is stopped for --outage seconds, and measures from the broker's restart until both outboxes are empty and
 every email of the outage has arrived.
 
+With --cdc (the stack also with benchmarks/compose.cdc.yml) it compares logistics' polling relay with Debezium reading
+the same outbox from the write-ahead log: for each event of the run, the time from its occurredAt to the broker's
+append time on freightflow.shipment.v1 (the relay) and on freightflow.shipment.v1.cdc (Debezium). Both topics are set
+to LogAppendTime for this, so both are the broker's clock, which is the host's, like the services'.
+
 Needs the stack with benchmarks/compose.bench.yml (it publishes Mailpit, logistics and banking's actuators on
 127.0.0.1) and docker compose on the PATH. Standard library only.
 
@@ -17,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import statistics
 import subprocess
 import sys
@@ -233,14 +239,96 @@ def backlog() -> float:
                                                                     'outbox="events"')
 
 
+# A client config for the broker's admin, written inside the broker's container from its secret.
+KAFKA_CLIENT = (
+    'printf "security.protocol=SASL_PLAINTEXT\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config='
+    'org.apache.kafka.common.security.scram.ScramLoginModule required username=\\"admin\\" password=\\"%s\\";\n" '
+    '"$(cat /run/secrets/kafka_admin_password)" > /tmp/bench-client.properties'
+)
+RELAY_TOPIC = "freightflow.shipment.v1"
+CDC_TOPIC = "freightflow.shipment.v1.cdc"
+
+
+def kafka(command: str) -> str:
+    """Runs a Kafka CLI command in the broker's container as its admin."""
+    result = subprocess.run([*COMPOSE, "exec", "-T", "kafka", "bash", "-c", f"{KAFKA_CLIENT} && {command}"],
+                            check=True, capture_output=True, text=True)
+    return result.stdout
+
+
+def wait_for_debezium(timeout: float = 300) -> None:
+    """Until Debezium streams from its replication slot: before that, new outbox rows would not reach the topic."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        result = subprocess.run([*COMPOSE, "exec", "-T", "logistics-db", "sh", "-c",
+                                 "psql -U \"$POSTGRES_USER\" -d logistics -tAc \"SELECT active FROM "
+                                 "pg_replication_slots WHERE slot_name = 'freightflow_benchmark'\""],
+                                capture_output=True, text=True)
+        if result.stdout.strip() == "t":
+            return
+        time.sleep(2)
+    raise RuntimeError("Debezium's replication slot freightflow_benchmark is not active")
+
+
+def append_time_topics() -> None:
+    for topic in (RELAY_TOPIC, CDC_TOPIC):
+        kafka("/opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:29092 --command-config "
+              f"/tmp/bench-client.properties --alter --entity-type topics --entity-name {topic} "
+              "--add-config message.timestamp.type=LogAppendTime")
+
+
+def instant(text: str) -> datetime:
+    """Java's Instant.toString(), up to nanoseconds, as a datetime (microseconds)."""
+    return datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", text.replace("Z", "+00:00")))
+
+
+def topic_events(topic: str) -> dict[str, tuple[datetime, datetime]]:
+    """eventId -> (occurredAt, broker append time) for every record on the topic; the first copy counts."""
+    output = kafka("/opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:29092 --consumer.config "
+                   f"/tmp/bench-client.properties --topic {topic} --from-beginning --timeout-ms 15000 "
+                   "--property print.timestamp=true 2>/dev/null || true")
+    events: dict[str, tuple[datetime, datetime]] = {}
+    for line in output.splitlines():
+        if not line.startswith(("LogAppendTime:", "CreateTime:")) or "\t" not in line:
+            continue
+        stamp, value = line.split("\t", 1)
+        envelope = json.loads(value)
+        while isinstance(envelope, str):  # Debezium writes a json column as a JSON string
+            envelope = json.loads(envelope)
+        appended = datetime.fromtimestamp(int(stamp.split(":", 1)[1]) / 1000, timezone.utc)
+        events.setdefault(envelope["eventId"], (instant(envelope["occurredAt"]), appended))
+    return events
+
+
+def compare_paths(start: datetime, end: datetime) -> dict:
+    """occurredAt to broker append, per event of the window, for the relay and for Debezium."""
+    relay, cdc = topic_events(RELAY_TOPIC), topic_events(CDC_TOPIC)
+    window = {event: times for event, times in relay.items() if start <= times[0] <= end}
+    result: dict = {"events": len(window), "missing_on_cdc": len(window.keys() - cdc.keys())}
+    for name, source in (("relay", relay), ("cdc", cdc)):
+        lags = [(source[e][1] - source[e][0]).total_seconds() * 1000 for e in window if e in source]
+        result[name] = summary(lags) if lags else {"count": 0}
+    return result
+
+
+def last_append_after(times: dict[str, tuple[datetime, datetime]], start: datetime, end: datetime) -> float:
+    """Seconds from `end` (the broker's restart) to the append of the last event that occurred in [start, end]."""
+    appended = [t[1] for t in times.values() if start <= t[0] <= end]
+    return round((max(appended) - end).total_seconds(), 1) if appended else float("nan")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--rate", type=float, default=2.0, help="bookings per second")
     parser.add_argument("--seconds", type=float, default=120, help="length of the steady phase")
     parser.add_argument("--outage", type=float, default=30, help="seconds Kafka is stopped; 0 skips the outage")
     parser.add_argument("--json", help="write the results here")
+    parser.add_argument("--cdc", action="store_true", help="compare the relay with Debezium (compose.cdc.yml)")
     args = parser.parse_args()
     run = str(int(time.time()))
+    if args.cdc:
+        wait_for_debezium()
+        append_time_topics()
 
     recipient, account = setup(run)
     # Warm-up, discarded: the first bookings after a start measure the JIT.
@@ -248,7 +336,9 @@ def main() -> None:
     wait_for_emails(recipient, set(warm), 120)
 
     before = {service: lag_buckets(service) for service in ACTUATORS}
+    steady_start = datetime.now(timezone.utc)
     booked = steady(account, run, args.rate, args.seconds, 10_000)
+    steady_end = datetime.now(timezone.utc)
     received = wait_for_emails(recipient, set(booked), 120)
     lag = outbox_lag(before, {service: lag_buckets(service) for service in ACTUATORS})
     steady_result = summary(latencies(booked, received))
@@ -257,6 +347,10 @@ def main() -> None:
     print(f"outbox lag (histogram buckets, commit to broker ack): {lag}")
     results = {"rate_per_s": args.rate, "seconds": args.seconds, "booking_to_email": steady_result,
                "outbox_lag": lag}
+    if args.cdc:
+        paths = compare_paths(steady_start, steady_end)
+        print(f"occurredAt to broker append, relay vs Debezium: {paths}")
+        results["relay_vs_cdc"] = paths
 
     if args.outage > 0:
         outage_booked: dict[str, datetime] = {}
@@ -266,10 +360,12 @@ def main() -> None:
         time.sleep(5)
         subprocess.run([*COMPOSE, "stop", "kafka"], check=True, capture_output=True)
         stopped = time.monotonic()
+        stopped_at = datetime.now(timezone.utc)
         time.sleep(args.outage)
         peak = backlog()
         subprocess.run([*COMPOSE, "start", "kafka"], check=True, capture_output=True)
         restarted = time.monotonic()
+        restarted_at = datetime.now(timezone.utc)
         loader.join()
         while backlog() > 0 and time.monotonic() - restarted < 600:
             time.sleep(0.5)
@@ -284,6 +380,14 @@ def main() -> None:
             "last_email_after_restart_s": round(
                 (all_mail - datetime.now(timezone.utc)).total_seconds() + (time.monotonic() - restarted), 1),
         }
+        if args.cdc:
+            # Events that occurred while the broker was down: when did each path get the last of them onto it?
+            relay_times, cdc_times = topic_events(RELAY_TOPIC), topic_events(CDC_TOPIC)
+            recovery["relay_last_outage_event_after_restart_s"] = last_append_after(relay_times, stopped_at,
+                                                                                    restarted_at)
+            recovery["cdc_last_outage_event_after_restart_s"] = last_append_after(cdc_times, stopped_at, restarted_at)
+            outage_events = {e for e, t in relay_times.items() if stopped_at <= t[0] <= restarted_at}
+            recovery["cdc_missing_outage_events"] = len(outage_events - cdc_times.keys())
         print(f"broker outage: {recovery}")
         results["broker_outage"] = recovery
 

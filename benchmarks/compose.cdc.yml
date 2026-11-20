@@ -1,0 +1,48 @@
+# Benchmark-only: log-based change data capture beside logistics' polling relay (ADR 0025), layered on the benchmark
+# stack:
+#   docker compose -f docker-compose.yml -f benchmarks/compose.bench.yml -f benchmarks/compose.cdc.yml up -d --wait
+#
+# Debezium Server reads logistics' write-ahead log through a replication slot and publishes every new event_outbox row
+# with its outbox event router to freightflow.shipment.v1.cdc, a shadow topic no service reads. The polling relay keeps
+# publishing to freightflow.shipment.v1 as before, so both paths carry the same events at the same time and
+# benchmarks/events_to_email.py --cdc compares them record by record. Debezium logs in as the broker's admin: this is
+# a measurement, not a deployment, and adds no principal to infra/kafka/acls.conf.
+services:
+  logistics-db:
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=4
+      - -c
+      - max_wal_senders=4
+
+  # The shadow topic, with the shipment topic's partitions; the broker creates no topic on its own.
+  cdc-topic:
+    image: apache/kafka:4.3.1
+    entrypoint: ["bash", "/etc/freightflow/cdc/create-topic.sh"]
+    secrets: [kafka_admin_password]
+    volumes:
+      - ./benchmarks/cdc:/etc/freightflow/cdc:ro
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  debezium:
+    image: quay.io/debezium/server:3.2.0.Final
+    entrypoint: ["sh", "/etc/freightflow/cdc/start-debezium.sh"]
+    environment:
+      LOGISTICS_DB_USER: ${LOGISTICS_DB_USER:?set in .env}
+    secrets: [kafka_admin_password, logistics_db_password]
+    volumes:
+      - ./benchmarks/cdc:/etc/freightflow/cdc:ro
+    depends_on:
+      cdc-topic:
+        condition: service_completed_successfully
+      logistics-db:
+        condition: service_healthy
+    # No healthcheck (the image has no HTTP client to probe with): events_to_email.py --cdc waits until Debezium's
+    # replication slot is active before it measures.
+    restart: on-failure

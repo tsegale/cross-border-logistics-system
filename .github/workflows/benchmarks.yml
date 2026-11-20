@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       suites:
-        description: "Comma-separated: transfers, hot-accounts, payment-flow, system-balance, events"
+        description: "Comma-separated: transfers, hot-accounts, payment-flow, system-balance, events, cdc"
         default: "transfers,hot-accounts,payment-flow,system-balance,events"
         required: true
       rounds:
@@ -132,6 +132,18 @@ jobs:
           set -o pipefail
           python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 30 --json benchmarks/out/events/events.json 2>&1 | tee benchmarks/out/events/events.log
           { echo; echo "## Events"; echo; echo '```'; cat benchmarks/out/events/events.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      # Last: it restarts logistics' database with logical replication and adds Debezium (benchmarks/compose.cdc.yml).
+      - name: Events, polling relay against Debezium on the same outbox (ADR 0025)
+        if: contains(inputs.suites, 'cdc')
+        env:
+          COMPOSE: docker compose -f docker-compose.yml -f benchmarks/compose.bench.yml -f benchmarks/compose.cdc.yml
+        run: |
+          mkdir -p benchmarks/out/cdc
+          set -o pipefail
+          $COMPOSE up -d --wait
+          python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 30 --cdc --json benchmarks/out/cdc/cdc.json 2>&1 | tee benchmarks/out/cdc/cdc.log
+          { echo; echo "## Relay against Debezium"; echo; echo '```'; cat benchmarks/out/cdc/cdc.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Container memory at the end of the run
         if: always()
