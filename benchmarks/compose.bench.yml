@@ -20,6 +20,15 @@ services:
     ports:
       - "127.0.0.1:8081:8081"
 
+  # The events benchmark reads logistics' relay metrics and Mailpit's API (ADR 0025, ADR 0027).
+  logistics-service:
+    ports:
+      - "127.0.0.1:8082:8082"
+
+  mailpit:
+    ports:
+      - "127.0.0.1:8025:8025"
+
   # Budgets a single benchmark persona cannot reach: the benchmark measures the ledger, not the limiter.
   api-gateway:
     environment:

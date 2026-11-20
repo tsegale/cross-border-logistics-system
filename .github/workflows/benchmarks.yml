@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
     inputs:
       suites:
-        description: "Comma-separated: transfers, hot-accounts, payment-flow, system-balance"
-        default: "transfers,hot-accounts,payment-flow,system-balance"
+        description: "Comma-separated: transfers, hot-accounts, payment-flow, system-balance, events"
+        default: "transfers,hot-accounts,payment-flow,system-balance,events"
         required: true
       rounds:
         description: "Rounds per mode for transfers and hot-accounts (order rotates between rounds)"
@@ -124,6 +124,14 @@ jobs:
           python3 benchmarks/system_balance_read.py --postings 1000000 --after 1000 --runs 30 \
             | tee benchmarks/out/system-balance.log
           { echo; echo "## System account balance read"; echo; cat benchmarks/out/system-balance.log; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Events, booking to email and a broker outage (ADR 0025, ADR 0027)
+        if: contains(inputs.suites, 'events')
+        run: |
+          mkdir -p benchmarks/out/events
+          set -o pipefail
+          python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 30 --json benchmarks/out/events/events.json 2>&1 | tee benchmarks/out/events/events.log
+          { echo; echo "## Events"; echo; echo '```'; cat benchmarks/out/events/events.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Container memory at the end of the run
         if: always()
