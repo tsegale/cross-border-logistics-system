@@ -46,12 +46,14 @@ jobs:
           # Compose resolves secrets/ files and keycloak's env_file while rendering the config.
           python3 scripts/generate_secrets.py
           docker compose config --quiet
-          docker compose --profile events config --quiet
           docker compose --profile notifications config --quiet
-          # The default profile stays the core: the optional pieces may not leak into it.
-          for s in kafka notification-service; do
-            if docker compose config --services | grep -qx "$s"; then echo "::error::$s is in the default profile"; exit 1; fi
+          # Kafka and its init job are part of the core stack (ADR 0022); the notification service stays optional.
+          for s in kafka kafka-init; do
+            docker compose config --services | grep -qx "$s" || { echo "::error::$s is not in the default profile"; exit 1; }
           done
+          if docker compose config --services | grep -qx notification-service; then
+            echo "::error::notification-service is in the default profile"; exit 1
+          fi
 
   # The stack as a user starts it. Unit and integration tests can't see a broken compose file or env wiring.
   default-stack:
