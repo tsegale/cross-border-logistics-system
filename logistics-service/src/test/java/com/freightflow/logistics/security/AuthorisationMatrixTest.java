@@ -229,11 +229,14 @@ class AuthorisationMatrixTest extends IntegrationTest {
                 .andExpect(status().isOk());
         com.freightflow.logistics.support.BankingStub.SERVER.stubFor(com.freightflow.logistics.support.BankingStubs.createHold()
                 .willReturn(com.freightflow.logistics.support.BankingStubs.respond(com.freightflow.logistics.support.BankingStubs.HOLD_CREATED)));
-        relay.relayOnce();
-
-        // The relay sends every due command in the shared database, not only this test's: pick out this shipment's.
-        List<LoggedRequest> holds = BankingStub.SERVER.findAll(postRequestedFor(urlPathEqualTo("/api/v1/holds"))
-                .withHeader("Idempotency-Key", equalTo("shipment-" + fixture.shipment() + "-authorise")));
+        // The relay sends every due command in the shared database, a batch at a time, not only this test's: relay
+        // until this shipment's went out (other tests may have left more than a batch due), then pick it out.
+        List<LoggedRequest> holds = List.of();
+        for (int round = 0; round < 10 && holds.isEmpty(); round++) {
+            relay.relayOnce();
+            holds = BankingStub.SERVER.findAll(postRequestedFor(urlPathEqualTo("/api/v1/holds"))
+                    .withHeader("Idempotency-Key", equalTo("shipment-" + fixture.shipment() + "-authorise")));
+        }
         assertThat(holds).isNotEmpty();
         JsonNode body = JSON.readTree(holds.getLast().getBodyAsString());
         assertThat(body.get("payerOrganizationId").asString()).isEqualTo(TestCallers.NAMIB.toString());
