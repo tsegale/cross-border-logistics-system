@@ -146,6 +146,76 @@ class NotificationFlowIntegrationTest extends IntegrationTest {
                 Integer.class, marker)).isZero();
     }
 
+    @Test
+    void paymentFailuresAndCapturesAreEmailedAndEventsWithoutAnEmailAreOnlyRecorded() throws Exception {
+        Org org = org("de");
+        UUID shipment = UUID.randomUUID();
+        publishBooked(org, shipment, "FF-000000A3-7");
+        await(30, () -> first(org.recipient()));
+
+        Events.publish("logistics", EventTopics.SHIPMENT, shipment.toString(), Events.event("shipment.payment-failed",
+                event -> {
+                    event.put("aggregateId", shipment.toString());
+                    event.put("sequence", 2);
+                    payload(event).put("shipmentId", shipment.toString());
+                    payload(event).put("trackingNumber", "FF-000000A3-7");
+                    payload(event).put("organizationId", org.id().toString());
+                    payload(event).put("payerOrganizationId", org.id().toString());
+                }));
+        UUID hold = UUID.randomUUID();
+        Events.publish("banking", EventTopics.HOLD, hold.toString(), Events.event("hold.captured", event -> {
+            event.put("aggregateId", hold.toString());
+            var h = (tools.jackson.databind.node.ObjectNode) payload(event).path("hold");
+            h.put("holdId", hold.toString());
+            h.put("organizationId", org.id().toString());
+            h.put("reference", "SHIPMENT " + shipment);
+        }));
+        // No email: a status between milestones, a hold that is not a shipment's, an authorisation, a tracking event.
+        UUID inTransit = Events.uuidV7();
+        Events.publish("logistics", EventTopics.SHIPMENT, shipment.toString(),
+                statusChanged(org, shipment, "FF-000000A3-7", "IN_TRANSIT", 3, inTransit));
+        UUID foreignHold = Events.uuidV7();
+        Events.publish("banking", EventTopics.HOLD, hold.toString(), Events.event("hold.released", event -> {
+            event.put("eventId", foreignHold.toString());
+            ((tools.jackson.databind.node.ObjectNode) payload(event).path("hold")).put("reference", "INVOICE 42");
+        }));
+        UUID authorised = Events.uuidV7();
+        Events.publish("banking", EventTopics.HOLD, hold.toString(), Events.event("hold.authorised",
+                event -> event.put("eventId", authorised.toString())));
+        UUID tracking = Events.uuidV7();
+        Events.publish("logistics", EventTopics.SHIPMENT, shipment.toString(), Events.event("tracking-event.recorded",
+                event -> event.put("eventId", tracking.toString())));
+
+        await(30, () -> Mailpit.to(org.recipient()).size() == 3);
+        assertThat(Mailpit.to(org.recipient())).extracting(Mailpit.Message::subject).containsExactlyInAnyOrder(
+                "Sendung gebucht: FF-000000A3-7", "Zahlung fehlgeschlagen: FF-000000A3-7",
+                "Betrag belastet: FF-000000A3-7");
+        assertThat(Mailpit.to(org.recipient()).stream().filter(m -> m.subject().startsWith("Zahlung")).findFirst()
+                .orElseThrow().text()).contains("nicht genügend Guthaben auf dem Zahlungskonto");
+        for (UUID id : List.of(inTransit, foreignHold, authorised, tracking)) {
+            await(30, () -> processed(id));
+        }
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM notifications WHERE organization_id = ?",
+                Integer.class, org.id())).isEqualTo(3);
+    }
+
+    @Test
+    void anOrganisationThatNeverSavedSettingsGetsNothing() {
+        UUID marker = Events.uuidV7();
+        UUID shipment = UUID.randomUUID();
+        Events.publish("logistics", EventTopics.SHIPMENT, shipment.toString(), Events.event("shipment.booked",
+                event -> {
+                    event.put("eventId", marker.toString());
+                    event.put("aggregateId", shipment.toString());
+                    payload(event).put("shipmentId", shipment.toString());
+                    payload(event).put("organizationId", UUID.randomUUID().toString());
+                }));
+        await(30, () -> processed(marker));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM notifications WHERE event_id = ?",
+                Integer.class, marker)).isZero();
+    }
+
     // ------------------------------------------------------------------ helpers
 
     record Org(UUID id, String recipient, Caller caller) {

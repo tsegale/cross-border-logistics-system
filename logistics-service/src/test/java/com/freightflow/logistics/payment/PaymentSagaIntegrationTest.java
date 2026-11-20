@@ -95,7 +95,9 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.status").value("PAYMENT_FAILED"))
                 .andExpect(jsonPath("$.payment.status").value("FAILED"))
                 .andExpect(jsonPath("$.payment.failureType").value("https://freightflow.dev/problems/insufficient-funds"));
-        BankingStub.SERVER.verify(1, postRequestedFor(urlPathEqualTo("/api/v1/holds")));
+        // Only this shipment's: other tests may leave commands pending for the relay.
+        BankingStub.SERVER.verify(1, postRequestedFor(urlPathEqualTo("/api/v1/holds"))
+                .withHeader("Idempotency-Key", equalTo("shipment-" + shipment + "-authorise")));
     }
 
     @Test

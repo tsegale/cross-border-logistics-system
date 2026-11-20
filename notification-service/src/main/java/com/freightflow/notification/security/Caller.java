@@ -46,30 +46,12 @@ public record Caller(String subject, String clientId, UUID organizationId, Set<S
         return hasRole(CUSTOMER);
     }
 
-    /** Operators and auditors see every organisation's notifications; only operators change anything. */
-    public boolean seesEverything() {
-        return hasRole(OPERATOR) || hasRole(AUDITOR);
-    }
-
-    public boolean isOperator() {
-        return hasRole(OPERATOR);
-    }
-
-    public boolean isCarrier() {
-        return hasRole(CARRIER);
-    }
-
     /** The caller's organisation, or 403 for a customer token without one: it may own nothing. */
     public UUID requireOrganization() {
         if (organizationId == null) {
             throw new AccessDeniedException("The token names no customer organisation");
         }
         return organizationId;
-    }
-
-    /** True if this caller may see something the organisation owns (null owner: only operators and auditors). */
-    public boolean mayAccess(UUID ownerOrganizationId) {
-        return seesEverything() || (isCustomer() && organizationId != null && organizationId.equals(ownerOrganizationId));
     }
 
     /** Who did it, for the audit columns (ADR 0020): this caller and the request id of the current request. */
