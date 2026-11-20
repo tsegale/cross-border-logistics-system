@@ -185,13 +185,29 @@ def summary(values: list[float]) -> dict[str, float]:
             "mean_ms": round(statistics.fmean(values))}
 
 
-def outbox_lag() -> dict[str, dict[str, float]]:
-    """The relays' own quantiles (Micrometer, a sliding window of about two minutes), in milliseconds."""
+def lag_buckets(service: str) -> dict[float, float]:
+    """The relay's lag histogram: upper bound in seconds -> cumulative count (Prometheus `le` buckets)."""
+    buckets: dict[float, float] = {}
+    with urllib.request.urlopen(ACTUATORS[service] + "/actuator/prometheus", timeout=10) as response:
+        for line in response.read().decode().splitlines():
+            if line.startswith("freightflow_outbox_lag_seconds_bucket{"):
+                bound = line.split('le="', 1)[1].split('"', 1)[0]
+                buckets[float("inf") if bound == "+Inf" else float(bound)] = float(line.rsplit(" ", 1)[1])
+    return buckets
+
+
+def outbox_lag(before: dict[str, dict[float, float]], after: dict[str, dict[float, float]]) -> dict:
+    """p50/p95/p99 of the events published between two snapshots, as the upper bound of the bucket each falls in."""
     result = {}
     for service in ACTUATORS:
-        result[service] = {f"p{int(q * 100)}_ms": round(metric(service, "freightflow_outbox_lag_seconds",
-                                                               f'quantile="{q}"') * 1000, 1)
-                           for q in (0.5, 0.95, 0.99)}
+        delta = sorted((bound, after[service].get(bound, 0) - before[service].get(bound, 0))
+                       for bound in after[service])
+        total = delta[-1][1] if delta else 0
+        quantiles = {"events": int(total)}
+        for q in (0.5, 0.95, 0.99):
+            bound = next((b for b, cumulative in delta if total and cumulative >= q * total), float("nan"))
+            quantiles[f"p{int(q * 100)}_ms_at_most"] = round(bound * 1000, 1)
+        result[service] = quantiles
     return result
 
 
@@ -214,13 +230,14 @@ def main() -> None:
     warm = steady(account, run, args.rate, 10, 0)
     wait_for_emails(recipient, set(warm), 120)
 
+    before = {service: lag_buckets(service) for service in ACTUATORS}
     booked = steady(account, run, args.rate, args.seconds, 10_000)
-    lag = outbox_lag()
     received = wait_for_emails(recipient, set(booked), 120)
+    lag = outbox_lag(before, {service: lag_buckets(service) for service in ACTUATORS})
     steady_result = summary(latencies(booked, received))
     steady_result["missing"] = len(set(booked) - received.keys())
     print(f"steady {args.rate}/s for {args.seconds:.0f} s: booking to email {steady_result}")
-    print(f"outbox lag: {lag}")
+    print(f"outbox lag (histogram buckets, commit to broker ack): {lag}")
     results = {"rate_per_s": args.rate, "seconds": args.seconds, "booking_to_email": steady_result,
                "outbox_lag": lag}
 
