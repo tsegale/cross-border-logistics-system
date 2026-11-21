@@ -14,7 +14,7 @@ name: freightflow
 services:
   # ---------------- Databases: one per service ----------------
   banking-db:
-    mem_limit: 256m
+    mem_limit: 192m
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: banking
@@ -175,7 +175,7 @@ services:
       start_interval: 3s
 
   logistics-service:
-    mem_limit: 512m
+    mem_limit: 576m
     build: ./logistics-service
     environment:
       # OpenTelemetry (ADR 0030): exported only with infra/observability/observability.env (the otlp profile).
@@ -183,9 +183,9 @@ services:
       OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://otel-collector:4318}
       SERVICE_VERSION: ${SERVICE_VERSION:-dev}
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
-      # Heap 50% of the 512m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
+      # Heap 45% of the 576m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
       JAVA_OPTS: >-
-        -XX:MaxRAMPercentage=50 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
+        -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
         -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
       LOGISTICS_DB_URL: jdbc:postgresql://logistics-db:5432/logistics
       LOGISTICS_DB_USER: ${LOGISTICS_DB_USER:?set in .env}
