@@ -4,10 +4,10 @@
 # Maven, so a build never downloads it: the wrapper's one unretried fetch from Maven Central kept failing CI.
 FROM maven:3.10.0-eclipse-temurin-21 AS build
 WORKDIR /src
-# Maven Central answers a burst of parallel CI builds with 429s: retry them, longer than the 3 tries by default, and
-# honour Retry-After. Both property prefixes: Resolver 1.9 reads aether.connector.*, 2.x aether.transport.*.
-ENV RETRY_RESOLVER_1="-Daether.connector.http.retryHandler.count=8 -Daether.connector.http.retryHandler.interval=10000"
-ENV MAVEN_ARGS="$RETRY_RESOLVER_1 -Daether.transport.http.retryHandler.count=8 -Daether.transport.http.retryHandler.interval=10000"
+# Maven Central answers a burst of parallel CI builds with 429s: retry them 3 s apart (the fallback repository below
+# covers what still fails). Both property prefixes: Resolver 1.9 reads aether.connector.*, 2.x aether.transport.*.
+ENV RETRY_RESOLVER_1="-Daether.connector.http.retryHandler.count=3 -Daether.connector.http.retryHandler.interval=3000"
+ENV MAVEN_ARGS="$RETRY_RESOLVER_1 -Daether.transport.http.retryHandler.count=3 -Daether.transport.http.retryHandler.interval=3000"
 # Maven Central's CDN has answered 404 for artifacts it holds (spring-boot-starter-parent 4.1.2, several CI runs), and
 # a 404 is never retried. Google's mirror of Maven Central is a second repository, asked for what Central does not
 # return; Central stays first.
