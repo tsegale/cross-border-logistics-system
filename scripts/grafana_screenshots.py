@@ -61,7 +61,9 @@ def main() -> None:
         browser = playwright.chromium.launch()
         page = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="dark")
         for name, url, settle_ms in shots:
-            page.goto(url, wait_until="networkidle", timeout=60000)
+            # Prometheus' and Mailpit's pages poll for ever and never go network-idle: wait for the load and settle.
+            idle = url.startswith(GRAFANA)
+            page.goto(url, wait_until="networkidle" if idle else "load", timeout=60000)
             page.wait_for_timeout(settle_ms)
             page.screenshot(path=str(out / name), full_page=False)
             print(f"wrote {out / name}")
