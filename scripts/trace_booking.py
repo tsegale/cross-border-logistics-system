@@ -141,6 +141,13 @@ def loki_lines(trace_id: str, started: float) -> list[tuple[str, str]]:
         return wait("the trace's log lines in Loki", 180, found)
     except SystemExit:
         print(f"trace_booking: Loki had lines of the trace only from {sorted(seen)}", file=sys.stderr)
+        # What Loki does hold for one service in the window, with its labels and structured metadata, for the log.
+        sample = urllib.parse.urlencode({"query": '{service_name="logistics-service"}', "limit": 3,
+                                         "start": int((started - 60) * 1e9), "end": int(time.time() * 1e9)})
+        request = urllib.request.Request(f"{LOKI}/loki/api/v1/query_range?{sample}",
+                                         headers={"X-Loki-Response-Encoding-Flags": "categorize-labels"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            print(response.read().decode()[:3000], file=sys.stderr)
         raise
 
 
