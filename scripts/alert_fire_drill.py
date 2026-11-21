@@ -167,7 +167,7 @@ class Load(threading.Thread):
                 if self.transfers:
                     source, target = self.transfers
                     harness.call("customer-hanseatic-imports", "POST", "/api/v1/transfers", {
-                        "sourceAccount": source, "destinationAccount": target, "amount": 1.00, "currency": "EUR",
+                        "sourceAccount": source, "targetAccount": target, "amount": 1.00, "currency": "EUR",
                         "reference": f"DRILL-{self.run_id}-{index}"},
                         headers={"Idempotency-Key": f"drill-transfer-{self.run_id}-{index}"}, expect=201)
                 else:
@@ -209,7 +209,8 @@ def phase0_ledger(watch: Watch, account: str) -> None:
 def phase1_emails(watch: Watch, account: str, run: str) -> None:
     log("phase 1: emails, consumer lag, dead letters, UNKNOWN")
     compose("stop", "mailpit")
-    load = Load(account, run, every=0.5)
+    # A quiet background (one booking every 4 s): the booking SLOs' burn in phase 3 is measured against this hour.
+    load = Load(account, run, every=4.0)
 
     ghost = uuid7()
 
@@ -266,7 +267,7 @@ def phase2_money(watch: Watch, account: str, run: str, second: str) -> None:
     sql("banking", f"UPDATE approval_requests SET expires_at = now() + interval '20 minutes' WHERE id = '{approval}'")
     log(f"approval {approval} expires in 20 minutes")
     compose("stop", "kafka")
-    counts = with_load(Load(account, run + "k", every=1.0), 4)
+    counts = with_load(Load(account, run + "k", every=4.0), 4)
     log(f"bookings while Kafka was down: {counts}")
     compose("start", "kafka")
     watch.wait_fired(["TransferAvailabilityBudgetBurnFast", "PaymentCommandsParked", "ApprovalsNearExpiry",
@@ -281,18 +282,18 @@ def phase2_money(watch: Watch, account: str, run: str, second: str) -> None:
 def phase3_bookings(watch: Watch, account: str, run: str) -> None:
     log("phase 3: logistics' database stopped then paused, a container near its memory limit")
     hog = f"freightflow-drill-memory-{run}"
-    subprocess.run(["docker", "run", "-d", "--rm", "--name", hog, "--memory", "64m", "alpine:3.22", "sh", "-c",
-                    "head -c 60m /dev/zero | tail -c 60m > /dev/null & sleep 900"], check=True,
-                   capture_output=True)
+    # awk holding a 60 MB string in a 64 MiB container: 92 % of its limit, measured on Docker 29.
+    subprocess.run(["docker", "run", "-d", "--rm", "--name", hog, "--memory", "64m", "alpine:3.22", "awk",
+                    'BEGIN { s = sprintf("%60000000s", ""); system("sleep 1200") }'], check=True, capture_output=True)
     # Stopped: bookings fail with 503 within the connection timeout (availability). Paused: they wait on the database
     # and finish late once it is back (latency).
     compose("stop", "logistics-db")
-    counts = with_load(Load(account, run + "s", every=0.5), 4)
+    counts = with_load(Load(account, run + "s", every=0.5), 7)
     compose("start", "logistics-db")
     compose("up", "-d", "--wait", "logistics-db")
     log(f"bookings while logistics' database was stopped: {counts}")
     compose("pause", "logistics-db")
-    counts = with_load(Load(account, run + "p", every=0.5), 3)
+    counts = with_load(Load(account, run + "p", every=0.5), 4)
     compose("unpause", "logistics-db")
     log(f"bookings while logistics' database was paused: {counts}")
     watch.wait_fired(["BookingAvailabilityBudgetBurnFast", "BookingLatencyBudgetBurnFast", "GatewayUpstreamErrors",

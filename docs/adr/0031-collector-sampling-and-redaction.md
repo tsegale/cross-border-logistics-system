@@ -44,7 +44,9 @@ already exists on every service; scraped as OpenMetrics, its latency histograms 
 bucket, which a Grafana panel turns into a link to that request's trace. Pushing the same metrics over OTLP would be a
 second path to the same numbers. Business metrics are gauges read from the tables (outbox age, approvals, parked
 commands, shipments per payment state, emails by status) or counters incremented after commit, so every instance
-agrees and a rollback counts nothing.
+agrees and a rollback counts nothing. A table gauge waits at most 250 ms for its query and gives its last value otherwise
+(`BoundedGauge`): the fire drill showed that with a database down, gauges that queried it on every scrape made the
+whole scrape time out, and the request metrics of that very outage went missing with it.
 
 ## Measured
 The collector peaked at **85 MiB** of its 192 MiB limit keeping every trace, with 2 bookings/s for 120 s (19
