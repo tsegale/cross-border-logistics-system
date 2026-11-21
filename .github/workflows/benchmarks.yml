@@ -15,6 +15,10 @@ on:
         description: "Rounds per mode for transfers and hot-accounts (order rotates between rounds)"
         default: "3"
         required: true
+      cdc_poll_ms:
+        description: "cdc: Debezium's poll.interval.ms (its default is 500; the relay polls every 200)"
+        default: "500"
+        required: true
 
 concurrency:
   group: benchmarks
@@ -138,6 +142,7 @@ jobs:
         if: contains(inputs.suites, 'cdc')
         env:
           COMPOSE: docker compose -f docker-compose.yml -f benchmarks/compose.bench.yml -f benchmarks/compose.cdc.yml
+          CDC_POLL_INTERVAL_MS: ${{ inputs.cdc_poll_ms }}
         run: |
           mkdir -p benchmarks/out/cdc
           set -o pipefail

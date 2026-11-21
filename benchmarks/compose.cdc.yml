@@ -35,6 +35,8 @@ services:
     entrypoint: ["sh", "/etc/freightflow/cdc/start-debezium.sh"]
     environment:
       LOGISTICS_DB_USER: ${LOGISTICS_DB_USER:?set in .env}
+      # How often the connector hands captured changes to the sink; Debezium's default is 500 ms.
+      CDC_POLL_INTERVAL_MS: ${CDC_POLL_INTERVAL_MS:-500}
     secrets: [kafka_admin_password, logistics_db_password]
     volumes:
       - ./benchmarks/cdc:/etc/freightflow/cdc:ro

@@ -23,6 +23,7 @@ export DEBEZIUM_SOURCE_TABLE_INCLUDE_LIST=public.event_outbox
 export DEBEZIUM_SOURCE_SNAPSHOT_MODE=no_data
 export DEBEZIUM_SOURCE_OFFSET_STORAGE_FILE_FILENAME=/tmp/offsets.dat
 export DEBEZIUM_SOURCE_OFFSET_FLUSH_INTERVAL_MS=1000
+export DEBEZIUM_SOURCE_POLL_INTERVAL_MS="${CDC_POLL_INTERVAL_MS:-500}"
 
 # The outbox event router: one record per inserted row, keyed by the aggregate, the envelope as the value, to the
 # shadow topic. The relay's updates (published_at) and the pruner's deletes are not events: skipped, each with a
