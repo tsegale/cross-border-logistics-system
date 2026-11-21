@@ -103,7 +103,7 @@ services:
       KC_HTTP_ENABLED: "true"
       # kc.sh's default is 70% of the limit for the heap (MaxRAMPercentage=70); half leaves its metaspace (up to
       # 256m in kc.sh) and native memory room inside the limit (ADR 0029). kc.sh keeps its G1.
-      JAVA_OPTS_KC_HEAP: -XX:MaxRAMPercentage=50 -XX:InitialRAMPercentage=25 -XX:MaxHeapFreeRatio=30
+      JAVA_OPTS_KC_HEAP: -XX:MaxRAMPercentage=50 -XX:InitialRAMPercentage=25
       KEYCLOAK_WEB_ORIGIN: ${KEYCLOAK_WEB_ORIGIN:-http://127.0.0.1:3000}
     volumes:
       - ./infra/keycloak/realm:/opt/keycloak/data/import:ro
