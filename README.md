@@ -58,7 +58,7 @@ flowchart LR
 
 - **Memory limits for every container** from measured peaks, each JVM's heap sized from its own limit, Serial GC by
   measurement (ADR 0029). Keycloak went from 1,885 MiB without a limit to 572 under one; the running stack's limits add
-  up to 3,696 MiB (docs/benchmarks/memory.md).
+  up to 3,728 MiB, and on the laptop's 3.7 GiB VM the stack runs and passes the smoke test (docs/benchmarks/memory.md).
 - **One trace per booking** (ADR 0030): Spring Boot's OpenTelemetry starter, a `traceparent` column in every table
   something sends later, Kafka observation on templates and listeners. CI books a shipment and fails unless Tempo has
   one trace with every service and hop (19 spans from the gateway, logistics, banking and notification), Loki has its

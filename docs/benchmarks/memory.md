@@ -72,3 +72,24 @@ Booking to email in the two: p50 370 / 355 ms, p99 685 / 682 ms; the services' t
 - logistics reached 96 % of its 512 MiB under the payment flow: its limit is now 576 MiB with the heap at 45 %.
 - The separate observability stack uses about the same memory as the all-in-one image (583 against 623 MiB) and has
   what the image lacks (ADR 0032).
+
+## On the laptop
+Intel Core i5-1135G7 (4 cores, 8 threads), 7.7 GiB, Docker Desktop 29.7.2 with a 3,784 MiB VM: the default stack under
+its limits, after the seed and the smoke test (91 calls, passed on the second attempt; the first timed out on a cold
+gateway).
+
+| Container | Used | Limit |
+| --- | ---: | ---: |
+| keycloak | 556 | 704 |
+| logistics-service | 462 | 576 |
+| banking-service | 413 | 512 |
+| kafka | 337 | 512 |
+| notification-service | 327 | 352 (now 384) |
+| api-gateway | 247 | 320 |
+| banking-db | 116 | 192 |
+| logistics-db | 85 | 192 |
+| notification-db | 45 | 128 |
+| mailpit | 32 | 48 |
+| keycloak-db | 31 | 128 |
+| redis | 15 | 32 |
+| **together** | **2,665** | |

@@ -21,7 +21,7 @@ and the benchmarks, with headroom; **every JVM sizes its heap from its own limit
 | logistics-service | 576m | 647 | 418 | 490 of 512 (first limit) | heap 45 %, Serial GC, metaspace 192m, 512k stacks |
 | banking-service | 512m | 609 | 377 | 419 | heap 45 %, Serial GC, metaspace 192m, 512k stacks |
 | kafka | 512m | 488 | 421 of 448 (first limit) | 415 | `-Xms256m -Xmx256m` |
-| notification-service | 352m | 379 | 250 | 310 | heap 45 %, Serial GC |
+| notification-service | 384m | 379 | 250 | 310 (327 of 352 on the laptop) | heap 45 %, Serial GC |
 | api-gateway | 320m | 398 | 226 | 277 | heap 45 %, Serial GC |
 | banking-db | 192m | 312 | 85 | 108 | Postgres defaults (128 MB shared buffers) |
 | logistics-db | 192m | 128 | 84 | 124 | |
@@ -34,8 +34,15 @@ and the benchmarks, with headroom; **every JVM sizes its heap from its own limit
 
 MiB throughout; smoke-test peaks from CI run 44887512287, benchmark peaks (payment flow at 16 VUs, the events suite
 with a broker outage) from run 44899628552 (Intel Xeon 6975P-C, 4 vCPUs); docs/benchmarks/memory.md. **The running default stack's limits
-add up to 3,696 MiB**, inside the 3,784 MiB of a 3.7 GiB VM; its measured peaks add up to 2,558 MiB under the smoke
+add up to 3,728 MiB**, inside the 3,784 MiB of a 3.7 GiB VM; its measured peaks add up to 2,558 MiB under the smoke
 test and about 2,840 MiB under the benchmarks.
+
+**On the laptop** (Intel Core i5-1135G7, 8 threads, 7.7 GiB; Docker Desktop's VM 3,784 MiB) the default stack
+starts within these limits and the smoke test passes, 91 calls; the containers held 2,665 MiB together after it. A cold
+start there is slow: logistics' warm-up ran into its one-minute limit before Keycloak answered tokens, its healthcheck
+gave up, and `docker compose up -d --wait` had to be run a second time; the first seed and smoke runs timed out on the
+gateway's first requests, and passed when repeated. notification-service sat at 327 MiB of its first 352, so its
+limit is 384.
 
 **JVM flags** (`JAVA_OPTS` per service in docker-compose.yml, the Dockerfiles keep a default for a bare `docker run`):
 `-XX:MaxRAMPercentage=<45|50> -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
@@ -52,9 +59,9 @@ ergonomics already pick Serial, but by accident of the limit; an explicit flag k
 
 | Profile | Limits | Fits |
 | --- | ---: | --- |
-| default | 3,696 MiB | 4 GiB VM (the 3.7 GiB Docker Desktop default), with the observability stack off |
-| default + debug | 3,728 MiB | 4 GiB |
-| default + observability | 5,232 MiB | 8 GiB |
+| default | 3,728 MiB | 4 GiB VM (the 3.7 GiB Docker Desktop default), with the observability stack off |
+| default + debug | 3,760 MiB | 4 GiB |
+| default + observability | 5,264 MiB | 8 GiB |
 | default + observability + benchmarks (cdc: Debezium about 270 MiB, ADR 0025) | about 5,500 MiB | 8 GiB |
 | everything, with headroom for builds | | 16 GiB |
 

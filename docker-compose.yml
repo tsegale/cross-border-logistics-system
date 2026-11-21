@@ -364,7 +364,7 @@ services:
       retries: 12
 
   notification-service:
-    mem_limit: 352m
+    mem_limit: 384m
     build: ./notification-service
     environment:
       # OpenTelemetry (ADR 0030): exported only with infra/observability/observability.env (the otlp profile).
@@ -372,7 +372,7 @@ services:
       OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://otel-collector:4318}
       SERVICE_VERSION: ${SERVICE_VERSION:-dev}
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
-      # Heap 45% of the 352m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
+      # Heap 45% of the 384m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
       JAVA_OPTS: >-
         -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
         -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
