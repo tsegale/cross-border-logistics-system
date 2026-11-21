@@ -69,7 +69,8 @@ flowchart LR
   publishes with an idempotent `acks=all` producer, one event per aggregate in flight (order kept across instances),
   marks rows only after the acknowledgement and prunes them after seven days. logistics' payment commands and its
   events share one claim mechanism. Tested against a real broker: paused, a relay dying between send and mark, four
-  relays racing.
+  relays racing. Measured against Debezium on the same outbox: tuned to a 50 ms poll it is about 50 ms faster
+  at p50, slower to recover from an outage, and one more process per database; the relay stays.
 - **logistics reacts to what banking did on its own** (ADR 0028): an expired hold on a shipment waiting for pickup is
   re-authorised; a capture logistics never asked for raises an alert metric. Payment commands stay HTTP.
 - **notification-service** (ADR 0026, ADR 0027): its own Postgres; settings and history per organisation
@@ -441,7 +442,8 @@ with its hosted numbers: `conditional-update` ahead of `pessimistic` in every wo
 against 123.3/s `locked` at 32 VUs, 25.0 shipments booked/s at 16 VUs with p99 0.79 s to `BOOKED`, and a 0.30 ms
 checkpointed balance read. Phase 4 adds [Events](docs/benchmarks/events.md): booking to the customer's German email
 p50 368 ms, p95 618 ms, p99 658 ms at 2 bookings/s; outbox lag p95 at most 224 ms; a 30 s broker outage under load
-drained 7.7 s after the restart, with every email delivered.
+drained 7.7 s after the restart, with every email delivered. Debezium reading the same outbox: p50 53 ms against the relay's 106 ms at a 50 ms poll,
+507 ms on its 500 ms default.
 
 The table above is laptop numbers. `.github/workflows/benchmarks.yml` runs the same workloads on a GitHub-hosted runner and
 records its CPU and memory; its results lead the reports once it has run.

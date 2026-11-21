@@ -35,15 +35,26 @@ Hosted runner (GitHub `ubuntu-24.04`, 4 vCPUs), runs 44744962828 and 44750794366
 | Broker stopped for 30 s under load: restart to both outboxes empty | 6.1 s and 7.7 s (186 and 187 events waiting) |
 | Same outage: restart to the last email of the outage | 6.6 s and 9.9 s; 0 of 160 missing |
 
-Debezium was not set up and measured here, so there is no CDC number to put beside these. What CDC could save is
-bounded by what polling costs: the wait for the next poll, at most the 200 ms interval and about half of it on
-average, against a booking-to-email p50 of about 360 ms. Recovery after a broker outage depends on the connector's
-own retry and was not measured either.
+**Debezium beside the relay** (`benchmarks/compose.cdc.yml`, suite `cdc`): Debezium Server 3.2 with the outbox event
+router reads logistics' `event_outbox` from the write-ahead log (`pgoutput`, its own replication slot) and publishes
+each new row to a shadow topic, while the relay publishes the same rows as always. Per event, occurredAt to the
+broker's append time on each topic (both set to `LogAppendTime`), 479 events, same load:
+
+| Run (runner) | Debezium `poll.interval.ms` | Relay p50 / p95 / p99 ms | Debezium p50 / p95 / p99 ms | Broker down 30 s: last outage event after restart, relay / Debezium |
+| --- | ---: | --- | --- | --- |
+| 44839741944 (AMD EPYC 9V74, 4 vCPUs) | 500 (default) | 105 / 199 / 208 | 507 / 853 / 919 | 8.2 s / 11.7 s |
+| 44841016554 (Xeon 6975P-C, 4 vCPUs) | 50 | 106 / 195 / 207 | 53 / 90 / 99 | 5.6 s / 8.6 s |
+
+Debezium lost nothing in either run, during the outage included. On its defaults it is slower than the relay; tuned to
+a 50 ms poll it is about 50 ms faster at p50 and 105 ms at p95, out of a booking-to-email p50 of about 360 ms. After
+an outage it delivered the last waiting event 3 s later than the relay. Debezium Server used 265 to 275 MiB.
 
 ## Decision
-**Option 1, a polling relay in each service**, because its measured lag is at most 112 to 134 ms at p50, mostly the poll
-interval, and recovery after a broker outage is seconds with nothing lost, while CDC would add a
-Connect cluster, logical replication and a replication slot per database to operate.
+**Option 1, a polling relay in each service.** Measured, CDC tuned to a 50 ms poll saves about 50 ms of a 360 ms
+booking-to-email p50 and recovered 3 s slower from a broker outage; on its defaults it is slower than the relay. That
+gain does not pay for a Debezium process per database, logical replication, a replication slot that retains WAL
+while the connector is down, and one more thing whose outage stops all events. The relay can buy the same 50 ms by
+polling every 50 ms instead of 200, at the price of four times the idle queries.
 
 - **Writing.** `BankingEvents` and `LogisticsEvents` append to `event_outbox` with `Propagation.MANDATORY`: there is no
   way to write an event outside a transaction. The aggregate's next `sequence` comes from an upsert on
@@ -75,5 +86,5 @@ Connect cluster, logical replication and a replication slot per database to oper
 - Each service polls its outbox every 200 ms: one indexed query on a partial index when idle.
 - Outbox backlog, age and lag are metrics with alerts (docs/operations.md).
 - Revisit with CDC when event volume makes polling the database's main load, or when several services in one
-  database would each need a relay; the outbox table is already Debezium's outbox router format in all but column
-  names.
+  database would each need a relay. The outbox table works with Debezium's outbox router as it is (route by `topic`,
+  key `aggregate_id`, payload `envelope`; `benchmarks/cdc/start-debezium.sh`).

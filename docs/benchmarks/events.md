@@ -50,6 +50,19 @@ quantile gauges, which reported 0 and are not used)
 | 44744962828 | 30.2 | 186 | 6.1 | 80 | 6.6 | 0 |
 | 44750794366 | 30.3 | 187 | 7.7 | 80 | 9.9 | 0 |
 
+**Polling relay against Debezium on the same outbox** (suite `cdc`, `benchmarks/compose.cdc.yml`, `--cdc`): Debezium
+Server 3.2 reads logistics' `event_outbox` from the write-ahead log and publishes each new row to
+`freightflow.shipment.v1.cdc`; the relay publishes the same rows to `freightflow.shipment.v1`. Per event, occurredAt to
+the broker's append time (both topics on `LogAppendTime`). Runs [44839741944](https://github.com/tsegale/cross-border-logistics-system/actions/runs/44839741944) (AMD EPYC 9V74, 4 vCPUs, 15,983 MiB) and
+[44841016554](https://github.com/tsegale/cross-border-logistics-system/actions/runs/44841016554) (Xeon 6975P-C, 4 vCPUs, 15,701 MiB), each with the 30 s outage as above.
+
+| Run | Debezium `poll.interval.ms` | Events | Relay p50 / p95 / p99 / max ms | Debezium p50 / p95 / p99 / max ms | Missing on Debezium | Last outage event after restart: relay / Debezium s |
+| --- | ---: | ---: | --- | --- | ---: | --- |
+| 44839741944 | 500 (default) | 479 | 105 / 199 / 208 / 218 | 507 / 853 / 919 / 983 | 0 | 8.2 / 11.7 |
+| 44841016554 | 50 | 479 | 106 / 195 / 207 / 208 | 53 / 90 / 99 / 106 | 0 | 5.6 / 8.6 |
+
+Booking to email in the same runs: p50 367 / 355 ms, p95 623 / 633 ms, p99 683 / 683 ms, none missing.
+
 ## Reading
 - The relay's lag is bounded by its poll interval (200 ms): an event waits on average half of it, then a few
   milliseconds for the broker. That is about a third of booking to email; the rest is notification's consumer and
@@ -58,3 +71,7 @@ quantile gauges, which reported 0 and are not used)
   booking, status change and hold events), and every email arrived within 10 s of the broker's restart. Most of
   those seconds are the clients reconnecting and the relay's backoff (1 s doubling, with jitter) running out.
 - At the end of the run the twelve containers used 3.2 GiB on the runner, with no memory limits set.
+- Debezium's latency is its poll interval, as the relay's is: 500 ms by default, 53 ms p50 at a 50 ms poll. Tuned, it
+  saves about 50 ms (p50) to 105 ms (p95) per event, a seventh of booking to email. It got every event, outage
+  included, but delivered the outage's last event 3 s after the relay did, and adds a 265 to 275 MiB process, logical
+  replication and a replication slot per database. ADR 0025 keeps the relay.
