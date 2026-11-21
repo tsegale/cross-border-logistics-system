@@ -4,6 +4,10 @@
 # Maven, so a build never downloads it: the wrapper's one unretried fetch from Maven Central kept failing CI.
 FROM maven:3.10.0-eclipse-temurin-21 AS build
 WORKDIR /src
+# Maven Central answers a burst of parallel CI builds with 429s: retry them, longer than the 3 tries by default, and
+# honour Retry-After. Both property prefixes: Resolver 1.9 reads aether.connector.*, 2.x aether.transport.*.
+ENV RETRY_RESOLVER_1="-Daether.connector.http.retryHandler.count=8 -Daether.connector.http.retryHandler.interval=10000"
+ENV MAVEN_ARGS="$RETRY_RESOLVER_1 -Daether.transport.http.retryHandler.count=8 -Daether.transport.http.retryHandler.interval=10000"
 COPY pom.xml .
 # One Maven cache per service: compose builds them in parallel, and parallel writers to one cache can collide.
 RUN --mount=type=cache,id=m2-logistics-service,target=/root/.m2 mvn -B -q dependency:go-offline
