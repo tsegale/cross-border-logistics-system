@@ -47,6 +47,7 @@ jobs:
           python3 scripts/generate_secrets.py
           docker compose config --quiet
           docker compose --profile debug config --quiet
+          docker compose --env-file .env --env-file infra/observability/observability.env --profile observability config --quiet
           # Kafka (ADR 0022) and the notification service with its database and SMTP server (ADR 0027) are core.
           for s in kafka kafka-init notification-service notification-db mailpit; do
             docker compose config --services | grep -qx "$s" || { echo "::error::$s is not in the default profile"; exit 1; }
@@ -105,6 +106,93 @@ jobs:
           retention-days: 90
       - if: failure()
         run: docker compose logs --tail 200
+
+  # Alert rules, the collector, Alertmanager and dashboards are code (ADR 0032, ADR 0033): each is checked by its own
+  # tool, every alert has a promtool test, and the generated files match their generators.
+  observability-config:
+    name: Rules and dashboards as code
+    runs-on: ubuntu-24.04
+    env:
+      PROMETHEUS_IMAGE: prom/prometheus:v3.16.0
+      ALERTMANAGER_IMAGE: prom/alertmanager:v0.35.0
+      COLLECTOR_IMAGE: otel/opentelemetry-collector-contrib:0.165.0
+    steps:
+      - uses: actions/checkout@v7
+      - name: Generated SLO rules, their tests and the dashboards match their generators
+        run: |
+          python3 infra/observability/rules/generate_slo_rules.py
+          python3 infra/observability/grafana/build_dashboards.py
+          git diff --exit-code -- infra/observability
+      - name: Dashboards are valid and every panel links to traces or logs
+        run: python3 scripts/check_dashboards.py infra/observability/grafana/dashboards
+      - name: promtool checks the config and rules, and runs every rule test
+        run: |
+          docker run --rm -v "$PWD/infra/observability:/obs:ro" --entrypoint promtool "$PROMETHEUS_IMAGE" \
+            check rules /obs/rules/slo.yml /obs/rules/symptoms.yml
+          docker run --rm -v "$PWD/infra/observability:/obs:ro" -w /obs/rules/tests --entrypoint promtool \
+            "$PROMETHEUS_IMAGE" test rules slo.test.yml symptoms.test.yml
+          # check config resolves rule_files from the path in prometheus.yml.
+          docker run --rm -v "$PWD/infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/infra/observability/rules:/etc/prometheus/rules:ro" --entrypoint promtool "$PROMETHEUS_IMAGE" \
+            check config /etc/prometheus/prometheus.yml
+      - name: amtool checks Alertmanager's config
+        run: |
+          mkdir -p "$RUNNER_TEMP/secrets" && echo ci-only > "$RUNNER_TEMP/secrets/smtp_password"
+          docker run --rm -v "$PWD/infra/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            -v "$RUNNER_TEMP/secrets/smtp_password:/run/secrets/smtp_password:ro" --entrypoint amtool \
+            "$ALERTMANAGER_IMAGE" check-config /etc/alertmanager/alertmanager.yml
+      - name: The collector validates its config
+        run: |
+          mkdir -p "$RUNNER_TEMP/secrets"
+          for name in banking_db_password logistics_db_password notification_db_password kafka_monitoring_password; do
+            echo ci-only > "$RUNNER_TEMP/secrets/$name"
+          done
+          docker run --rm -v "$PWD/infra/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro" \
+            -v "$RUNNER_TEMP/secrets:/run/secrets:ro" -e BANKING_DB_USER=banking -e LOGISTICS_DB_USER=logistics \
+            -e NOTIFICATION_DB_USER=notification -e TAIL_SAMPLING_PERCENTAGE=100 \
+            "$COLLECTOR_IMAGE" validate --config=/etc/otelcol/config.yaml
+
+  # The whole stack with the observability profile (ADR 0030 to 0033): one booking must be one trace in Tempo through
+  # every service and asynchronous hop, its log lines in Loki, the business metrics and alert rules in Prometheus.
+  observability:
+    name: One trace per booking, end to end
+    runs-on: ubuntu-24.04
+    env:
+      COMPOSE: docker compose --env-file .env --env-file infra/observability/observability.env --profile observability
+      SERVICE_VERSION: ${{ github.sha }}
+      DEPLOYMENT_ENVIRONMENT: ci
+    steps:
+      - uses: actions/checkout@v7
+      - run: sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
+      - run: python3 scripts/generate_secrets.py
+      - run: $COMPOSE up -d --wait --build
+      - name: Start sampling memory
+        run: mkdir -p observability && nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/memory.stop" --json observability/memory.json > observability/memory.md 2> observability/memory.err &
+      - name: Seed demo data and run the smoke test
+        run: |
+          ./scripts/seed_demo.sh
+          ./scripts/smoke_test.sh
+      - name: One booking's trace, logs and metrics
+        run: |
+          set -o pipefail
+          python3 scripts/trace_booking.py --json observability/trace.json | tee observability/trace.log
+          { echo "## One booking, end to end"; echo; echo '```'; cat observability/trace.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Memory peaks with the observability profile
+        if: always()
+        run: |
+          touch "$RUNNER_TEMP/memory.stop"
+          for _ in $(seq 60); do [ -s observability/memory.json ] && break; sleep 1; done
+          cat observability/memory.err || true
+          { echo "## Memory peaks, observability profile"; echo; cat observability/memory.md; } >> "$GITHUB_STEP_SUMMARY"
+          cat observability/memory.md
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: observability-${{ github.run_id }}
+          path: observability/
+          retention-days: 90
+      - if: failure()
+        run: $COMPOSE logs --tail 150
 
   # A changed event schema must stay compatible with the one already on main (ADR 0023): consumers built against
   # either read events written under the other. A breaking change goes to a new topic version instead.
