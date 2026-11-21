@@ -85,35 +85,41 @@ since, ADR 0031). And Tempo's search returns trace ids without leading zeros, wh
 
 ### Evidence
 
-Run [44932705895](https://github.com/tsegale/cross-border-logistics-system/actions/runs/44932705895), 2026-11-21,
-GitHub-hosted runner (Intel Xeon 6975P-C, 4 vCPUs, 15,701 MiB), 18:00:40 to 18:52:23 UTC. **Every one of the 20 alerts
-fired**; Alertmanager sent 32 emails to the on-call address. Times UTC.
+Run [44938342018](https://github.com/tsegale/cross-border-logistics-system/actions/runs/44938342018), 2026-11-21,
+GitHub-hosted runner (AMD EPYC 7763, 4 vCPUs, 15,983 MiB), 19:03:18 to 19:48:53 UTC, **passed: every one of the 20
+alerts fired, and every symptom alert resolved**; Alertmanager sent 30 emails to the on-call address.
+Times UTC.
 
 | Alert | Caused by | Fired | Resolved |
 | --- | --- | --- | --- |
-| LedgerDrift | an account's balance changed by 1.0000 | 18:01:00 | 18:01:30 |
-| EmailsFailing | Mailpit stopped while bookings went on | 18:03:20 | 18:19:00 |
-| ServiceDown | notification-service stopped | 18:05:20 | 18:13:20 |
-| ConsumerLagHigh | notification-service stopped | 18:13:00 | 18:13:40 |
-| EmailDeliveryBudgetBurnFast | the emails delayed by both | 18:15:50 | (burn-rate, see below) |
-| EmailsUnknown | an email left SENDING (simulated) | 18:17:20 | 18:19:30, after an operator's resend |
-| DeadLettersWaiting | hold.released for a shipment not yet seen | 18:19:10 | 18:19:40, after the shipment's booking and a redrive |
-| ReconciliationNotRunning | banking without its scheduled reconciliation | 18:22:00 | 18:40:50, banking restored |
-| TransferAvailabilityBudgetBurnFast | banking's database stopped under transfers | 18:22:20 | (burn-rate) |
-| GatewayUpstreamErrors | the same outage behind the gateway | 18:25:10 | 18:45:20 |
-| PaymentCommandsParked | a booking's AUTHORISE parked (simulated) | 18:25:50 | 18:40:30, after an operator's retry |
-| OutboxStuck | Kafka stopped while bookings went on | 18:27:00 | 18:28:00 |
-| EmailDeliveryBudgetBurnSlow | as the fast burn | 18:28:50 | (burn-rate) |
-| ApprovalsNearExpiry | an approval due in 20 minutes | 18:29:00 | 18:29:30, after a second operator approved |
-| BookingAvailabilityBudgetBurnFast | logistics' database stopped under bookings | 18:31:50 | (burn-rate) |
-| TransferAvailabilityBudgetBurnSlow | as the fast burn | 18:35:20 | (burn-rate) |
-| BookingLatencyBudgetBurnFast | logistics' database paused under bookings | 18:35:20 | (burn-rate) |
-| ContainerMemoryNearLimit | a container held at 92 % of its 64 MiB | 18:39:40 | 18:45:20, container removed |
-| BookingAvailabilityBudgetBurnSlow | as the fast burn | 18:44:50 | (burn-rate) |
-| BookingLatencyBudgetBurnSlow | as the fast burn | 18:44:50 | (burn-rate) |
+| LedgerDrift | an account's balance changed by 1.0000 | 19:03:48 | 19:04:18 |
+| EmailsFailing | Mailpit stopped while bookings went on | 19:05:48 | 19:21:48 |
+| ServiceDown | notification-service stopped | 19:08:18 | 19:17:08 |
+| ConsumerLagHigh | notification-service stopped | 19:15:58 | 19:17:18 |
+| EmailDeliveryBudgetBurnFast | the emails both delayed | 19:19:08 | (burn-rate, see below) |
+| EmailsUnknown | an email left SENDING (simulated) | 19:20:28 | 19:22:58, after an operator's resend |
+| DeadLettersWaiting | hold.released for a shipment not yet seen | 19:22:48 | 19:23:28, after the shipment's booking and a redrive |
+| ReconciliationNotRunning | banking without its scheduled reconciliation | 19:24:48 | 19:43:59, banking restored |
+| TransferAvailabilityBudgetBurnFast | banking's database stopped under transfers | 19:25:58 | (burn-rate, see below) |
+| GatewayUpstreamErrors | the outages behind the gateway | 19:28:38 | 19:48:49 |
+| PaymentCommandsParked | a booking's AUTHORISE parked (simulated) | 19:29:28 | 19:43:59, after an operator's retry |
+| OutboxStuck | Kafka stopped while bookings went on | 19:30:28 | 19:31:48 |
+| EmailDeliveryBudgetBurnSlow | as the fast burn | 19:32:08 | (burn-rate, see below) |
+| ApprovalsNearExpiry | an approval due in 20 minutes | 19:32:28 | 19:32:48, after a second operator approved |
+| BookingAvailabilityBudgetBurnFast | logistics' database stopped under bookings | 19:35:08 | (burn-rate, see below) |
+| TransferAvailabilityBudgetBurnSlow | as the fast burn | 19:38:58 | (burn-rate, see below) |
+| BookingLatencyBudgetBurnFast | logistics' database paused under bookings | 19:38:58 | (burn-rate, see below) |
+| ContainerMemoryNearLimit | a container held at 92 % of its 64 MiB | 19:42:49 | 19:48:39, container removed |
+| BookingAvailabilityBudgetBurnSlow | as the fast burn | 19:48:09 | (burn-rate, see below) |
+| BookingLatencyBudgetBurnSlow | as the fast burn | 19:48:29 | (burn-rate, see below) |
 
-The twelve symptom alerts all resolved within the drill. The eight burn-rate alerts were still firing at its end, as
-the method intends: a fast burn keeps firing until its 30-minute window is clean (up to 30 minutes after the
-outage), a slow burn until its 2-hour or 6-hour one is. Their clearing is proved by promtool instead
-(`slo.test.yml`, "recovers": an hour of burning, then 100 minutes of healthy traffic, the fast alert cleared). That
-run counted the fast burns as failures; the drill now expects every burn-rate alert to outlast it.
+The eight burn-rate alerts were still firing at the end, as the method intends: a fast burn keeps firing until its
+30-minute window is clean (up to 30 minutes after the outage), a slow burn until its 2-hour or 6-hour one is. Their
+clearing is proved by promtool instead (`slo.test.yml`, "recovers": an hour of burning, then 100 minutes of healthy
+traffic, and the fast alert has cleared). Five earlier runs failed and each found something: the table gauges that
+blinded scrapes in an outage, drill triggers that did not trigger (a 400 instead of a 503, a quote failing before the
+booking), and a background load that hid an outage inside the hour's budget.
+
+![The burn-rate alerts still firing at the end of the drill](images/observability-fired-alerts.png)
+
+![Alertmanager's emails to the on-call address in Mailpit, firing and resolved](images/observability-alert-email.png)

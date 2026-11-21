@@ -81,6 +81,11 @@ The booking-to-email dashboard during the fire drill, every panel linked to its 
 
 ![The booking-to-email dashboard](docs/images/observability-flow-dashboard.png)
 
+Alertmanager's emails during the fire drill, every alert firing once and the symptoms resolved
+([docs/slo.md](docs/slo.md#evidence)):
+
+![Alert emails to the on-call address, firing and resolved](docs/images/observability-alert-email.png)
+
 ```bash
 cp .env.example .env && python scripts/generate_secrets.py
 docker compose --env-file .env --env-file infra/observability/observability.env --profile observability up -d --wait
