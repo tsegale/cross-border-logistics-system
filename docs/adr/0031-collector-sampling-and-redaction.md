@@ -3,7 +3,7 @@
 Date: 2026-11-21 · Status: Accepted · Builds on ADR 0030
 
 ## Context
-The services trace every request (ADR 0030). Kept whole, that is every booking's 30 to 60 spans, which is right for
+The services trace every request (ADR 0030). Kept whole, that is every booking's 19 spans (CI's trace check), which is right for
 dev and CI and too much to store in production. Which traces matter is only known at the end: an error deep in
 notification, a booking that took eight seconds, a hold that moved money. A head sampler in each service decides at the
 first span and cannot know any of that.
@@ -47,8 +47,10 @@ commands, shipments per payment state, emails by status) or counters incremented
 agrees and a rollback counts nothing.
 
 ## Measured
-The collector's memory, with everything kept, under the smoke test and one booking's trace check: in the CI
-observability job (table in ADR 0032 and docs/benchmarks/memory.md).
+The collector peaked at **85 MiB** of its 192 MiB limit keeping every trace, with 2 bookings/s for 120 s (19
+spans a booking in CI's trace check) and its five infrastructure receivers scraping every 15 s (run 44899628552, Intel Xeon 6975P-C;
+docs/benchmarks/memory.md). Production's 10 % keeps fewer spans past the decision but holds the same 10 s of them before
+it.
 
 ## Consequences
 - **An exemplar can point at a trace tail sampling dropped** in production (one of the 90 % of healthy, fast traces).

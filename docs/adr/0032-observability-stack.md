@@ -43,7 +43,11 @@ runtime). Every panel links to the matching traces or logs; `scripts/check_dashb
 viewers, no editors: a change is a commit.
 
 ## Measured
-(filled in from the CI observability job and the stack comparison; docs/benchmarks/memory.md)
+Run 44899628552 (Intel Xeon 6975P-C, 4 vCPUs), 2 bookings/s for 120 s with the services exporting everything
+(docs/benchmarks/memory.md): the six containers peaked at **583 MiB** together (collector 85, Tempo 99, Loki 63,
+Prometheus 77, Alertmanager 17, Grafana 241), `grafana/otel-lgtm` at **623 MiB** under the same workload, without
+Alertmanager. Memory does not decide it; what the bundle lacks does. Booking to email was the same with either (p99 685
+and 682 ms) and as without them (661 ms).
 
 ## Consequences
 - **Default plus observability does not fit a 3.7 GiB VM** (ADR 0029's profile table): it needs 8 GiB. CI runs it on

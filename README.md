@@ -7,7 +7,7 @@ settles through an internal double-entry ledger with accounts in `NAD`, `ZAR` an
 Java 21, Spring Boot 4.1, Spring Cloud Gateway, PostgreSQL 17, Kafka, Docker. Built in phases; each phase ships
 with tests, CI, architecture decision records and measured numbers.
 
-> **Status:** Phase 4 complete: banking and logistics publish their changes as events through transactional outboxes, logistics heals holds banking expired, and notification-service emails customers in German or English, once per event. Phase 3 gave every request a Keycloak identity checked by the gateway and each service, object by object; Phase 2 paid for shipments through an authorise, capture and release saga; Phase 1 built the ledger, transfers and FX (`banking-service`) and quotes, shipments and tracking (`logistics-service`).
+> **Status:** Phase 5 complete: every container has a measured memory limit and the default stack fits a 3.7 GiB Docker VM; one booking is one OpenTelemetry trace through the gateway, both outboxes, banking, Kafka and the email, checked in CI; SLOs with burn-rate alerts, runbooks and a fire drill. Phase 4: banking and logistics publish their changes as events through transactional outboxes, logistics heals holds banking expired, and notification-service emails customers in German or English, once per event. Phase 3 gave every request a Keycloak identity checked by the gateway and each service, object by object; Phase 2 paid for shipments through an authorise, capture and release saga; Phase 1 built the ledger, transfers and FX (`banking-service`) and quotes, shipments and tracking (`logistics-service`).
 
 ## Architecture
 
@@ -30,6 +30,52 @@ with tests, CI, architecture decision records and measured numbers.
                                         │            └──▶ logistics (hold.expired, hold.captured)
                                         ▼
                           notification-service :8083 ──SMTP──▶ Mailpit     (Phase 4; own Postgres)
+```
+
+## Phase 5: the system explains itself
+
+One booking crosses the gateway, logistics, two outbox tables, banking over HTTP, banking's outbox, Kafka and the
+notification service. Each hop now continues the same trace, every service's logs carry its id, and the alerts say what
+customers would notice before they do.
+
+```mermaid
+flowchart LR
+    G[gateway] -->|traceparent| L[logistics]
+    L -->|traceparent column| PO[(payment commands)]
+    L -->|traceparent column| EO[(event outbox)]
+    PO --> PR[payment relay] -->|HTTP| B[banking]
+    B -->|traceparent column| BO[(event outbox)] --> BR[relay]
+    EO --> ER[relay]
+    ER -->|record header| K[[Kafka]]
+    BR -->|record header| K
+    K --> N[notification] -->|traceparent column| NR[(emails)] --> S[email send]
+    G & L & B & N -.OTLP.-> C[OpenTelemetry Collector]
+    C -->|tail sampling, redaction| T[Tempo] & LK[Loki]
+    P[Prometheus] -.scrape, exemplars.-> G & L & B & N
+    C -->|Postgres, Kafka lag, Redis, containers| P
+    P --> A[Alertmanager] -->|email| M[(on-call)]
+```
+
+- **Memory limits for every container** from measured peaks, each JVM's heap sized from its own limit, Serial GC by
+  measurement (ADR 0029). Keycloak went from 1,885 MiB without a limit to 572 under one; the running stack's limits add
+  up to 3,696 MiB (docs/benchmarks/memory.md).
+- **One trace per booking** (ADR 0030): Spring Boot's OpenTelemetry starter, a `traceparent` column in every table
+  something sends later, Kafka observation on templates and listeners. CI books a shipment and fails unless Tempo has
+  one trace with every service and hop (19 spans from the gateway, logistics, banking and notification), Loki has its
+  log lines, and Prometheus its business metrics and exemplars (`scripts/trace_booking.py`).
+- **No personal data or tokens in telemetry**: ids only on spans, masked SMTP errors, a collector that redacts as a
+  second line (ADR 0031), and tests that fail on an email address or bearer token in a span or log line.
+- **The observability profile** (ADR 0032): Collector, Tempo, Loki, Prometheus, Alertmanager and Grafana, every image
+  pinned, eight dashboards generated from code with a trace or log link on every panel.
+- **SLOs and alerts** (ADR 0033, [docs/slo.md](docs/slo.md)): bookings and transfers 99.5 % non-5xx, bookings 95 %
+  within 500 ms, emails 99 % within 60 s of the booking; multi-window burn-rate alerts generated from those, symptom
+  alerts from parked payments to ledger drift, a promtool test and a [runbook](docs/runbooks/README.md) for each, and a
+  fire drill that makes each one fire.
+
+```bash
+cp .env.example .env && python scripts/generate_secrets.py
+docker compose --env-file .env --env-file infra/observability/observability.env --profile observability up -d --wait
+# Grafana: http://127.0.0.1:3000 (dashboards in the FreightFlow folder). Needs an 8 GiB Docker VM (ADR 0029).
 ```
 
 ## Phase 4: events

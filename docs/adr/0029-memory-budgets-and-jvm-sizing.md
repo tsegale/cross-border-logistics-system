@@ -15,25 +15,27 @@ local smoke test never finished.
 **Every container has a `mem_limit`**, sized from the peaks `benchmarks/memory_peaks.py` measured under the smoke test
 and the benchmarks, with headroom; **every JVM sizes its heap from its own limit**.
 
-| Container | Limit | Peak, no limit (benchmarks) | Peak, with limits (smoke test) | JVM / process sizing |
-| --- | ---: | ---: | ---: | --- |
-| keycloak | 704m | 1,885 | 574 of 640 (first limit) | heap 50 % (`JAVA_OPTS_KC_HEAP`), kc.sh's G1 and metaspace cap |
-| logistics-service | 512m | 647 | 418 | heap 50 %, Serial GC, metaspace 192m, 512k stacks |
-| banking-service | 512m | 609 | 377 | heap 45 %, Serial GC, metaspace 192m, 512k stacks |
-| kafka | 512m | 488 | 421 of 448 (first limit) | `-Xms256m -Xmx256m` |
-| notification-service | 352m | 379 | 250 | heap 45 %, Serial GC |
-| api-gateway | 320m | 398 | 226 | heap 45 %, Serial GC |
-| banking-db | 256m | 312 | 85 | Postgres defaults (128 MB shared buffers) |
-| logistics-db | 192m | 128 | 84 | |
-| notification-db | 128m | 61 | 56 | |
-| keycloak-db | 128m | 54 | 54 | |
-| mailpit | 48m | 18 | 10 | |
-| redis | 32m | 8 | 4 | |
-| kafka-init | 256m | 137 | (exits first) | `KAFKA_HEAP_OPTS=-Xmx128m` |
-| debug-ports (profile debug) | 32m | | | socat |
+| Container | Limit | Peak, no limit (benchmarks) | Peak, with limits (smoke test) | Peak, with limits (benchmarks) | JVM / process sizing |
+| --- | ---: | ---: | ---: | ---: | --- |
+| keycloak | 704m | 1,885 | 574 of 640 (first limit) | 572 | heap 50 % (`JAVA_OPTS_KC_HEAP`), kc.sh's G1 and metaspace cap |
+| logistics-service | 576m | 647 | 418 | 490 of 512 (first limit) | heap 45 %, Serial GC, metaspace 192m, 512k stacks |
+| banking-service | 512m | 609 | 377 | 419 | heap 45 %, Serial GC, metaspace 192m, 512k stacks |
+| kafka | 512m | 488 | 421 of 448 (first limit) | 415 | `-Xms256m -Xmx256m` |
+| notification-service | 352m | 379 | 250 | 310 | heap 45 %, Serial GC |
+| api-gateway | 320m | 398 | 226 | 277 | heap 45 %, Serial GC |
+| banking-db | 192m | 312 | 85 | 108 | Postgres defaults (128 MB shared buffers) |
+| logistics-db | 192m | 128 | 84 | 124 | |
+| notification-db | 128m | 61 | 56 | 62 | |
+| keycloak-db | 128m | 54 | 54 | 58 | |
+| mailpit | 48m | 18 | 10 | 19 | |
+| redis | 32m | 8 | 4 | 8 | |
+| kafka-init | 256m | 137 | (exits first) | 84 | `KAFKA_HEAP_OPTS=-Xmx128m` |
+| debug-ports (profile debug) | 32m | | | | socat |
 
-MiB throughout; smoke-test peaks from CI run 44887512287 (hosted runner, 4 vCPUs). **The running default stack's limits
-add up to 3,696 MiB**, inside the 3,784 MiB of a 3.7 GiB VM, and its measured peaks to 2,558 MiB.
+MiB throughout; smoke-test peaks from CI run 44887512287, benchmark peaks (payment flow at 16 VUs, the events suite
+with a broker outage) from run 44899628552 (Intel Xeon 6975P-C, 4 vCPUs); docs/benchmarks/memory.md. **The running default stack's limits
+add up to 3,696 MiB**, inside the 3,784 MiB of a 3.7 GiB VM; its measured peaks add up to 2,558 MiB under the smoke
+test and about 2,840 MiB under the benchmarks.
 
 **JVM flags** (`JAVA_OPTS` per service in docker-compose.yml, the Dockerfiles keep a default for a bare `docker run`):
 `-XX:MaxRAMPercentage=<45|50> -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
@@ -57,7 +59,20 @@ ergonomics already pick Serial, but by accident of the limit; an explicit flag k
 | everything, with headroom for builds | | 16 GiB |
 
 ## Measured: Serial against G1
-(filled in from the benchmark workflow's runs with `java_gc` serial and g1; docs/benchmarks/memory.md)
+The benchmark workflow with `java_gc` serial and g1, same workload, both under these limits (docs/benchmarks/memory.md):
+
+| | Serial (run 44899628552, Xeon 6975P-C) | G1 (run 44899641690, EPYC 9V45) |
+| --- | ---: | ---: |
+| four services' peaks together | 1,496 MiB | 1,506 MiB |
+| booking p95 / p99, 16 VUs | 117 / 144 ms | 172 / 231 ms |
+| booking to email p99 | 661 ms | 666 ms |
+| longest pause (banking, logistics) | 161, 181 ms (full collections) | 69, 58 ms |
+
+Memory is the same under a limit; that was Smart Tours' reason for Serial (ADR 0018 there), and it does not hold here.
+Serial's request percentiles were better, but on a different CPU, and G1's worst pauses were shorter. **Serial stays**:
+equal memory, booking p99 under 150 ms, and one GC thread instead of G1's concurrent ones on a host that runs fourteen
+containers on four cores. The runs landed on different CPUs, so the latency difference is not established; the
+comparison is to be repeated on one runner type before a production heap is sized, where G1 is the usual choice.
 
 ## Consequences
 - **A JVM that needs more memory now dies instead of slowing the whole VM down**, and compose restarts nothing on its
