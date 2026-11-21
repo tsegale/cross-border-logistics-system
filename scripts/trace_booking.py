@@ -106,7 +106,8 @@ def tempo_trace(request_id: str, started: float) -> tuple[str, list[dict]]:
 
     def found():
         traces = get(f"{TEMPO}/api/search?{query}").get("traces", [])
-        return traces[0]["traceID"] if traces else None
+        # Tempo's search drops a trace id's leading zeros; logs and spans carry all 32 hex digits.
+        return traces[0]["traceID"].zfill(32) if traces else None
 
     trace_id = wait("the booking's trace in Tempo", 120, found)
 
