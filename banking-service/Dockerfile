@@ -8,6 +8,35 @@ WORKDIR /src
 # honour Retry-After. Both property prefixes: Resolver 1.9 reads aether.connector.*, 2.x aether.transport.*.
 ENV RETRY_RESOLVER_1="-Daether.connector.http.retryHandler.count=8 -Daether.connector.http.retryHandler.interval=10000"
 ENV MAVEN_ARGS="$RETRY_RESOLVER_1 -Daether.transport.http.retryHandler.count=8 -Daether.transport.http.retryHandler.interval=10000"
+# Maven Central's CDN has answered 404 for artifacts it holds (spring-boot-starter-parent 4.1.2, several CI runs), and
+# a 404 is never retried. Google's mirror of Maven Central is a second repository, asked for what Central does not
+# return; Central stays first.
+COPY <<'SETTINGS' /usr/share/maven/conf/settings.xml
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+  <profiles>
+    <profile>
+      <id>central-fallback</id>
+      <repositories>
+        <repository>
+          <id>google-maven-central</id>
+          <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>google-maven-central</id>
+          <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+          <snapshots><enabled>false</enabled></snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+  </profiles>
+  <activeProfiles>
+    <activeProfile>central-fallback</activeProfile>
+  </activeProfiles>
+</settings>
+SETTINGS
 COPY pom.xml .
 # One Maven cache per service: compose builds them in parallel, and parallel writers to one cache can collide.
 RUN --mount=type=cache,id=m2-banking-service,target=/root/.m2 mvn -B -q dependency:go-offline
