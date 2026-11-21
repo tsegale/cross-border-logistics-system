@@ -223,7 +223,7 @@ services:
   # Token buckets for the gateway's rate limits on money-moving routes (ADR 0017). Not published.
   redis:
     mem_limit: 32m
-    image: redis:7.4-alpine
+    image: redis:8.10-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -283,7 +283,7 @@ services:
   debug-ports:
     profiles: [debug]
     mem_limit: 32m
-    image: alpine/socat:1.8.0.3
+    image: alpine/socat:1.8.1.1
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
@@ -350,7 +350,7 @@ services:
   # SMTP needs a login, the password from secrets/smtp_password, as a real relay would.
   mailpit:
     mem_limit: 48m
-    image: axllent/mailpit:v1.33.0
+    image: axllent/mailpit:v1.34.0
     entrypoint: ["/bin/sh", "-c", "MP_SMTP_AUTH=\"freightflow:$$(cat /run/secrets/smtp_password)\" exec /mailpit"]
     environment:
       # Plain SMTP inside the compose network; a real relay takes STARTTLS (SMTP_STARTTLS=true).
@@ -503,7 +503,7 @@ services:
 
   grafana:
     profiles: [observability]
-    image: grafana/grafana:13.2.6
+    image: grafana/grafana:13.3.1
     mem_limit: 256m
     environment:
       # Local profile: anyone on 127.0.0.1 may look and explore (every panel links to Explore), nothing is saved:
