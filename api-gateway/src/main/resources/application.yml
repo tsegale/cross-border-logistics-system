@@ -42,7 +42,7 @@ spring:
               order: 0
               uri: ${BANKING_SERVICE_URI:http://127.0.0.1:8081}
               predicates:
-                - Path=/api/v1/transfers,/api/v1/accounts/*/deposits,/api/v1/fx-quotes
+                - Path=/api/v1/transfers,/api/v1/approvals,/api/v1/approvals/*/approval,/api/v1/fx-quotes
                 - Method=POST
               filters:
                 - PreserveHostHeader
@@ -69,7 +69,7 @@ spring:
               order: 10
               uri: ${BANKING_SERVICE_URI:http://127.0.0.1:8081}
               predicates:
-                - Path=/api/v1/accounts/**,/api/v1/transfers/**,/api/v1/fx-quotes/**,/api/v1/fx-rates/**,/api/v1/journal-entries/**,/api/v1/ledger/**,/docs/banking/**
+                - Path=/api/v1/accounts/**,/api/v1/transfers/**,/api/v1/fx-quotes/**,/api/v1/fx-rates/**,/api/v1/journal-entries/**,/api/v1/approvals/**,/api/v1/ledger/**,/docs/banking/**
               filters:
                 - PreserveHostHeader
             - id: logistics
@@ -77,7 +77,16 @@ spring:
               uri: ${LOGISTICS_SERVICE_URI:http://127.0.0.1:8082}
               predicates:
                 # Payment commands: operators retry parked ones (ADR 0012), auditors read them (ADR 0018).
-                - Path=/api/v1/quotes/**,/api/v1/shipments/**,/api/v1/payment-commands/**,/docs/logistics/**
+                # Its consumers' dead letters (ADR 0026): /api/v1/dead-letters is notification-service's.
+                - Path=/api/v1/quotes/**,/api/v1/shipments/**,/api/v1/payment-commands/**,/api/v1/logistics/dead-letters,/api/v1/logistics/dead-letters/**,/docs/logistics/**
+              filters:
+                - PreserveHostHeader
+            # Emails (ADR 0027): an organisation's settings and history, operators' resends and dead letters.
+            - id: notification
+              order: 10
+              uri: ${NOTIFICATION_SERVICE_URI:http://127.0.0.1:8083}
+              predicates:
+                - Path=/api/v1/notification-settings,/api/v1/notifications,/api/v1/notifications/**,/api/v1/dead-letters,/api/v1/dead-letters/**
               filters:
                 - PreserveHostHeader
 
@@ -86,6 +95,16 @@ freightflow:
     max-request-size: ${GATEWAY_MAX_REQUEST_SIZE:1MB}
     # Answered 404 at the edge whatever the routes say (ADR 0015): only logistics-service may hold money (ADR 0019).
     internal-path-prefixes: /api/v1/holds
+  # Before readiness: signing keys, Redis, every route's service and its own port (WarmUpRunner).
+  warm-up:
+    enabled: ${WARM_UP_ENABLED:true}
+    rounds: 3
+    request-timeout: 5s
+    timeout: 60s
+    paths:
+      - "/api/v1/accounts"
+      - "/api/v1/shipments"
+      - "/api/v1/approvals"
   # Who signs the tokens (ADR 0016, ADR 0017). No default issuer: the gateway does not start without one.
   security:
     issuer-uri: ${KEYCLOAK_ISSUER_URI:}

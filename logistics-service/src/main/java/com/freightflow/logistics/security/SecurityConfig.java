@@ -60,6 +60,11 @@ public class SecurityConfig {
                                 .hasAnyRole(Caller.CARRIER, Caller.OPERATOR)
                         .requestMatchers(HttpMethod.PUT, "/api/v1/shipments/*/carrier").hasRole(Caller.OPERATOR)
                         .requestMatchers(HttpMethod.POST, "/api/v1/payment-commands/*/retry").hasRole(Caller.OPERATOR)
+                        // Dead letters (ADR 0026): operators redrive, auditors read.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/logistics/dead-letters/*/redrive")
+                                .hasRole(Caller.OPERATOR)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/logistics/dead-letters",
+                                "/api/v1/logistics/dead-letters/**").hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
                         .requestMatchers("/api/v1/payment-commands", "/api/v1/payment-commands/**")
                                 .hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
                         .requestMatchers(HttpMethod.GET, "/api/v1/shipments", "/api/v1/shipments/**")

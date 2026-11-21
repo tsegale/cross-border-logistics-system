@@ -1,6 +1,6 @@
 # 3. Kafka in KRaft mode as the event backbone
 
-Date: 2026-11-07 · Status: Accepted (built in Phase 4)
+Date: 2026-11-07 · Status: Accepted (built in Phase 4) · Authentication, ACLs and the default stack: ADR 0022
 
 ## Context
 Several things react to what the banking and logistics services do: customer notifications, an audit trail

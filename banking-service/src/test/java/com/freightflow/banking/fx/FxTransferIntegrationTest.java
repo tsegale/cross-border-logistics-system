@@ -4,8 +4,7 @@ import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
-import com.freightflow.banking.journal.LedgerService;
-import com.freightflow.banking.journal.dto.DepositRequest;
+import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,8 +39,10 @@ class FxTransferIntegrationTest extends IntegrationTest {
     @Autowired
     private AccountService accountService;
 
+
     @Autowired
-    private LedgerService ledgerService;
+
+    private Funding funding;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -51,14 +52,11 @@ class FxTransferIntegrationTest extends IntegrationTest {
         AccountResponse nadAccount = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
         AccountResponse eurAccount = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("EUR", TestCallers.NAMIB));
 
-        ledgerService.deposit(TestCallers.OPERATOR, nadAccount.id().toString(),
-                new DepositRequest(new BigDecimal("10000.00"), "NAD", "Initial NAD deposit"),
-                "fx-dep-" + UUID.randomUUID()
-        );
+        funding.deposit(nadAccount.id().toString(), new BigDecimal("10000.00"), "NAD", "Initial NAD deposit");
 
         // Request an FX quote to buy 200.00 EUR using NAD
         // Effective rate NAD->EUR = 0.04975000 => sellAmount = 200 / 0.04975 = 4020.1005 -> HALF_EVEN 4020.10 NAD
-        MvcResult quoteResult = mockMvc.perform(post("/api/v1/fx-quotes")
+        MvcResult quoteResult = mockMvc.perform(post("/api/v1/fx-quotes").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -84,7 +82,7 @@ class FxTransferIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.usedAt").isEmpty());
 
         // Execute cross-currency transfer referencing the FX quote
-        MvcResult transferResult = mockMvc.perform(post("/api/v1/transfers")
+        MvcResult transferResult = mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .header("Idempotency-Key", "fx-tx-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -130,7 +128,7 @@ class FxTransferIntegrationTest extends IntegrationTest {
                 .isEqualByComparingTo("200.00");
 
         // Quote is now marked used; attempting a second transfer with the same fxQuoteId fails with 409 fx-quote-already-used
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .header("Idempotency-Key", "fx-tx-reuse-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -152,13 +150,10 @@ class FxTransferIntegrationTest extends IntegrationTest {
         AccountResponse nadAccount = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
         AccountResponse zarAccount = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("ZAR", TestCallers.NAMIB));
 
-        ledgerService.deposit(TestCallers.OPERATOR, nadAccount.id().toString(),
-                new DepositRequest(new BigDecimal("1000.00"), "NAD", "NAD funding"),
-                "fx-dep-" + UUID.randomUUID()
-        );
+        funding.deposit(nadAccount.id().toString(), new BigDecimal("1000.00"), "NAD", "NAD funding");
 
         // Both sellAmount and buyAmount provided -> 400 invalid-fx-quote-request
-        mockMvc.perform(post("/api/v1/fx-quotes")
+        mockMvc.perform(post("/api/v1/fx-quotes").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -172,7 +167,7 @@ class FxTransferIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/invalid-fx-quote-request"));
 
         // Create a valid 1:1 NAD -> ZAR quote for 250.00 NAD
-        MvcResult quoteResult = mockMvc.perform(post("/api/v1/fx-quotes")
+        MvcResult quoteResult = mockMvc.perform(post("/api/v1/fx-quotes").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -188,7 +183,7 @@ class FxTransferIntegrationTest extends IntegrationTest {
         String quoteId = JSON.readTree(quoteResult.getResponse().getContentAsString()).get("id").asString();
 
         // Mismatched transfer amount -> 409 fx-quote-mismatch
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .header("Idempotency-Key", "fx-mismatch-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -211,7 +206,7 @@ class FxTransferIntegrationTest extends IntegrationTest {
                 UUID.fromString(quoteId)
         );
 
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .header("Idempotency-Key", "fx-expired-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""

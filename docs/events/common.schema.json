@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightflow.dev/events/common.schema.json",
+  "title": "Shared definitions of FreightFlow events",
+  "description": "Building blocks the event schemas refer to. A change here changes every event that uses it, so the compatibility check (scripts/check_event_schemas.py) treats this file like an event schema.",
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "instant": {
+      "description": "An ISO 8601 instant in UTC.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "localDate": {
+      "description": "An ISO 8601 calendar date.",
+      "type": "string",
+      "format": "date"
+    },
+    "currency": {
+      "description": "ISO 4217 code.",
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "amount": {
+      "description": "A non-negative decimal as a string, so no consumer reads money through a binary float. Up to 4 decimal places, the ledger's storage scale.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,14})(\\.[0-9]{1,4})?$"
+    },
+    "signedAmount": {
+      "description": "A decimal as a string: negative debits, positive credits (ADR 0004).",
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]{0,14})(\\.[0-9]{1,4})?$"
+    },
+    "rate": {
+      "description": "An FX rate as a decimal string.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,9})(\\.[0-9]{1,12})?$"
+    },
+    "unlocode": {
+      "description": "UN/LOCODE, e.g. NAWVB (Walvis Bay), DEHAM (Hamburg).",
+      "type": "string",
+      "pattern": "^[A-Z]{2}[A-Z2-9]{3}$"
+    },
+    "shipmentStatus": {
+      "type": "string",
+      "enum": [
+        "AWAITING_PAYMENT",
+        "PAYMENT_FAILED",
+        "BOOKED",
+        "PICKED_UP",
+        "AT_ORIGIN_PORT",
+        "IN_TRANSIT",
+        "AT_DESTINATION_PORT",
+        "CUSTOMS_HOLD",
+        "CUSTOMS_CLEARED",
+        "OUT_FOR_DELIVERY",
+        "DELIVERED",
+        "CANCELLED",
+        "EXCEPTION"
+      ]
+    },
+    "paymentStatus": {
+      "type": "string",
+      "enum": [
+        "NOT_REQUIRED",
+        "AUTHORISATION_PENDING",
+        "AUTHORISED",
+        "CAPTURE_PENDING",
+        "CAPTURED",
+        "RELEASE_PENDING",
+        "RELEASED",
+        "FAILED"
+      ]
+    },
+    "hold": {
+      "description": "A hold as every hold event carries it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "holdId",
+        "payerAccountId",
+        "organizationId",
+        "reference",
+        "status",
+        "amount",
+        "currency",
+        "payerAmount",
+        "payerCurrency",
+        "fxRate",
+        "expiresAt"
+      ],
+      "properties": {
+        "holdId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "payerAccountId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "organizationId": {
+          "description": "The organisation whose account the hold reserves.",
+          "$ref": "#/$defs/uuid"
+        },
+        "reference": {
+          "description": "Set by the holds client, never by a person. logistics-service uses SHIPMENT <shipment id>.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "CAPTURED",
+            "RELEASED",
+            "EXPIRED"
+          ]
+        },
+        "amount": {
+          "description": "The charge, in the hold's currency.",
+          "$ref": "#/$defs/amount"
+        },
+        "currency": {
+          "$ref": "#/$defs/currency"
+        },
+        "payerAmount": {
+          "description": "What the hold reserves on the payer account, in its currency.",
+          "$ref": "#/$defs/amount"
+        },
+        "payerCurrency": {
+          "$ref": "#/$defs/currency"
+        },
+        "fxRate": {
+          "description": "The locked rate of a cross-currency hold, null otherwise.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/instant"
+        }
+      }
+    }
+  }
+}

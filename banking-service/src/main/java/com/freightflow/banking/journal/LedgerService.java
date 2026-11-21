@@ -11,12 +11,10 @@ import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.common.MoneyRounding;
 import com.freightflow.banking.common.UuidOrder;
 import com.freightflow.banking.config.BankingProperties;
-import com.freightflow.banking.idempotency.IdempotencyService;
+import com.freightflow.banking.events.BankingEvents;
 import com.freightflow.banking.journal.JournalEntry.PostingInstruction;
-import com.freightflow.banking.journal.dto.DepositRequest;
 import com.freightflow.banking.journal.dto.JournalEntryResponse;
 import com.freightflow.banking.journal.dto.PostingResponse;
-import com.freightflow.banking.journal.dto.ReversalRequest;
 import com.freightflow.banking.journal.dto.StatementLineResponse;
 import com.freightflow.banking.journal.dto.StatementPageResponse;
 import jakarta.persistence.EntityManager;
@@ -48,10 +46,10 @@ public class LedgerService {
     private final AccountRepository accounts;
     private final JournalEntryRepository journalEntries;
     private final PostingRepository postings;
-    private final IdempotencyService idempotencyService;
     private final BankingProperties properties;
     private final JdbcTemplate jdbcTemplate;
     private final EntityManager entityManager;
+    private final BankingEvents events;
     private final Clock clock;
 
     public LedgerService(
@@ -59,32 +57,39 @@ public class LedgerService {
             AccountRepository accounts,
             JournalEntryRepository journalEntries,
             PostingRepository postings,
-            IdempotencyService idempotencyService,
             BankingProperties properties,
             JdbcTemplate jdbcTemplate,
             EntityManager entityManager,
+            BankingEvents events,
             Clock clock) {
         this.accountService = accountService;
         this.accounts = accounts;
         this.journalEntries = journalEntries;
         this.postings = postings;
-        this.idempotencyService = idempotencyService;
         this.properties = properties;
         this.jdbcTemplate = jdbcTemplate;
         this.entityManager = entityManager;
+        this.events = events;
         this.clock = clock;
     }
 
-    @Transactional
-    public JournalEntryResponse deposit(Caller caller, String accountIdOrNumber, DepositRequest request,
-                                        String idempotencyKey) {
+    /** A deposit that passed every check: what its approval will post (ADR 0021). */
+    public record ValidatedDeposit(Account account, BigDecimal amount, String currency, String reference) {
+    }
+
+    /**
+     * Checks a deposit before anyone is asked to approve it: a CUSTOMER account in the deposit's currency, a positive
+     * amount in the currency's minor units. The approval checks the account again when it posts.
+     */
+    @Transactional(readOnly = true)
+    public ValidatedDeposit validateDeposit(String accountIdOrNumber, BigDecimal amount, String currency,
+                                            String reference) {
         Account target = accountService.resolveAccount(accountIdOrNumber);
         if (!target.getAccountType().isCustomer()) {
             throw new InvalidMonetaryAmountException(
                     "Deposits are only permitted into CUSTOMER accounts, not " + target.getAccountType());
         }
-        Currency requestedCurrency = MoneyRounding.validateSupportedCurrency(
-                request.currency(), properties.normalizedCurrencies());
+        Currency requestedCurrency = MoneyRounding.validateSupportedCurrency(currency, properties.normalizedCurrencies());
         if (!target.getCurrency().equals(requestedCurrency.getCurrencyCode())) {
             throw new CurrencyMismatchException(
                     target.getCurrency(),
@@ -93,70 +98,35 @@ public class LedgerService {
                             + " does not match account currency " + target.getCurrency()
             );
         }
-        if (request.amount().compareTo(BigDecimal.ZERO) <= 0) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new InvalidMonetaryAmountException("Deposit amount must be positive");
         }
-        if (MoneyRounding.hasExcessMinorPrecision(request.amount(), target.getCurrency())) {
+        if (MoneyRounding.hasExcessMinorPrecision(amount, target.getCurrency())) {
             throw new InvalidMonetaryAmountException(
-                    "Amount " + request.amount() + " has more than "
+                    "Amount " + amount + " has more than "
                             + MoneyRounding.minorUnits(target.getCurrency()) + " decimal places");
         }
-        BigDecimal normalizedAmount = MoneyRounding.normalizeCustomerAmount(request.amount(), target.getCurrency());
-        Account clearing = accounts.findByAccountTypeAndCurrency(AccountType.CLEARING, target.getCurrency())
-                .orElseThrow(() -> new AccountNotFoundException("CLEARING:" + target.getCurrency()));
-
-        String scope = "deposit:" + target.getId();
-        var canonical = Map.of(
-                "accountId", target.getId().toString(),
-                "amount", MoneyRounding.roundToMinorUnits(normalizedAmount, target.getCurrency()).toPlainString(),
-                "currency", target.getCurrency(),
-                "reference", request.reference().trim()
-        );
-        return idempotencyService.execute(
-                scope,
-                caller,
-                idempotencyKey,
-                canonical,
-                201,
-                JournalEntryResponse.class,
-                () -> recordEntry(
-                        caller.actor(),
-                        JournalEntryType.DEPOSIT,
-                        request.reference().trim(),
-                        null,
-                        null,
-                        null,
-                        List.of(
-                                new PostingInstruction(clearing.getId(), normalizedAmount.negate(), target.getCurrency()),
-                                new PostingInstruction(target.getId(), normalizedAmount, target.getCurrency())
-                        )
-                )
-        ).body();
+        return new ValidatedDeposit(target, MoneyRounding.normalizeCustomerAmount(amount, target.getCurrency()),
+                target.getCurrency(), reference.trim());
     }
 
+    /**
+     * Posts an approved deposit: CLEARING to the customer account. Only {@code ApprovalService} calls this, with the
+     * approving operator as actor; the database refuses a deposit entry without an approval.
+     */
     @Transactional
-    public JournalEntryResponse reverse(Caller caller, UUID journalEntryId, ReversalRequest request,
-                                        String idempotencyKey) {
-        String reason = request != null && request.reason() != null && !request.reason().isBlank()
-                ? request.reason().trim()
-                : "Reversal of " + journalEntryId;
-        String scope = "reversal:" + journalEntryId;
-        var canonical = Map.of(
-                "journalEntryId", journalEntryId.toString(),
-                "reason", reason
-        );
-        return idempotencyService.execute(
-                scope,
-                caller,
-                idempotencyKey,
-                canonical,
-                201,
-                JournalEntryResponse.class,
-                () -> executeReversal(caller, journalEntryId, reason)
-        ).body();
+    public JournalEntryResponse postDeposit(Actor approver, UUID approvalId, UUID accountId, BigDecimal amount,
+                                            String currency, String reference) {
+        Account clearing = accounts.findByAccountTypeAndCurrency(AccountType.CLEARING, currency)
+                .orElseThrow(() -> new AccountNotFoundException("CLEARING:" + currency));
+        return recordEntry(approver, approvalId, JournalEntryType.DEPOSIT, reference, null, null, null, List.of(
+                new PostingInstruction(clearing.getId(), amount.negate(), currency),
+                new PostingInstruction(accountId, amount, currency)));
     }
 
-    private JournalEntryResponse executeReversal(Caller caller, UUID journalEntryId, String reason) {
+    /** Checks that an entry exists and may be reversed: not a reversal itself, not reversed already. */
+    @Transactional(readOnly = true)
+    public JournalEntry validateReversal(UUID journalEntryId) {
         JournalEntry original = journalEntries.findById(journalEntryId)
                 .orElseThrow(() -> new JournalEntryNotFoundException(journalEntryId));
         if (original.getEntryType() == JournalEntryType.REVERSAL) {
@@ -167,24 +137,39 @@ public class LedgerService {
             throw new JournalEntryAlreadyReversedException(
                     journalEntryId, "Journal entry " + journalEntryId + " has already been reversed");
         }
-        List<Posting> originalPostings = postings.findByJournalEntryIdOrderByIdAsc(journalEntryId);
-        List<PostingInstruction> oppositeInstructions = originalPostings.stream()
+        return original;
+    }
+
+    /**
+     * Posts an approved reversal: the original's postings with the opposite sign. Only {@code ApprovalService} calls
+     * this, with the approving operator as actor.
+     */
+    @Transactional
+    public JournalEntryResponse postReversal(Actor approver, UUID approvalId, UUID journalEntryId, String reason) {
+        JournalEntry original = validateReversal(journalEntryId);
+        List<PostingInstruction> oppositeInstructions = postings.findByJournalEntryIdOrderByIdAsc(journalEntryId).stream()
                 .map(p -> new PostingInstruction(p.getAccountId(), p.getAmount().negate(), p.getCurrency()))
                 .toList();
         try {
-            return recordEntry(
-                    caller.actor(),
-                    JournalEntryType.REVERSAL,
-                    reason,
-                    original.getId(),
-                    original.getFxQuoteId(),
-                    original.getFxRate(),
-                    oppositeInstructions
-            );
+            return recordEntry(approver, approvalId, JournalEntryType.REVERSAL, reason, original.getId(),
+                    original.getFxQuoteId(), original.getFxRate(), oppositeInstructions);
         } catch (DataIntegrityViolationException ex) {
             throw new JournalEntryAlreadyReversedException(
                     journalEntryId, "Journal entry " + journalEntryId + " has already been reversed");
         }
+    }
+
+    /** {@link #recordEntry(Actor, UUID, JournalEntryType, String, UUID, UUID, BigDecimal, List)} without an approval. */
+    @Transactional
+    public JournalEntryResponse recordEntry(
+            Actor actor,
+            JournalEntryType entryType,
+            String reference,
+            UUID reversesEntryId,
+            UUID fxQuoteId,
+            BigDecimal fxRate,
+            List<PostingInstruction> instructions) {
+        return recordEntry(actor, null, entryType, reference, reversesEntryId, fxQuoteId, fxRate, instructions);
     }
 
     /**
@@ -198,6 +183,7 @@ public class LedgerService {
     @Transactional
     public JournalEntryResponse recordEntry(
             Actor actor,
+            UUID approvalId,
             JournalEntryType entryType,
             String reference,
             UUID reversesEntryId,
@@ -234,7 +220,8 @@ public class LedgerService {
 
         Instant now = clock.instant();
         JournalEntry entry = journalEntries.save(
-                JournalEntry.create(entryType, reference, reversesEntryId, fxQuoteId, fxRate, now).recordedBy(actor));
+                JournalEntry.create(entryType, reference, reversesEntryId, fxQuoteId, fxRate, now).recordedBy(actor)
+                        .approvedUnder(approvalId));
         journalEntries.flush();
         int shard = Math.floorMod(entry.getId().hashCode(), properties.systemAccounts().shards());
 
@@ -271,6 +258,12 @@ public class LedgerService {
             responses.put(instruction, PostingResponse.from(postings.save(posting), account.getAccountNumber()));
         }
         postings.flush();
+        // Same transaction as the postings (ADR 0025): every money movement is reported, or none happened.
+        events.journalEntryPosted(entry, instructions.stream()
+                .map(instruction -> BankingEvents.postingLine(instruction.accountId(),
+                        accountsById.get(instruction.accountId()).getOwnerOrganizationId(),
+                        instruction.signedAmount(), accountsById.get(instruction.accountId()).getCurrency()))
+                .toList(), actor);
         List<PostingResponse> postingResponses = instructions.stream().map(responses::get).toList();
         return JournalEntryResponse.from(entry, postingResponses);
     }

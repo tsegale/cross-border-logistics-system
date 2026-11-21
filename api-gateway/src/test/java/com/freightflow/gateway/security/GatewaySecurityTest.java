@@ -48,8 +48,9 @@ class GatewaySecurityTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         TestIssuer.register(registry);
-        registry.add("BANKING_SERVICE_URI", UPSTREAM::baseUrl);
-        registry.add("LOGISTICS_SERVICE_URI", UPSTREAM::baseUrl);
+        registry.add("BANKING_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
+        registry.add("LOGISTICS_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
+        registry.add("NOTIFICATION_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
     }
 
     @AfterAll
@@ -114,9 +115,15 @@ class GatewaySecurityTest {
             "auditor,  POST, /api/v1/transfers,                        403",
             "auditor,  GET,  /api/v1/ledger/reconciliation,            200",
             "customer, GET,  /api/v1/ledger/reconciliation,            403",
-            "customer, POST, /api/v1/accounts/FF14EUR000000001/deposits, 403",
-            "operator, POST, /api/v1/accounts/FF14EUR000000001/deposits, 200",
-            "customer, POST, /api/v1/journal-entries/x/reversals,       403",
+            "customer, POST, /api/v1/approvals,                         403",
+            "operator, POST, /api/v1/approvals,                         200",
+            "auditor,  POST, /api/v1/approvals/x/approval,              403",
+            "operator, POST, /api/v1/approvals/x/approval,              200",
+            "customer, POST, /api/v1/approvals/x/rejection,             403",
+            "auditor,  GET,  /api/v1/approvals,                         200",
+            "customer, GET,  /api/v1/approvals/x,                       403",
+            "operator, POST, /api/v1/transfers,                         403",
+            "customer, POST, /api/v1/transfers,                         200",
             "carrier,  GET,  /api/v1/accounts/FF14EUR000000001,          403",
             "carrier,  POST, /api/v1/quotes,                            403",
             "carrier,  POST, /api/v1/shipments/x/tracking-events,       200",
@@ -129,6 +136,24 @@ class GatewaySecurityTest {
             "auditor,  GET,  /api/v1/payment-commands,                  200",
             "operator, POST, /api/v1/payment-commands/x/retry,          200",
             "customer, GET,  /api/v1/accounts/FF14EUR000000001,          200",
+            "customer, GET,  /api/v1/notification-settings,              200",
+            "customer, PUT,  /api/v1/notification-settings,              200",
+            "operator, PUT,  /api/v1/notification-settings,              403",
+            "auditor,  GET,  /api/v1/notification-settings,              403",
+            "carrier,  GET,  /api/v1/notifications,                      403",
+            "customer, GET,  /api/v1/notifications,                      200",
+            "auditor,  GET,  /api/v1/notifications,                      200",
+            "customer, POST, /api/v1/notifications/x/resend,             403",
+            "auditor,  POST, /api/v1/notifications/x/resend,             403",
+            "operator, POST, /api/v1/notifications/x/resend,             200",
+            "customer, GET,  /api/v1/dead-letters,                       403",
+            "auditor,  GET,  /api/v1/dead-letters,                       200",
+            "auditor,  POST, /api/v1/dead-letters/x/redrive,             403",
+            "operator, POST, /api/v1/dead-letters/x/redrive,             200",
+            "customer, GET,  /api/v1/logistics/dead-letters,             403",
+            "auditor,  GET,  /api/v1/logistics/dead-letters/x,           200",
+            "auditor,  POST, /api/v1/logistics/dead-letters/x/redrive,   403",
+            "operator, POST, /api/v1/logistics/dead-letters/x/redrive,   200",
     })
     void coarseRoleRulesAtTheEdge(String role, String method, String path, int expected) {
         client().method(HttpMethod.valueOf(method)).uri(path)

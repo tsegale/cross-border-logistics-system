@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightflow.dev/events/journal-entry.posted.schema.json",
+  "title": "journal-entry.posted",
+  "description": "A balanced journal entry was appended to the ledger: every money movement, with its postings (ADR 0004). The postings sum to zero per currency. References and reasons are free text and stay in banking.",
+  "x-topic": "freightflow.journal-entry.v1",
+  "x-producer": "banking-service",
+  "x-consumers": [],
+  "$ref": "envelope.schema.json",
+  "properties": {
+    "type": {
+      "const": "journal-entry.posted"
+    },
+    "schemaVersion": {
+      "enum": [
+        1
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entryId",
+        "entryType",
+        "reversesEntryId",
+        "approvalId",
+        "fxRate",
+        "postings"
+      ],
+      "properties": {
+        "entryId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "entryType": {
+          "type": "string",
+          "enum": [
+            "DEPOSIT",
+            "TRANSFER",
+            "FX_TRANSFER",
+            "REVERSAL",
+            "CAPTURE"
+          ]
+        },
+        "reversesEntryId": {
+          "description": "The entry a REVERSAL undoes.",
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approvalId": {
+          "description": "The four-eyes approval a DEPOSIT or REVERSAL was posted under (ADR 0021).",
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fxRate": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/rate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "postings": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "accountId",
+              "organizationId",
+              "amount",
+              "currency"
+            ],
+            "properties": {
+              "accountId": {
+                "$ref": "common.schema.json#/$defs/uuid"
+              },
+              "organizationId": {
+                "description": "The account's owner; null for system accounts.",
+                "oneOf": [
+                  {
+                    "$ref": "common.schema.json#/$defs/uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "amount": {
+                "$ref": "common.schema.json#/$defs/signedAmount"
+              },
+              "currency": {
+                "$ref": "common.schema.json#/$defs/currency"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "eventId": "0193a5d0-11f3-7b4c-85d6-e7f8091a2b3c",
+      "type": "journal-entry.posted",
+      "schemaVersion": 1,
+      "occurredAt": "2026-11-24T06:40:11.902Z",
+      "aggregateId": "0193a5d0-11f2-7a3b-b4c5-d6e7f8091a2b",
+      "sequence": 1,
+      "actor": {
+        "subject": "9d403f51-6e70-4182-9d2e-3f4a5b6c7d8e",
+        "clientId": "logistics-service",
+        "organizationId": null
+      },
+      "requestId": "shipment-0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b-capture",
+      "payload": {
+        "entryId": "0193a5d0-11f2-7a3b-b4c5-d6e7f8091a2b",
+        "entryType": "CAPTURE",
+        "reversesEntryId": null,
+        "approvalId": null,
+        "fxRate": null,
+        "postings": [
+          {
+            "accountId": "01938a6e-2f10-7b4c-8d5e-6f708192a3b4",
+            "organizationId": "0b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091",
+            "amount": "-1840.5000",
+            "currency": "EUR"
+          },
+          {
+            "accountId": "00000000-0000-4000-8000-000000000301",
+            "organizationId": null,
+            "amount": "1840.5000",
+            "currency": "EUR"
+          }
+        ]
+      }
+    }
+  ]
+}

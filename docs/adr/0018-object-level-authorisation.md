@@ -1,6 +1,6 @@
 # 18. Object-level authorisation and the policy table
 
-Date: 2026-11-11 · Status: Accepted
+Date: 2026-11-11 · Status: Accepted · Policy table revised 2026-11-19 by ADR 0021 (four-eyes approvals)
 
 ## Context
 A valid token says who is calling, not what they may touch. OWASP API Security Top 10 2023 puts broken object-level
@@ -23,25 +23,28 @@ use that object.
 
 ### Policy table
 "Own" is a customer of the organisation that owns the object; "foreign" a customer of another; the carrier is the
-one assigned to the shipment. 4xx codes are what the caller gets.
+one assigned to the shipment. 4xx codes are what the caller gets. Since ADR 0021 no operator moves money alone:
+"Operator" is the one who made the approval request, "2nd op" any other operator.
 
 banking-service:
 
-| Endpoint | Own | Foreign | Operator | Auditor | Carrier | logistics-service | Anonymous |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `GET /accounts/{id}`, `GET /accounts/{id}/postings` | 200 | 404 | 200 | 200 | 403 | 403 | 401 |
-| `POST /accounts` (for an organisation) | 201 (own) | 403 | 201 | 403 | 403 | 403 | 401 |
-| `POST /accounts/{id}/deposits` | 403 | 403 | 201 | 403 | 403 | 403 | 401 |
-| `POST /transfers` (from the account) | 201 | 404 | 201 | 403 | 403 | 403 | 401 |
-| `GET /transfers/{id}` | 200 | 404 | 200 | 200 | 403 | 403 | 401 |
-| `POST /fx-quotes` | 201 | 201 | 201 | 403 | 403 | 403 | 401 |
-| `GET /fx-quotes/{id}`, a transfer using it | 200 | 404 | 200 | 200 | 403 | 403 | 401 |
-| `GET /fx-rates` | 200 | 200 | 200 | 200 | 200 | 200 | 401 |
-| `GET /journal-entries/{id}` | 200 | 404 | 200 | 200 | 403 | 403 | 401 |
-| `POST /journal-entries/{id}/reversals` | 403 | 403 | 201 | 403 | 403 | 403 | 401 |
-| `GET /ledger/reconciliation` | 403 | 403 | 200 | 200 | 403 | 403 | 401 |
-| `/holds/**` (authorise, get, find, capture, extend, release) | 403 | 403 | 403 | 403 | 403 | 2xx | 401 |
-| API docs | 200 | 200 | 200 | 200 | 403 | 403 | 401 |
+| Endpoint | Own | Foreign | Operator | 2nd op | Auditor | Carrier | logistics-service | Anonymous |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `GET /accounts/{id}`, `GET /accounts/{id}/postings` | 200 | 404 | 200 | 200 | 200 | 403 | 403 | 401 |
+| `POST /accounts` (for an organisation) | 201 (own) | 403 | 201 | 201 | 403 | 403 | 403 | 401 |
+| `POST /transfers` (from the account) | 201 | 404 | 403 | 403 | 403 | 403 | 403 | 401 |
+| `GET /transfers/{id}` | 200 | 404 | 200 | 200 | 200 | 403 | 403 | 401 |
+| `POST /fx-quotes` | 201 | 201 | 201 | 201 | 403 | 403 | 403 | 401 |
+| `GET /fx-quotes/{id}`, a transfer using it | 200 | 404 | 200 (403 to transfer) | 200 (403 to transfer) | 200 | 403 | 403 | 401 |
+| `GET /fx-rates` | 200 | 200 | 200 | 200 | 200 | 200 | 200 | 401 |
+| `GET /journal-entries/{id}` | 200 | 404 | 200 | 200 | 200 | 403 | 403 | 401 |
+| `POST /approvals` (request a deposit or reversal) | 403 | 403 | 201 | 201 | 403 | 403 | 403 | 401 |
+| `GET /approvals`, `GET /approvals/{id}` | 403 | 403 | 200 | 200 | 200 | 403 | 403 | 401 |
+| `POST /approvals/{id}/approval`, `.../rejection` | 403 | 403 | 403 (own request) | 200 | 403 | 403 | 403 | 401 |
+| `POST /accounts/{id}/deposits`, `POST /journal-entries/{id}/reversals` (removed) | 403 | 403 | 403 | 403 | 403 | 403 | 403 | 401 |
+| `GET /ledger/reconciliation` | 403 | 403 | 200 | 200 | 200 | 403 | 403 | 401 |
+| `/holds/**` (authorise, get, find, capture, extend, release) | 403 | 403 | 403 | 403 | 403 | 403 | 2xx | 401 |
+| API docs | 200 | 200 | 200 | 200 | 200 | 403 | 403 | 401 |
 
 logistics-service:
 
@@ -61,7 +64,7 @@ logistics-service:
 | API docs | 200 | 200 | 200 | 200 | 403 | 403 | 401 |
 
 - **Tested exhaustively.** `AuthorisationMatrixTest` in each service holds this table as data and runs every row for
-  every column against the real security chain and a real database: 140 cases in banking, 91 in logistics. A
+  every column against the real security chain and a real database: 208 cases in banking (140 before ADR 0021), 91 in logistics. A
   combination the table does not allow fails the test, and so does a refusal it does allow. Separate tests check that
   lists are filtered, and that a payer organisation which did not book cannot cancel.
 

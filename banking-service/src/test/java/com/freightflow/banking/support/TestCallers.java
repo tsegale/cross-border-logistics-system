@@ -21,6 +21,9 @@ public final class TestCallers {
     public static final UUID HANSEATIC = UUID.fromString("0193a0e0-0000-7000-8000-00000000a002");
 
     public static final Caller OPERATOR = new Caller("test-operator", "freightflow-web", null, Set.of("operator"), Set.of());
+    /** The checker of the four-eyes flow (ADR 0021): an operator who is not {@link #OPERATOR}. */
+    public static final Caller SECOND_OPERATOR =
+            new Caller("test-second-operator", "freightflow-web", null, Set.of("operator"), Set.of());
     public static final Caller AUDITOR = new Caller("test-auditor", "freightflow-web", null, Set.of("auditor"), Set.of());
     public static final Caller CUSTOMER_NAMIB =
             new Caller("test-customer-namib", "freightflow-web", NAMIB, Set.of("customer"), Set.of());
@@ -49,6 +52,10 @@ public final class TestCallers {
 
     public static RequestPostProcessor operator() {
         return as(OPERATOR);
+    }
+
+    public static RequestPostProcessor secondOperator() {
+        return as(SECOND_OPERATOR);
     }
 
     public static RequestPostProcessor logistics() {

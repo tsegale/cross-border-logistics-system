@@ -1,5 +1,6 @@
 package com.freightflow.banking.hold;
 
+import com.freightflow.banking.security.Actor;
 import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.account.Account;
 import com.freightflow.banking.account.AccountNotFoundException;
@@ -9,6 +10,7 @@ import com.freightflow.banking.account.AccountType;
 import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.common.MoneyRounding;
 import com.freightflow.banking.config.BankingProperties;
+import com.freightflow.banking.events.BankingEvents;
 import com.freightflow.banking.fx.ExchangeRateProvider;
 import com.freightflow.banking.fx.ExchangeRateProvider.RateQuote;
 import com.freightflow.banking.hold.HoldExceptions.CaptureExceedsHoldException;
@@ -67,13 +69,15 @@ public class HoldService {
     private final HoldProperties holdProperties;
     private final JdbcTemplate jdbcTemplate;
     private final EntityManager entityManager;
+    private final BankingEvents events;
     private final Clock clock;
 
     public HoldService(HoldRepository holds, AccountService accountService, AccountRepository accounts,
                        LedgerService ledgerService, ExchangeRateProvider rateProvider,
                        IdempotencyService idempotencyService, BankingProperties properties,
                        HoldProperties holdProperties, JdbcTemplate jdbcTemplate, EntityManager entityManager,
-                       Clock clock) {
+                       BankingEvents events, Clock clock) {
+        this.events = events;
         this.holds = holds;
         this.accountService = accountService;
         this.accounts = accounts;
@@ -136,6 +140,9 @@ public class HoldService {
         Hold hold = holds.saveAndFlush(Hold.create(locked.getId(), request.reference(), amount, currency,
                 payerAmount, locked.getCurrency(), fx, expiresAt, now)
                 .recordedBy(caller.actor(), request.payerOrganizationId(), request.onBehalfOfSubject()));
+        // The stored values (database scale), in the hold's own transaction (ADR 0025).
+        entityManager.refresh(hold);
+        events.holdChanged(BankingEvents.Type.HOLD_AUTHORISED, hold, locked.getOwnerOrganizationId(), caller.actor());
         log.info("Hold {} authorised: {} {} on {} ({} {})", hold.getId(), amount, currency,
                 locked.getAccountNumber(), payerAmount, locked.getCurrency());
         return HoldResponse.from(hold, locked.getAccountNumber());
@@ -201,8 +208,10 @@ public class HoldService {
                 WHERE id = ? AND status = 'ACTIVE'
                 """, captured, payerDebit, entry.id(), Timestamp.from(now), holdId);
         assertOneRow(updated, holdId);
+        Hold current = fresh(holdId);
+        events.holdCaptured(current, locked.account().getOwnerOrganizationId(), caller.actor());
         log.info("Hold {} captured: {} {} (journal entry {})", holdId, captured, hold.getCurrency(), entry.id());
-        return reload(holdId);
+        return respond(current);
     }
 
     // ------------------------------------------------------------------ extension
@@ -215,10 +224,10 @@ public class HoldService {
     public HoldResponse extend(Caller caller, UUID holdId, ExtendHoldRequest request, String idempotencyKey) {
         Map<String, Object> canonical = Map.of("holdId", holdId.toString(), "expiresAt", request.expiresAt().toString());
         return idempotencyService.execute("hold-extension:" + holdId, caller, idempotencyKey, canonical, 200,
-                HoldResponse.class, () -> doExtend(holdId, request.expiresAt())).body();
+                HoldResponse.class, () -> doExtend(caller.actor(), holdId, request.expiresAt())).body();
     }
 
-    private HoldResponse doExtend(UUID holdId, Instant requested) {
+    private HoldResponse doExtend(Actor actor, UUID holdId, Instant requested) {
         Instant now = clock.instant();
         Locked locked = lockPayerThenHold(holdId);
         Hold hold = locked.hold();
@@ -241,8 +250,10 @@ public class HoldService {
         assertOneRow(jdbcTemplate.update(
                 "UPDATE holds SET expires_at = ? WHERE id = ? AND status = 'ACTIVE'",
                 Timestamp.from(requested), holdId), holdId);
+        Hold current = fresh(holdId);
+        events.holdExtended(current, locked.account().getOwnerOrganizationId(), hold.getExpiresAt(), actor);
         log.info("Hold {} extended from {} to {}", holdId, hold.getExpiresAt(), requested);
-        return reload(holdId);
+        return respond(current);
     }
 
     // ------------------------------------------------------------------ release and expiry
@@ -250,7 +261,7 @@ public class HoldService {
     @Transactional
     public HoldResponse release(Caller caller, UUID holdId, String idempotencyKey) {
         return idempotencyService.execute("hold-release:" + holdId, caller, idempotencyKey, Map.of("holdId", holdId.toString()),
-                200, HoldResponse.class, () -> close(holdId, HoldStatus.RELEASED)).body();
+                200, HoldResponse.class, () -> close(caller.actor(), holdId, HoldStatus.RELEASED)).body();
     }
 
     /**
@@ -272,11 +283,14 @@ public class HoldService {
         assertOneRow(jdbcTemplate.update(
                 "UPDATE holds SET status = 'EXPIRED', closed_at = ? WHERE id = ? AND status = 'ACTIVE'",
                 Timestamp.from(now), holdId), holdId);
+        // A scheduled job: no actor. logistics re-authorises an expired hold of a shipment awaiting pickup.
+        events.holdChanged(BankingEvents.Type.HOLD_EXPIRED, fresh(holdId), locked.account().getOwnerOrganizationId(),
+                null);
         log.info("Hold {} expired; {} {} released", holdId, hold.getPayerAmount(), hold.getPayerCurrency());
         return true;
     }
 
-    private HoldResponse close(UUID holdId, HoldStatus status) {
+    private HoldResponse close(Actor actor, UUID holdId, HoldStatus status) {
         Instant now = clock.instant();
         Locked locked = lockPayerThenHold(holdId);
         Hold hold = locked.hold();
@@ -288,8 +302,11 @@ public class HoldService {
         assertOneRow(jdbcTemplate.update(
                 "UPDATE holds SET status = ?, closed_at = ? WHERE id = ? AND status = 'ACTIVE'",
                 status.name(), Timestamp.from(now), holdId), holdId);
+        Hold current = fresh(holdId);
+        events.holdChanged(BankingEvents.Type.HOLD_RELEASED, current, locked.account().getOwnerOrganizationId(),
+                actor);
         log.info("Hold {} {}: {} {} freed", holdId, status, hold.getPayerAmount(), hold.getPayerCurrency());
-        return reload(holdId);
+        return respond(current);
     }
 
     @Transactional(readOnly = true)
@@ -373,10 +390,14 @@ public class HoldService {
         }
     }
 
-    private HoldResponse reload(UUID holdId) {
+    /** The hold as the database now holds it, after this transaction's JDBC updates. */
+    private Hold fresh(UUID holdId) {
         entityManager.flush();
         entityManager.clear();
-        Hold hold = holds.findById(holdId).orElseThrow(() -> new HoldNotFoundException(holdId));
+        return holds.findById(holdId).orElseThrow(() -> new HoldNotFoundException(holdId));
+    }
+
+    private HoldResponse respond(Hold hold) {
         return HoldResponse.from(hold, accountNumber(hold.getPayerAccountId()));
     }
 

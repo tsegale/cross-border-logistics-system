@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightflow.dev/events/shipment.status-changed.schema.json",
+  "title": "shipment.status-changed",
+  "description": "A shipment moved to another status: paid (BOOKED), refused (PAYMENT_FAILED), cancelled, or a tracking event applied (ADR 0009). The cancellation reason is free text and stays in logistics.",
+  "x-topic": "freightflow.shipment.v1",
+  "x-producer": "logistics-service",
+  "x-consumers": [
+    "notification-service"
+  ],
+  "$ref": "envelope.schema.json",
+  "properties": {
+    "type": {
+      "const": "shipment.status-changed"
+    },
+    "schemaVersion": {
+      "enum": [
+        1
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shipmentId",
+        "trackingNumber",
+        "organizationId",
+        "payerOrganizationId",
+        "previousStatus",
+        "status",
+        "paymentStatus",
+        "trackingEventId"
+      ],
+      "properties": {
+        "shipmentId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "trackingNumber": {
+          "description": "The public tracking number, printed on the waybill.",
+          "type": "string",
+          "pattern": "^FF-[0-9A-HJKMNP-TV-Z]{8}-[0-9A-HJKMNP-TV-Z]$"
+        },
+        "organizationId": {
+          "description": "The organisation that booked.",
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "payerOrganizationId": {
+          "description": "The organisation that pays.",
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "previousStatus": {
+          "$ref": "common.schema.json#/$defs/shipmentStatus"
+        },
+        "status": {
+          "$ref": "common.schema.json#/$defs/shipmentStatus"
+        },
+        "paymentStatus": {
+          "$ref": "common.schema.json#/$defs/paymentStatus"
+        },
+        "trackingEventId": {
+          "description": "The tracking event that moved it, if one did.",
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "eventId": "0193a5b2-8a1c-7b3d-8e4f-5a6b7c8d9e0f",
+      "type": "shipment.status-changed",
+      "schemaVersion": 1,
+      "occurredAt": "2026-11-20T08:20:14.302Z",
+      "aggregateId": "0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b",
+      "sequence": 2,
+      "actor": null,
+      "requestId": "shipment-0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b-authorise",
+      "payload": {
+        "shipmentId": "0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b",
+        "trackingNumber": "FF-0000004D-K",
+        "organizationId": "0b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091",
+        "payerOrganizationId": "0b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091",
+        "previousStatus": "AWAITING_PAYMENT",
+        "status": "BOOKED",
+        "paymentStatus": "AUTHORISED",
+        "trackingEventId": null
+      }
+    }
+  ]
+}

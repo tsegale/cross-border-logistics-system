@@ -119,6 +119,12 @@ public class TransferService {
     }
 
     protected TransferResponse executeTransfer(Caller caller, CreateTransferRequest request) {
+        // Also refused by the security chain; checked here too because it is the four-eyes rule (ADR 0021): no single
+        // member of staff moves a customer's money.
+        if (!caller.isCustomer()) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Only the owning customer transfers out of an account; staff correct entries through an approval");
+        }
         Currency requestedCurrency = MoneyRounding.validateSupportedCurrency(
                 request.currency(), properties.normalizedCurrencies());
         // A customer moves money only out of its own organisation's accounts (ADR 0018); to any customer account.

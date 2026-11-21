@@ -7,7 +7,7 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | --- | --- | --- |
 | [0001](0001-database-per-service.md) | One database per service | Accepted |
 | [0002](0002-independent-service-builds.md) | Independent service builds, no shared library | Accepted |
-| [0003](0003-kafka-kraft-as-event-backbone.md) | Kafka in KRaft mode as the event backbone | Accepted (built in Phase 4) |
+| [0003](0003-kafka-kraft-as-event-backbone.md) | Kafka in KRaft mode as the event backbone | Accepted, secured and in the default stack by 0022 (built in Phase 4) |
 | [0004](0004-double-entry-append-only-ledger.md) | Double-entry, append-only ledger with database-enforced invariants | Accepted |
 | [0005](0005-transfer-concurrency-strategy.md) | Transfer concurrency control: ordered pessimistic locking vs conditional UPDATE | Accepted |
 | [0006](0006-idempotency-keys.md) | Transactional idempotency keys with advisory locks | Accepted |
@@ -22,6 +22,14 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | [0015](0015-gateway-edge-policy.md) | Gateway edge policy | Accepted |
 | [0016](0016-identity-provider-organisations-and-roles.md) | Identity provider: Keycloak, organisations and roles | Accepted |
 | [0017](0017-authentication-at-the-gateway-and-in-every-service.md) | Authentication at the gateway and in every service: token relay, not trusted headers | Accepted |
-| [0018](0018-object-level-authorisation.md) | Object-level authorisation and the policy table | Accepted |
+| [0018](0018-object-level-authorisation.md) | Object-level authorisation and the policy table | Accepted, table revised by 0021 |
 | [0019](0019-service-to-service-credentials.md) | Service-to-service credentials and secrets | Accepted |
 | [0020](0020-caller-scoped-idempotency-and-audit-actors.md) | Caller-scoped idempotency keys and audit actors | Accepted |
+| [0021](0021-four-eyes-approvals-for-operator-money-operations.md) | Four-eyes approvals for operator money operations | Accepted |
+| [0022](0022-kafka-authentication-acls-and-topics.md) | Kafka authentication, ACLs and topic ownership | Accepted |
+| [0023](0023-event-envelope-and-schema-evolution.md) | Event envelope, JSON Schema contracts and schema evolution | Accepted |
+| [0024](0024-personal-data-stays-out-of-events.md) | Personal data stays out of events | Accepted |
+| [0025](0025-transactional-outbox-relay.md) | Transactional outbox with a polling relay | Accepted |
+| [0026](0026-consumer-idempotency-retries-and-ordering.md) | Consumers: idempotency, retries, dead letters and ordering | Accepted |
+| [0027](0027-notification-service.md) | notification-service: emails in German and English, at most once | Accepted |
+| [0028](0028-logistics-reacts-to-banking-hold-events.md) | logistics reacts to banking's hold events; payment commands stay HTTP | Accepted |

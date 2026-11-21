@@ -1,7 +1,8 @@
 // Payment flow under load (ADR 0012): book shipments through the gateway and wait for the relay to pay them.
 //
 //   k6 run -e VUS=16 -e ITERATIONS_PER_VU=25 \
-//     -e OPERATOR_TOKEN="$(scripts/token.sh operator)" -e CUSTOMER_TOKEN="$(scripts/token.sh customer-namib-exports)" \
+//     -e OPERATOR_TOKEN="$(scripts/token.sh operator)" -e CHECKER_TOKEN="$(scripts/token.sh second-operator)" \
+//     -e CUSTOMER_TOKEN="$(scripts/token.sh customer-namib-exports)" \
 //     benchmarks/k6/payment_flow.js
 // The operator opens and funds Namib Exports' payer accounts; Namib Exports' customer quotes and books (ADR 0018).
 // Tokens live 5 minutes: a run longer than that needs fresh ones.
@@ -24,6 +25,8 @@ const RUN_TAG = __ENV.RUN_TAG || `${Date.now()}`;
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const NAMIB = '0193a0e0-0000-7000-8000-00000000a001';
 const OPERATOR = { Authorization: `Bearer ${__ENV.OPERATOR_TOKEN || ''}` };
+// Approves the funding deposits OPERATOR requests (ADR 0021).
+const CHECKER = { Authorization: `Bearer ${__ENV.CHECKER_TOKEN || ''}` };
 const CUSTOMER = { Authorization: `Bearer ${__ENV.CUSTOMER_TOKEN || ''}` };
 // A week ahead: the first hold covers it, so the benchmark measures authorisation, not extensions.
 const PICKUP_DATE = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
@@ -50,11 +53,16 @@ export function setup() {
   const payers = [];
   for (let i = 0; i < VUS; i++) {
     const account = post('/api/v1/accounts', { currency: 'EUR', organizationId: NAMIB }, OPERATOR).json();
-    const funded = post(`/api/v1/accounts/${account.id}/deposits`,
-      { amount: '1000000.00', currency: 'EUR', reference: 'PAYMENT-BENCH' },
+    const requested = post('/api/v1/approvals',
+      { kind: 'DEPOSIT', account: account.accountNumber, amount: '1000000.00', currency: 'EUR', reference: 'PAYMENT-BENCH' },
       { ...OPERATOR, 'Idempotency-Key': `payment-bench-fund-${account.id}` });
-    if (funded.status !== 201) {
-      throw new Error(`funding failed: ${funded.status} ${funded.body}`);
+    if (requested.status !== 201) {
+      throw new Error(`funding request failed: ${requested.status} ${requested.body}`);
+    }
+    const funded = post(`/api/v1/approvals/${requested.json('id')}/approval`, {},
+      { ...CHECKER, 'Idempotency-Key': `payment-bench-fund-${account.id}-approval` });
+    if (funded.status !== 200) {
+      throw new Error(`funding approval failed: ${funded.status} ${funded.body}`);
     }
     payers.push(account.accountNumber);
   }

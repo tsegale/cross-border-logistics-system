@@ -1,6 +1,7 @@
 package com.freightflow.banking.transfer;
 
 import com.freightflow.banking.support.TestCallers;
+import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
 import com.freightflow.banking.transfer.dto.CreateTransferRequest;
 import com.freightflow.banking.transfer.dto.TransferResponse;
@@ -33,6 +34,11 @@ class TransferIntegrationTest extends IntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+
+    @Autowired
+
+    private Funding funding;
 
     @Autowired
     private com.freightflow.banking.account.AccountService accountService;
@@ -78,17 +84,7 @@ class TransferIntegrationTest extends IntegrationTest {
         String targetNumber = target.get("accountNumber").asString();
 
         // Deposit 5,000.00 NAD into source
-        mockMvc.perform(post("/api/v1/accounts/" + sourceNumber + "/deposits")
-                        .header("Idempotency-Key", "dep-tx-1")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 5000.00,
-                                  "currency": "NAD",
-                                  "reference": "DEP-TX-INIT"
-                                }
-                                """))
-                .andExpect(status().isCreated());
+        funding.deposit(sourceNumber, new java.math.BigDecimal("5000.00"), "NAD", "DEP-TX-INIT");
 
         // Execute transfer of 1,250.50 NAD
         String payload = """
@@ -101,7 +97,7 @@ class TransferIntegrationTest extends IntegrationTest {
                 }
                 """.formatted(sourceNumber, targetNumber);
 
-        MvcResult created = mockMvc.perform(post("/api/v1/transfers")
+        MvcResult created = mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .header("Idempotency-Key", "tx-key-001")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
@@ -117,7 +113,7 @@ class TransferIntegrationTest extends IntegrationTest {
         String transferId = transferJson.get("id").asString();
 
         // Replay same Idempotency-Key and body -> returns identical transfer ID
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .header("Idempotency-Key", "tx-key-001")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
@@ -139,7 +135,7 @@ class TransferIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.ledgerBalance").value(1250.50));
 
         // Insufficient funds -> 409
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .header("Idempotency-Key", "tx-key-overdraft")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -156,7 +152,7 @@ class TransferIntegrationTest extends IntegrationTest {
 
         // Mistyped account number -> 400 invalid-account-number, NOT 404
         String mistyped = sourceNumber.substring(0, 15) + (sourceNumber.charAt(15) == '0' ? '1' : '0');
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .header("Idempotency-Key", "tx-key-mistyped")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -172,7 +168,7 @@ class TransferIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/invalid-account-number"));
 
         // Same source and target -> 422
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .header("Idempotency-Key", "tx-key-same-acct")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -188,7 +184,7 @@ class TransferIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/same-account-transfer"));
 
         // fxQuoteId provided on same-currency transfer -> 422
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                         .header("Idempotency-Key", "tx-key-unneeded-fx")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -217,17 +213,7 @@ class TransferIntegrationTest extends IntegrationTest {
         String numA = acctA.get("accountNumber").asString();
         String numB = acctB.get("accountNumber").asString();
 
-        mockMvc.perform(post("/api/v1/accounts/" + numA + "/deposits")
-                        .header("Idempotency-Key", "dep-cond-a")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "amount": 1000.00,
-                                  "currency": "NAD",
-                                  "reference": "DEP-COND-A"
-                                }
-                                """))
-                .andExpect(status().isCreated());
+        funding.deposit(numA, new java.math.BigDecimal("1000.00"), "NAD", "DEP-COND-A");
 
         var conditionalProps = new com.freightflow.banking.config.BankingProperties(
                 properties.supportedCurrencies(),
@@ -244,19 +230,19 @@ class TransferIntegrationTest extends IntegrationTest {
         );
 
         // A -> B (source UUID < target UUID)
-        TransferResponse ab = conditionalService.createTransfer(TestCallers.OPERATOR, new CreateTransferRequest(numA, numB, new BigDecimal("400.00"), "NAD", "COND-AB", null),
+        TransferResponse ab = conditionalService.createTransfer(TestCallers.CUSTOMER_NAMIB, new CreateTransferRequest(numA, numB, new BigDecimal("400.00"), "NAD", "COND-AB", null),
                 "cond-key-ab"
         );
         assertThat(ab.sourceAmount()).isEqualByComparingTo("400.00");
 
         // B -> A (source UUID > target UUID)
-        TransferResponse ba = conditionalService.createTransfer(TestCallers.OPERATOR, new CreateTransferRequest(numB, numA, new BigDecimal("150.00"), "NAD", "COND-BA", null),
+        TransferResponse ba = conditionalService.createTransfer(TestCallers.CUSTOMER_NAMIB, new CreateTransferRequest(numB, numA, new BigDecimal("150.00"), "NAD", "COND-BA", null),
                 "cond-key-ba"
         );
         assertThat(ba.sourceAmount()).isEqualByComparingTo("150.00");
 
         // Overdraft rejected on B (balance is 250.00)
-        assertThatThrownBy(() -> conditionalService.createTransfer(TestCallers.OPERATOR, new CreateTransferRequest(numB, numA, new BigDecimal("300.00"), "NAD", "COND-OVER", null),
+        assertThatThrownBy(() -> conditionalService.createTransfer(TestCallers.CUSTOMER_NAMIB, new CreateTransferRequest(numB, numA, new BigDecimal("300.00"), "NAD", "COND-OVER", null),
                 "cond-key-over"
         )).isInstanceOf(com.freightflow.banking.account.InsufficientFundsException.class);
     }

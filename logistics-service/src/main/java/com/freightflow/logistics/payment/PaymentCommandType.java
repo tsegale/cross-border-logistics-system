@@ -6,5 +6,7 @@ public enum PaymentCommandType {
     CAPTURE,
     RELEASE,
     /** Move the hold's expiry later while the shipment waits for pickup (ADR 0011). */
-    EXTEND
+    EXTEND,
+    /** A new hold after banking expired the last one while the shipment still waits for pickup (ADR 0028). */
+    REAUTHORISE
 }

@@ -20,7 +20,8 @@ public final class BankingStub {
     private BankingStub() {
     }
 
+    /** 127.0.0.1, not WireMock's baseUrl(): "localhost" tries IPv6 first on Windows and can reach another listener. */
     public static String baseUrl() {
-        return SERVER.baseUrl();
+        return "http://127.0.0.1:" + SERVER.port();
     }
 }

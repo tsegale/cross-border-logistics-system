@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightflow.dev/events/approval.decided.schema.json",
+  "title": "approval.decided",
+  "description": "A four-eyes approval request (ADR 0021) was approved, rejected or expired. The actor is the second operator (null when it expired). Comments and reasons are free text and stay in banking.",
+  "x-topic": "freightflow.approval.v1",
+  "x-producer": "banking-service",
+  "x-consumers": [],
+  "$ref": "envelope.schema.json",
+  "properties": {
+    "type": {
+      "const": "approval.decided"
+    },
+    "schemaVersion": {
+      "enum": [
+        1
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvalId",
+        "kind",
+        "status",
+        "accountId",
+        "amount",
+        "currency",
+        "journalEntryId",
+        "postedEntryId",
+        "requestedBy"
+      ],
+      "properties": {
+        "approvalId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "DEPOSIT",
+            "REVERSAL"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "APPROVED",
+            "REJECTED",
+            "EXPIRED"
+          ]
+        },
+        "accountId": {
+          "description": "The account a DEPOSIT credits.",
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "amount": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/amount"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "currency": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/currency"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "journalEntryId": {
+          "description": "The entry a REVERSAL undoes.",
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "postedEntryId": {
+          "description": "The entry posted on approval.",
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestedBy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "subject",
+            "clientId"
+          ],
+          "properties": {
+            "subject": {
+              "x-pseudonymous": true,
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 64
+            },
+            "clientId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 64
+            }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "eventId": "0193a5c2-0b1d-7e3f-9041-5263748596a7",
+      "type": "approval.decided",
+      "schemaVersion": 1,
+      "occurredAt": "2026-11-20T08:05:44.610Z",
+      "aggregateId": "0193a5c1-2a3b-7c4d-8e5f-60718293a4b5",
+      "sequence": 1,
+      "actor": {
+        "subject": "8c3f2e40-5d6f-4071-8c1d-2e3f4a5b6c7d",
+        "clientId": "freightflow-web",
+        "organizationId": null
+      },
+      "requestId": "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d",
+      "payload": {
+        "approvalId": "0193a5c1-2a3b-7c4d-8e5f-60718293a4b5",
+        "kind": "DEPOSIT",
+        "status": "APPROVED",
+        "accountId": "01938a6e-2f10-7b4c-8d5e-6f708192a3b4",
+        "amount": "25000.0000",
+        "currency": "EUR",
+        "journalEntryId": null,
+        "postedEntryId": "0193a5c2-0b1c-7d2e-8f30-4152637485a6",
+        "requestedBy": {
+          "subject": "7b2e1d3f-4c5e-4f60-9b0c-1d2e3f4a5b6c",
+          "clientId": "freightflow-web"
+        }
+      }
+    }
+  ]
+}

@@ -1,5 +1,9 @@
 package com.freightflow.banking.security;
 
+import com.freightflow.banking.approval.ApprovalKind;
+import com.freightflow.banking.approval.ApprovalService;
+import com.freightflow.banking.approval.dto.CreateApprovalRequest;
+import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
 import com.freightflow.banking.support.TestCallers;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +49,8 @@ class AuthorisationMatrixTest extends IntegrationTest {
         OWNER(TestCallers.as(TestCallers.CUSTOMER_NAMIB)),
         FOREIGN(TestCallers.as(TestCallers.CUSTOMER_HANSEATIC)),
         OPERATOR(TestCallers.as(TestCallers.OPERATOR)),
+        /** Another operator: the checker of a request {@link #OPERATOR} made (ADR 0021). */
+        SECOND_OPERATOR(TestCallers.as(TestCallers.SECOND_OPERATOR)),
         AUDITOR(TestCallers.as(TestCallers.AUDITOR)),
         CARRIER(TestCallers.as(TestCallers.CARRIER)),
         LOGISTICS(TestCallers.as(TestCallers.LOGISTICS)),
@@ -58,33 +64,41 @@ class AuthorisationMatrixTest extends IntegrationTest {
     }
 
     /**
-     * The policy table (ADR 0018). Columns: owner, foreign customer, operator, auditor, carrier, logistics-service,
-     * anonymous. A foreign customer creating something gets what any customer gets; reading or moving someone else's
-     * money is a 404.
+     * The policy table (ADR 0018, revised by ADR 0021). Columns: owner, foreign customer, operator (the maker of the
+     * fixture's approval request), a second operator, auditor, carrier, logistics-service, anonymous. A foreign
+     * customer creating something gets what any customer gets; reading or moving someone else's money is a 404. No
+     * operator moves money alone: deposits and reversals are requested by one and approved by another, and operators
+     * do not transfer out of customer accounts at all.
      */
     static Stream<Arguments> policy() {
         Map<String, int[]> table = new java.util.LinkedHashMap<>();
-        //                                              OWN  FOR  OP   AUD  CAR  LOG  ANON
-        table.put("GET account",                 new int[] {200, 404, 200, 200, 403, 403, 401});
-        table.put("GET statement",               new int[] {200, 404, 200, 200, 403, 403, 401});
-        table.put("POST account for owner org",  new int[] {201, 403, 201, 403, 403, 403, 401});
-        table.put("POST deposit",                new int[] {403, 403, 201, 403, 403, 403, 401});
-        table.put("POST transfer from account",  new int[] {201, 404, 201, 403, 403, 403, 401});
-        table.put("GET transfer",                new int[] {200, 404, 200, 200, 403, 403, 401});
-        table.put("POST fx quote",               new int[] {201, 201, 201, 403, 403, 403, 401});
-        table.put("GET fx quote",                new int[] {200, 404, 200, 200, 403, 403, 401});
-        table.put("POST transfer with fx quote", new int[] {201, 404, 201, 403, 403, 403, 401});
-        table.put("GET fx rates",                new int[] {200, 200, 200, 200, 200, 200, 401});
-        table.put("GET journal entry",           new int[] {200, 404, 200, 200, 403, 403, 401});
-        table.put("POST reversal",               new int[] {403, 403, 201, 403, 403, 403, 401});
-        table.put("GET reconciliation",          new int[] {403, 403, 200, 200, 403, 403, 401});
-        table.put("POST hold",                   new int[] {403, 403, 403, 403, 403, 201, 401});
-        table.put("GET hold",                    new int[] {403, 403, 403, 403, 403, 200, 401});
-        table.put("GET holds by reference",      new int[] {403, 403, 403, 403, 403, 200, 401});
-        table.put("POST capture",                new int[] {403, 403, 403, 403, 403, 200, 401});
-        table.put("POST extension",              new int[] {403, 403, 403, 403, 403, 200, 401});
-        table.put("POST release",                new int[] {403, 403, 403, 403, 403, 200, 401});
-        table.put("GET api docs",                new int[] {200, 200, 200, 200, 403, 403, 401});
+        //                                              OWN  FOR  OP   OP2  AUD  CAR  LOG  ANON
+        table.put("GET account",                 new int[] {200, 404, 200, 200, 200, 403, 403, 401});
+        table.put("GET statement",               new int[] {200, 404, 200, 200, 200, 403, 403, 401});
+        table.put("POST account for owner org",  new int[] {201, 403, 201, 201, 403, 403, 403, 401});
+        table.put("POST deposit directly",       new int[] {403, 403, 403, 403, 403, 403, 403, 401});
+        table.put("POST transfer from account",  new int[] {201, 404, 403, 403, 403, 403, 403, 401});
+        table.put("GET transfer",                new int[] {200, 404, 200, 200, 200, 403, 403, 401});
+        table.put("POST fx quote",               new int[] {201, 201, 201, 201, 403, 403, 403, 401});
+        table.put("GET fx quote",                new int[] {200, 404, 200, 200, 200, 403, 403, 401});
+        table.put("POST transfer with fx quote", new int[] {201, 404, 403, 403, 403, 403, 403, 401});
+        table.put("GET fx rates",                new int[] {200, 200, 200, 200, 200, 200, 200, 401});
+        table.put("GET journal entry",           new int[] {200, 404, 200, 200, 200, 403, 403, 401});
+        table.put("POST reversal directly",      new int[] {403, 403, 403, 403, 403, 403, 403, 401});
+        table.put("POST deposit request",        new int[] {403, 403, 201, 201, 403, 403, 403, 401});
+        table.put("POST reversal request",       new int[] {403, 403, 201, 201, 403, 403, 403, 401});
+        table.put("GET approval requests",       new int[] {403, 403, 200, 200, 200, 403, 403, 401});
+        table.put("GET approval request",        new int[] {403, 403, 200, 200, 200, 403, 403, 401});
+        table.put("POST approval",               new int[] {403, 403, 403, 200, 403, 403, 403, 401});
+        table.put("POST rejection",              new int[] {403, 403, 403, 200, 403, 403, 403, 401});
+        table.put("GET reconciliation",          new int[] {403, 403, 200, 200, 200, 403, 403, 401});
+        table.put("POST hold",                   new int[] {403, 403, 403, 403, 403, 403, 201, 401});
+        table.put("GET hold",                    new int[] {403, 403, 403, 403, 403, 403, 200, 401});
+        table.put("GET holds by reference",      new int[] {403, 403, 403, 403, 403, 403, 200, 401});
+        table.put("POST capture",                new int[] {403, 403, 403, 403, 403, 403, 200, 401});
+        table.put("POST extension",              new int[] {403, 403, 403, 403, 403, 403, 200, 401});
+        table.put("POST release",                new int[] {403, 403, 403, 403, 403, 403, 200, 401});
+        table.put("GET api docs",                new int[] {200, 200, 200, 200, 200, 403, 403, 401});
         List<Arguments> cases = new ArrayList<>();
         table.forEach((endpoint, expected) -> {
             for (Who who : Who.values()) {
@@ -100,11 +114,17 @@ class AuthorisationMatrixTest extends IntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private Funding funding;
+
+    @Autowired
+    private ApprovalService approvals;
+
     private Fixture fixture;
 
     /** Namib's two EUR accounts and one NAD account, funded; a Namib-to-Namib transfer, quote and hold. */
     private record Fixture(String eur, String eur2, String nad, String foreignEur, String transferId, String depositEntry,
-                           String fxQuote, String holdId) {
+                           String fxQuote, String holdId, String approvalId) {
     }
 
     @BeforeEach
@@ -124,7 +144,10 @@ class AuthorisationMatrixTest extends IntegrationTest {
         String hold = json(mockMvc.perform(post("/api/v1/holds").with(Who.LOGISTICS.token).header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON).content(holdBody(eur, "10.00")))
                 .andExpect(status().isCreated()).andReturn()).get("id").asString();
-        fixture = new Fixture(eur, eur2, nad, foreignEur, transfer, depositEntry, quote, hold);
+        // A deposit request OPERATOR made: only another operator may decide it.
+        String approval = approvals.request(TestCallers.OPERATOR, new CreateApprovalRequest(ApprovalKind.DEPOSIT, eur,
+                new java.math.BigDecimal("5.00"), "EUR", "MATRIX", null, null), key()).id().toString();
+        fixture = new Fixture(eur, eur2, nad, foreignEur, transfer, depositEntry, quote, hold, approval);
     }
 
     @ParameterizedTest(name = "{0} as {1} -> {2}")
@@ -147,7 +170,7 @@ class AuthorisationMatrixTest extends IntegrationTest {
             case "GET statement" -> get("/api/v1/accounts/{id}/postings", f.eur());
             case "POST account for owner org" -> post("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON)
                     .content("{\"currency\":\"EUR\",\"organizationId\":\"" + TestCallers.NAMIB + "\"}");
-            case "POST deposit" -> post("/api/v1/accounts/{id}/deposits", f.eur()).header("Idempotency-Key", key())
+            case "POST deposit directly" -> post("/api/v1/accounts/{id}/deposits", f.eur()).header("Idempotency-Key", key())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("{\"amount\":5.00,\"currency\":\"EUR\",\"reference\":\"MATRIX\"}");
             case "POST transfer from account" -> post("/api/v1/transfers").header("Idempotency-Key", key())
@@ -159,8 +182,19 @@ class AuthorisationMatrixTest extends IntegrationTest {
             case "POST transfer with fx quote" -> transferWithQuote(who);
             case "GET fx rates" -> get("/api/v1/fx-rates").param("base", "NAD");
             case "GET journal entry" -> get("/api/v1/journal-entries/{id}", f.depositEntry());
-            case "POST reversal" -> post("/api/v1/journal-entries/{id}/reversals", f.depositEntry())
+            case "POST reversal directly" -> post("/api/v1/journal-entries/{id}/reversals", f.depositEntry())
                     .header("Idempotency-Key", key()).contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"MATRIX\"}");
+            case "POST deposit request" -> post("/api/v1/approvals").header("Idempotency-Key", key())
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"kind\":\"DEPOSIT\",\"account\":\"" + f.eur()
+                            + "\",\"amount\":5.00,\"currency\":\"EUR\",\"reference\":\"MATRIX\"}");
+            case "POST reversal request" -> post("/api/v1/approvals").header("Idempotency-Key", key())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"kind\":\"REVERSAL\",\"journalEntryId\":\"" + f.depositEntry() + "\"}");
+            case "GET approval requests" -> get("/api/v1/approvals");
+            case "GET approval request" -> get("/api/v1/approvals/{id}", f.approvalId());
+            case "POST approval" -> post("/api/v1/approvals/{id}/approval", f.approvalId()).header("Idempotency-Key", key());
+            case "POST rejection" -> post("/api/v1/approvals/{id}/rejection", f.approvalId())
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"comment\":\"MATRIX\"}");
             case "GET reconciliation" -> get("/api/v1/ledger/reconciliation");
             case "POST hold" -> post("/api/v1/holds").header("Idempotency-Key", key())
                     .contentType(MediaType.APPLICATION_JSON).content(holdBody(f.eur(), "1.00"));
@@ -216,8 +250,13 @@ class AuthorisationMatrixTest extends IntegrationTest {
         UUID entry = UUID.fromString(fixture.depositEntry());
         Map<String, Object> actor = jdbcTemplate.queryForMap(
                 "SELECT actor_subject, actor_client_id, actor_organization_id FROM journal_entries WHERE id = ?", entry);
-        assertThat(actor.get("actor_subject")).isEqualTo(TestCallers.OPERATOR.subject());
+        // A deposit's actor is the operator who approved it; the approval names the one who requested it (ADR 0021).
+        assertThat(actor.get("actor_subject")).isEqualTo(TestCallers.SECOND_OPERATOR.subject());
         assertThat(actor.get("actor_client_id")).isEqualTo("freightflow-web");
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT ar.requested_by_subject FROM approval_requests ar
+                JOIN journal_entries je ON je.approval_id = ar.id WHERE je.id = ?
+                """, String.class, entry)).isEqualTo(TestCallers.OPERATOR.subject());
 
         Map<String, Object> transfer = jdbcTemplate.queryForMap("""
                 SELECT je.actor_subject, je.actor_organization_id FROM transfers t
@@ -234,7 +273,7 @@ class AuthorisationMatrixTest extends IntegrationTest {
         assertThat(hold.get("on_behalf_of_subject")).isEqualTo("booker-1");
 
         mockMvc.perform(get("/api/v1/journal-entries/{id}", entry).with(Who.AUDITOR.token))
-                .andExpect(jsonPath("$.actor.subject").value(TestCallers.OPERATOR.subject()));
+                .andExpect(jsonPath("$.actor.subject").value(TestCallers.SECOND_OPERATOR.subject()));
         mockMvc.perform(get("/api/v1/journal-entries/{id}", entry).with(Who.OWNER.token))
                 .andExpect(jsonPath("$.actor").doesNotExist());
         mockMvc.perform(get("/api/v1/accounts/{id}/postings", fixture.eur2()).with(Who.AUDITOR.token))
@@ -258,11 +297,8 @@ class AuthorisationMatrixTest extends IntegrationTest {
                 .andExpect(status().isCreated()).andReturn()).get("accountNumber").asString();
     }
 
-    private String deposit(String account, String amount, String currency) throws Exception {
-        return json(mockMvc.perform(post("/api/v1/accounts/{id}/deposits", account).with(Who.OPERATOR.token)
-                        .header("Idempotency-Key", key()).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"amount\":" + amount + ",\"currency\":\"" + currency + "\",\"reference\":\"SEED\"}"))
-                .andExpect(status().isCreated()).andReturn()).get("id").asString();
+    private String deposit(String account, String amount, String currency) {
+        return funding.deposit(account, amount, currency).id().toString();
     }
 
     private String fxQuote(RequestPostProcessor token) throws Exception {

@@ -4,8 +4,7 @@ import com.freightflow.banking.support.TestCallers;
 import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
-import com.freightflow.banking.journal.LedgerService;
-import com.freightflow.banking.journal.dto.DepositRequest;
+import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,8 +50,10 @@ class TransferLockTimeoutIntegrationTest extends IntegrationTest {
     @Autowired
     private AccountService accountService;
 
+
     @Autowired
-    private LedgerService ledgerService;
+
+    private Funding funding;
 
     @Autowired
     private DataSource dataSource;
@@ -98,14 +99,13 @@ class TransferLockTimeoutIntegrationTest extends IntegrationTest {
 
     private AccountResponse fundedAccount() {
         AccountResponse account = accountService.createCustomerAccount(TestCallers.OPERATOR, new CreateAccountRequest("NAD", TestCallers.NAMIB));
-        ledgerService.deposit(TestCallers.OPERATOR, account.id().toString(),
-                new DepositRequest(new BigDecimal("100.00"), "NAD", "seed"), "seed-" + UUID.randomUUID());
+        funding.deposit(account.id().toString(), new BigDecimal("100.00"), "NAD", "seed");
         return account;
     }
 
     private static org.springframework.test.web.servlet.RequestBuilder transfer(
             AccountResponse source, AccountResponse target, String key) {
-        return post("/api/v1/transfers")
+        return post("/api/v1/transfers").with(TestCallers.as(TestCallers.CUSTOMER_NAMIB))
                 .header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""

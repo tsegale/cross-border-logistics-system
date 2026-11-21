@@ -46,7 +46,7 @@ class GatewayEdgeTest {
     @DynamicPropertySource
     static void upstreams(DynamicPropertyRegistry registry) {
         TestIssuer.register(registry);
-        registry.add("BANKING_SERVICE_URI", BANKING::baseUrl);
+        registry.add("BANKING_SERVICE_URI", () -> TestIssuer.url(BANKING));
         // Nothing listens on port 1: the logistics route stands for a service that is down.
         registry.add("LOGISTICS_SERVICE_URI", () -> "http://127.0.0.1:1");
     }
@@ -64,7 +64,7 @@ class GatewayEdgeTest {
         BANKING.resetAll();
     }
 
-    /** An operator: allowed every route at the edge, so these tests exercise the edge policy, not the roles. */
+    /** An operator: allowed every route here but transfers, so these tests exercise the edge policy, not the roles. */
     private WebTestClient client() {
         return WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, TestIssuer.bearer(TestIssuer.role("operator")))
@@ -180,7 +180,11 @@ class GatewayEdgeTest {
     void postIsNeverRetriedAtTheEdge() {
         BANKING.stubFor(post(urlPathEqualTo("/api/v1/transfers")).willReturn(aResponse().withStatus(503)));
 
-        client().post().uri("/api/v1/transfers").contentType(MediaType.APPLICATION_JSON)
+        // Transfers are a customer's (ADR 0021); every other route here is the operator's.
+        WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, TestIssuer.bearer(TestIssuer.customer()))
+                .responseTimeout(Duration.ofSeconds(10)).build()
+                .post().uri("/api/v1/transfers").contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "k-1").bodyValue("{}").exchange()
                 .expectStatus().isEqualTo(503);
         BANKING.verify(1, postRequestedFor(urlPathEqualTo("/api/v1/transfers")));

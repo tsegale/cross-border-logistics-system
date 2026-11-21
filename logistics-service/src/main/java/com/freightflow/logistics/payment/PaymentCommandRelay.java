@@ -1,6 +1,8 @@
 package com.freightflow.logistics.payment;
 
 import com.freightflow.logistics.common.RequestIdFilter;
+import com.freightflow.logistics.outbox.OutboxClaims;
+import com.freightflow.logistics.outbox.OutboxMetrics;
 import io.micrometer.core.instrument.Gauge;
 import jakarta.annotation.PreDestroy;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -42,7 +44,7 @@ public class PaymentCommandRelay {
 
     public PaymentCommandRelay(PaymentCommands outbox, PaymentCommandRepository commands, BankingPayments banking,
                                PaymentOutcomeRecorder recorder, PaymentProperties properties, Clock clock,
-                               MeterRegistry meters,
+                               MeterRegistry meters, OutboxClaims claims,
                                @Value("${freightflow.logistics.payments.relay-enabled:true}") boolean enabled) {
         this.outbox = outbox;
         this.commands = commands;
@@ -53,6 +55,7 @@ public class PaymentCommandRelay {
         this.enabled = enabled;
         this.executor = Executors.newFixedThreadPool(properties.parallelism(),
                 Thread.ofPlatform().name("payment-relay-", 0).daemon(true).factory());
+        OutboxMetrics.register(meters, claims, "payment-commands", PaymentCommands.TABLE, "created_at");
         Gauge.builder("freightflow.payment.commands.parked", outbox, PaymentCommands::countParked)
                 .description("Payment commands out of attempts, waiting for an operator")
                 .register(meters);
@@ -99,23 +102,23 @@ public class PaymentCommandRelay {
         if (command == null || command.getStatus() != PaymentCommandStatus.PENDING) {
             return;
         }
-        PaymentOutcome outcome;
-        // The command's idempotency key is its request id in both services' logs (ADR 0015).
+        // The command's idempotency key is its request id in both services' logs (ADR 0015), and in the events its
+        // outcome causes.
         try (MDC.MDCCloseable ignored = MDC.putCloseable(RequestIdFilter.MDC_KEY, command.getIdempotencyKey())) {
-            outcome = banking.send(command);
-        }
-        if (outcome instanceof PaymentOutcome.Unknown unknown && !unknown.reachedBanking()) {
-            // Circuit open, bulkhead full or no token: nothing was sent, so this does not count as an attempt.
-            log.warn("{} for shipment {} not sent, retrying later: {}", command.getCommand(), command.getShipmentId(),
-                    unknown.reason());
-            outbox.refundAttempt(id, clock.instant().plus(properties.retryBackoff()));
-            return;
-        }
-        try {
-            recorder.record(id, outcome);
-        } catch (RuntimeException ex) {
-            // The lease runs out and the command is sent again with the same key: banking replays its answer.
-            log.error("Could not record the outcome of payment command {}; it will be retried", id, ex);
+            PaymentOutcome outcome = banking.send(command);
+            if (outcome instanceof PaymentOutcome.Unknown unknown && !unknown.reachedBanking()) {
+                // Circuit open, bulkhead full or no token: nothing was sent, so this does not count as an attempt.
+                log.warn("{} for shipment {} not sent, retrying later: {}", command.getCommand(),
+                        command.getShipmentId(), unknown.reason());
+                outbox.refundAttempt(id, clock.instant().plus(properties.retryBackoff()));
+                return;
+            }
+            try {
+                recorder.record(id, outcome);
+            } catch (RuntimeException ex) {
+                // The lease runs out and the command is sent again with the same key: banking replays its answer.
+                log.error("Could not record the outcome of payment command {}; it will be retried", id, ex);
+            }
         }
     }
 }

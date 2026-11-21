@@ -1,5 +1,21 @@
 # Transfer contention benchmark: `pessimistic` vs `conditional-update`
 
+## Hosted runner (Phase 4, run [44744962828](https://github.com/tsegale/cross-border-logistics-system/actions/runs/44744962828))
+
+GitHub-hosted `ubuntu-24.04`: Intel Xeon 6975P-C, 4 vCPUs, 15,701 MiB, Docker 28.0.4, the whole default stack running, Phase 4 code (outbox relays and notification-service included). Median of 3 rounds per strategy, order rotated; requests per second and p95 in ms as k6 sees them through
+the gateway. No transfer failed (0 `409`, 0 `503`).
+
+| Workload | VUs | `pessimistic` req/s | p95 | `conditional-update` req/s | p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| baseline | 1 | 75.7 | 24.4 | 99.7 | 18.3 |
+| disjoint pairs | 32 | 350.9 | 147.5 | 432.4 | 120.2 |
+| disjoint pairs | 100 | 381.3 | 528.1 | 460.7 | 416.5 |
+| hot account | 32 | 194.2 | 493.1 | 242.5 | 357.7 |
+| hot account | 100 | 230.0 | 870.3 | 295.5 | 598.2 |
+
+`conditional-update` is ahead in every row, as in hosted run 44619952387; the decision in ADR 0005 stands. The
+earlier measurements follow.
+
 ## What changed since Phase 1
 The Phase 1 report compared one strategy with itself. `TransferController` never read the `?strategy=` parameter
 the harness sent, so every run used the default, `pessimistic`; the differences it reported were noise and warm-up

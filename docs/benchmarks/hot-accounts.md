@@ -1,5 +1,22 @@
 # Hot system accounts: `locked` vs `unlocked` vs `sharded` (ADR 0010)
 
+## Hosted runner (Phase 4, run [44744962828](https://github.com/tsegale/cross-border-logistics-system/actions/runs/44744962828))
+
+GitHub-hosted `ubuntu-24.04`: Intel Xeon 6975P-C, 4 vCPUs, 15,701 MiB, Docker 28.0.4, the whole default stack running, Phase 4 code (outbox relays and notification-service included). Median of 3 rounds per mode; requests per second and p95 in ms through the gateway.
+
+| Workload | VUs | `locked` req/s | p95 | `unlocked` req/s | p95 | `sharded` req/s | p95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | 1 | 82.1 | 21.5 | 81.1 | 20.3 | 83.2 | 19.2 |
+| deposits | 32 | 123.3 | 739.4 | 182.5 | 171.6 | 171.6 | 220.7 |
+| deposits | 100 | 158.8 | 919.6 | 215.4 | 508.5 | 200.4 | 575.6 |
+| FX transfers | 32 | 171.7 | 573.7 | 222.3 | 174.9 | 217.5 | 178.1 |
+| FX transfers | 100 | 186.9 | 907.8 | 254.8 | 462.1 | 238.3 | 481.8 |
+
+Under contention (32 and 100 VUs) `unlocked` is the fastest and `locked` the slowest, as before (ADR 0010); with one
+VU the three are within 3 %. Every journal entry
+now also writes an outbox event in the same transaction; the system balance read with a checkpoint at a million
+postings took 0.301 ms median (0.376 ms p95), against 135 ms summing every posting.
+
 ## Question
 Every deposit posts against its currency's `CLEARING` row, every FX transfer against the two `FX_POSITION` rows,
 and every captured freight charge against `FREIGHT_REVENUE`. In Phase 1 each of those postings locked and updated the
@@ -18,6 +35,9 @@ banking-service recreated with `SYSTEM_ACCOUNT_POSTING_MODE` before every block 
 `GET /api/v1/ledger/reconciliation` balanced after every run (the harness stops otherwise; it never had to).
 
 - `deposits`: VU *i* deposits 1.00 EUR into its own customer account; every deposit posts against `CLEARING-EUR`.
+  Since ADR 0021 a deposit is a request by one operator and an approval by another: the harness makes the request
+  untimed and times the approval, the request that posts. The tables below were measured before that change, on
+  the one-step deposit endpoint.
 - `fx_transfers`: VU *i* locks an FX quote and transfers 20.00 NAD to its own EUR account; every transfer posts
   against `FX_POSITION-NAD` and `FX_POSITION-EUR`. Only the transfer is timed.
 - 3 rounds per mode with the order rotated (round 1: locked, unlocked, sharded; round 2: sharded, unlocked, locked;

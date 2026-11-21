@@ -8,12 +8,16 @@ on:
   workflow_dispatch:
     inputs:
       suites:
-        description: "Comma-separated: transfers, hot-accounts, payment-flow, system-balance"
-        default: "transfers,hot-accounts,payment-flow,system-balance"
+        description: "Comma-separated: transfers, hot-accounts, payment-flow, system-balance, events, cdc"
+        default: "transfers,hot-accounts,payment-flow,system-balance,events"
         required: true
       rounds:
         description: "Rounds per mode for transfers and hot-accounts (order rotates between rounds)"
         default: "3"
+        required: true
+      cdc_poll_ms:
+        description: "cdc: Debezium's poll.interval.ms (its default is 500; the relay polls every 200)"
+        default: "500"
         required: true
 
 concurrency:
@@ -22,6 +26,11 @@ concurrency:
 
 permissions:
   contents: read
+
+# bash -eo pipefail: a harness piped into tee must fail the step when it fails.
+defaults:
+  run:
+    shell: bash
 
 env:
   K6_VERSION: v2.3.0
@@ -64,6 +73,10 @@ jobs:
           python3 scripts/generate_secrets.py
           $COMPOSE up -d --wait --build
 
+      # Every container's memory peak and each JVM's heap, non-heap and threads across every suite (ADR 0029).
+      - name: Start sampling memory
+        run: nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/memory.stop" --json benchmarks/out/memory.json > benchmarks/out/memory.md 2> benchmarks/out/memory.err &
+
       - name: Transfers (ADR 0005)
         if: contains(inputs.suites, 'transfers')
         env:
@@ -78,7 +91,7 @@ jobs:
         env:
           BENCH_ROUNDS: ${{ inputs.rounds }}
           BENCH_SWITCH_ENV: SYSTEM_ACCOUNT_POSTING_MODE
-          BENCH_SWITCH_INFO: transfer.systemPostingMode
+          BENCH_SWITCH_INFO: ledger.systemPostingMode
           BENCH_STRATEGIES: locked,unlocked,sharded
           BENCH_WORKLOADS: deposits,fx_transfers
         run: |
@@ -93,13 +106,23 @@ jobs:
         run: |
           mkdir -p benchmarks/out/payment-flow
           # Warm-up, discarded: the first run after a start measures the JIT, not the relay.
-          tokens() { printf -- '-e OPERATOR_TOKEN=%s -e CUSTOMER_TOKEN=%s' "$(scripts/token.sh operator)" "$(scripts/token.sh customer-namib-exports)"; }
-          k6 run -q $(tokens) -e VUS=4 -e ITERATIONS_PER_VU=10 -e RUN_TAG="warmup-$GITHUB_RUN_ID" benchmarks/k6/payment_flow.js
+          # Fresh tokens for each run (they live 5 minutes); a token that cannot be fetched fails the step.
+          tokens() {
+            local operator checker customer
+            operator="$(scripts/token.sh operator)" || return 1
+            checker="$(scripts/token.sh second-operator)" || return 1
+            customer="$(scripts/token.sh customer-namib-exports)" || return 1
+            printf -- '-e OPERATOR_TOKEN=%s -e CHECKER_TOKEN=%s -e CUSTOMER_TOKEN=%s' "$operator" "$checker" "$customer"
+          }
+          args="$(tokens)"
+          k6 run -q $args -e VUS=4 -e ITERATIONS_PER_VU=10 -e RUN_TAG="warmup-$GITHUB_RUN_ID" benchmarks/k6/payment_flow.js
           for vus in 8 16; do
-            k6 run -q $(tokens) -e VUS=$vus -e ITERATIONS_PER_VU=25 -e RUN_TAG="run-$GITHUB_RUN_ID-$vus" \
+            args="$(tokens)"
+            k6 run -q $args -e VUS=$vus -e ITERATIONS_PER_VU=25 -e RUN_TAG="run-$GITHUB_RUN_ID-$vus" \
               -e SUMMARY_FILE="benchmarks/out/payment-flow/payment-$vus.json" benchmarks/k6/payment_flow.js
           done
-          curl -fsS -H "Authorization: Bearer $(scripts/token.sh operator)" http://127.0.0.1:8080/api/v1/ledger/reconciliation \
+          operator="$(scripts/token.sh operator)"
+          curl -fsS -H "Authorization: Bearer $operator" http://127.0.0.1:8080/api/v1/ledger/reconciliation \
             | tee benchmarks/out/payment-flow/reconciliation.json
           grep -q '"balanced":true' benchmarks/out/payment-flow/reconciliation.json
 
@@ -110,9 +133,39 @@ jobs:
             | tee benchmarks/out/system-balance.log
           { echo; echo "## System account balance read"; echo; cat benchmarks/out/system-balance.log; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Container memory at the end of the run
+      - name: Events, booking to email and a broker outage (ADR 0025, ADR 0027)
+        if: contains(inputs.suites, 'events')
+        run: |
+          mkdir -p benchmarks/out/events
+          set -o pipefail
+          python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 30 --json benchmarks/out/events/events.json 2>&1 | tee benchmarks/out/events/events.log
+          { echo; echo "## Events"; echo; echo '```'; cat benchmarks/out/events/events.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      # Last: it restarts logistics' database with logical replication and adds Debezium (benchmarks/compose.cdc.yml).
+      - name: Events, polling relay against Debezium on the same outbox (ADR 0025)
+        if: contains(inputs.suites, 'cdc')
+        env:
+          COMPOSE: docker compose -f docker-compose.yml -f benchmarks/compose.bench.yml -f benchmarks/compose.cdc.yml
+          CDC_POLL_INTERVAL_MS: ${{ inputs.cdc_poll_ms }}
+        run: |
+          mkdir -p benchmarks/out/cdc
+          set -o pipefail
+          $COMPOSE up -d --wait
+          $COMPOSE exec -T logistics-db sh -c 'psql -U "$POSTGRES_USER" -d logistics -tAc "SHOW wal_level"'
+          python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 30 --cdc --json benchmarks/out/cdc/cdc.json 2>&1 | tee benchmarks/out/cdc/cdc.log             || { docker inspect --format 'restarts: {{.RestartCount}}' "$($COMPOSE ps -aq debezium)";
+                 $COMPOSE logs --no-log-prefix debezium | grep -E '"level":"(ERROR|WARN)"' | head -40;
+                 $COMPOSE logs --no-log-prefix debezium | head -60; exit 1; }
+          { echo; echo "## Relay against Debezium"; echo; echo '```'; cat benchmarks/out/cdc/cdc.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Memory peaks
         if: always()
-        run: docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' | tee benchmarks/out/docker-stats.txt
+        run: |
+          docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' | tee benchmarks/out/docker-stats.txt
+          touch "$RUNNER_TEMP/memory.stop"
+          for _ in $(seq 60); do [ -s benchmarks/out/memory.json ] && break; sleep 1; done
+          cat benchmarks/out/memory.err
+          { echo; echo "## Memory peaks"; echo; cat benchmarks/out/memory.md; } >> "$GITHUB_STEP_SUMMARY"
+          cat benchmarks/out/memory.md
 
       - uses: actions/upload-artifact@v7
         if: always()

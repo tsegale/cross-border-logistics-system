@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightflow.dev/events/tracking-event.recorded.schema.json",
+  "title": "tracking-event.recorded",
+  "description": "A carrier or operator reported a tracking event, applied or not (ADR 0009). On the shipment topic and keyed by the shipment, so it is ordered with the shipment's other events. The carrier's free-text description stays in logistics.",
+  "x-topic": "freightflow.shipment.v1",
+  "x-producer": "logistics-service",
+  "x-consumers": [],
+  "$ref": "envelope.schema.json",
+  "properties": {
+    "type": {
+      "const": "tracking-event.recorded"
+    },
+    "schemaVersion": {
+      "enum": [
+        1
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shipmentId",
+        "trackingEventId",
+        "carrierEventId",
+        "eventType",
+        "targetStatus",
+        "location",
+        "occurredAt",
+        "outcome",
+        "shipmentStatus"
+      ],
+      "properties": {
+        "shipmentId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "trackingEventId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "carrierEventId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "eventType": {
+          "description": "The carrier's event code.",
+          "type": "string",
+          "maxLength": 32
+        },
+        "targetStatus": {
+          "$ref": "common.schema.json#/$defs/shipmentStatus"
+        },
+        "location": {
+          "$ref": "common.schema.json#/$defs/unlocode"
+        },
+        "occurredAt": {
+          "$ref": "common.schema.json#/$defs/instant"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "APPLIED",
+            "OUT_OF_ORDER",
+            "REJECTED"
+          ]
+        },
+        "shipmentStatus": {
+          "description": "The shipment's status after the event.",
+          "$ref": "common.schema.json#/$defs/shipmentStatus"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "eventId": "0193b001-3c4e-7f60-81b2-c3d4e5f6a7b8",
+      "type": "tracking-event.recorded",
+      "schemaVersion": 1,
+      "occurredAt": "2026-11-25T14:02:07.415Z",
+      "aggregateId": "0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b",
+      "sequence": 5,
+      "actor": {
+        "subject": null,
+        "clientId": "carrier-namport",
+        "organizationId": null
+      },
+      "requestId": "7e8f9a0b-1c2d-4e3f-8a4b-5c6d7e8f9a0b",
+      "payload": {
+        "shipmentId": "0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b",
+        "trackingEventId": "0193b001-3c4d-7e5f-a061-728394a5b6c7",
+        "carrierEventId": "NAM-7781-0042",
+        "eventType": "GATE_IN",
+        "targetStatus": "AT_ORIGIN_PORT",
+        "location": "NAWVB",
+        "occurredAt": "2026-11-25T14:02:00Z",
+        "outcome": "APPLIED",
+        "shipmentStatus": "AT_ORIGIN_PORT"
+      }
+    }
+  ]
+}

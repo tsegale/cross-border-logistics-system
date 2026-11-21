@@ -6,10 +6,7 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
@@ -41,7 +38,6 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMoc
         "management.server.port=0",
         "freightflow.security.jwks-min-refresh=2s"
 })
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class IssuerOutageTest {
 
     static final WireMockServer KEYS = new WireMockServer(wireMockConfig().dynamicPort());
@@ -58,9 +54,9 @@ class IssuerOutageTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         TestIssuer.register(registry);
-        registry.add("KEYCLOAK_JWK_SET_URI", () -> KEYS.baseUrl() + "/certs");
-        registry.add("BANKING_SERVICE_URI", UPSTREAM::baseUrl);
-        registry.add("LOGISTICS_SERVICE_URI", UPSTREAM::baseUrl);
+        registry.add("KEYCLOAK_JWK_SET_URI", () -> TestIssuer.url(KEYS) + "/certs");
+        registry.add("BANKING_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
+        registry.add("LOGISTICS_SERVICE_URI", () -> TestIssuer.url(UPSTREAM));
     }
 
     @AfterAll
@@ -77,19 +73,20 @@ class IssuerOutageTest {
                 .responseTimeout(Duration.ofSeconds(15)).build();
     }
 
+    /**
+     * One scenario, not three tests: each step needs the key cache exactly as the step before left it, and tests may
+     * not depend on each other's state or order.
+     */
     @Test
-    @Order(1)
-    void aKnownKeyIsFetchedOnceAndThenCached() {
+    void keysAreCachedSurviveAnOutageAndUnknownKeyIdsCannotFloodKeycloak() throws InterruptedException {
+        // A known key is fetched once and then cached.
         for (int i = 0; i < 3; i++) {
             client().get().uri("/api/v1/fx-rates?base=EUR").header(HttpHeaders.AUTHORIZATION, bearer(TestIssuer.customer()))
                     .exchange().expectStatus().isOk();
         }
         KEYS.verify(1, getRequestedFor(urlPathEqualTo("/certs")));
-    }
 
-    @Test
-    @Order(2)
-    void withKeycloakDownCachedKeysKeepWorkingAndAnUnknownKeyIsARetryable503() throws InterruptedException {
+        // Keycloak down: cached keys keep working, an unknown key is a retryable 503.
         KEYS.resetAll();
         Thread.sleep(2_100); // past the minimum refresh interval, so an unknown key id may fetch again
         KEYS.stubFor(get(urlPathEqualTo("/certs")).willReturn(aResponse().withStatus(503)));
@@ -104,11 +101,8 @@ class IssuerOutageTest {
                 .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectHeader().valueEquals(HttpHeaders.RETRY_AFTER, "5")
                 .expectBody().jsonPath("$.type").isEqualTo("https://freightflow.dev/problems/issuer-unavailable");
-    }
 
-    @Test
-    @Order(3)
-    void unknownKeyIdsDoNotRefetchTheKeysAgainWithinTheMinimumInterval() throws InterruptedException {
+        // Keycloak back: unknown key ids do not refetch the keys again within the minimum interval.
         KEYS.resetAll();
         KEYS.stubFor(get(urlPathEqualTo("/certs")).willReturn(okJson(new JWKSet(TestIssuer.KEY).toPublicJWKSet().toString())));
         Thread.sleep(2_100);
@@ -117,8 +111,8 @@ class IssuerOutageTest {
             client().get().uri("/api/v1/fx-rates?base=EUR").header(HttpHeaders.AUTHORIZATION, bearer(forged))
                     .exchange().expectStatus().isUnauthorized();
         }
-        // Keycloak is back: the first forged key id fetches once and finds nothing (401); the other four, inside the
-        // 2 s interval, fetch nothing at all.
+        // The first forged key id fetches once and finds nothing (401); the other four, inside the 2 s interval,
+        // fetch nothing at all.
         KEYS.verify(1, getRequestedFor(urlPathEqualTo("/certs")));
     }
 

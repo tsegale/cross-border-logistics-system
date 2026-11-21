@@ -69,11 +69,26 @@ public class SecurityConfig {
                         .pathMatchers("/actuator/health", "/actuator/health/**", "/actuator/info",
                                 "/actuator/prometheus").permitAll()
                         // FreightFlow staff only.
-                        .pathMatchers(HttpMethod.POST, "/api/v1/accounts/*/deposits").hasRole("operator")
-                        .pathMatchers(HttpMethod.POST, "/api/v1/journal-entries/*/reversals").hasRole("operator")
+                        // Deposits and reversals: one operator requests, another approves (ADR 0021).
+                        .pathMatchers(HttpMethod.POST, "/api/v1/approvals", "/api/v1/approvals/*/approval",
+                                "/api/v1/approvals/*/rejection").hasRole("operator")
+                        .pathMatchers(HttpMethod.GET, "/api/v1/approvals", "/api/v1/approvals/**")
+                                .hasAnyRole("operator", "auditor")
+                        // Only the owning customer moves its money (ADR 0021).
+                        .pathMatchers(HttpMethod.POST, "/api/v1/transfers").hasRole("customer")
                         .pathMatchers(HttpMethod.PUT, "/api/v1/shipments/*/carrier").hasRole("operator")
                         .pathMatchers(HttpMethod.POST, "/api/v1/payment-commands/*/retry").hasRole("operator")
                         .pathMatchers("/api/v1/ledger/**", "/api/v1/payment-commands", "/api/v1/payment-commands/**")
+                                .hasAnyRole("operator", "auditor")
+                        // notification-service (ADR 0027): an organisation's own settings. Dead letters of
+                        // notification and logistics (ADR 0026): operators redrive, auditors read.
+                        .pathMatchers("/api/v1/notification-settings").hasRole("customer")
+                        .pathMatchers(HttpMethod.POST, "/api/v1/dead-letters/*/redrive",
+                                "/api/v1/logistics/dead-letters/*/redrive").hasRole("operator")
+                        // An UNKNOWN email sent again, with the duplicate acknowledged (ADR 0027).
+                        .pathMatchers(HttpMethod.POST, "/api/v1/notifications/*/resend").hasRole("operator")
+                        .pathMatchers("/api/v1/dead-letters", "/api/v1/dead-letters/**",
+                                "/api/v1/logistics/dead-letters", "/api/v1/logistics/dead-letters/**")
                                 .hasAnyRole("operator", "auditor")
                         // Carriers report tracking events and read the shipments assigned to them, nothing else.
                         .pathMatchers(HttpMethod.POST, "/api/v1/shipments/*/tracking-events").hasAnyRole("carrier", "operator")

@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightflow.dev/events/shipment.payment-failed.schema.json",
+  "title": "shipment.payment-failed",
+  "description": "banking refused a payment command for the shipment: the hold (the shipment is then PAYMENT_FAILED), or a capture or release, which leaves the money for an operator. banking's problem detail can name an account, so only its type URI is carried (docs/problems.md).",
+  "x-topic": "freightflow.shipment.v1",
+  "x-producer": "logistics-service",
+  "x-consumers": [
+    "notification-service"
+  ],
+  "$ref": "envelope.schema.json",
+  "properties": {
+    "type": {
+      "const": "shipment.payment-failed"
+    },
+    "schemaVersion": {
+      "enum": [
+        1
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shipmentId",
+        "trackingNumber",
+        "organizationId",
+        "payerOrganizationId",
+        "command",
+        "problemType",
+        "amount",
+        "currency"
+      ],
+      "properties": {
+        "shipmentId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "trackingNumber": {
+          "description": "The public tracking number, printed on the waybill.",
+          "type": "string",
+          "pattern": "^FF-[0-9A-HJKMNP-TV-Z]{8}-[0-9A-HJKMNP-TV-Z]$"
+        },
+        "organizationId": {
+          "description": "The organisation that booked.",
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "payerOrganizationId": {
+          "description": "The organisation that pays.",
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "command": {
+          "type": "string",
+          "enum": [
+            "AUTHORISE",
+            "CAPTURE",
+            "RELEASE",
+            "EXTEND",
+            "REAUTHORISE"
+          ]
+        },
+        "problemType": {
+          "description": "banking's problem type (docs/problems.md), or about:blank when its answer had none (RFC 9457).",
+          "type": "string",
+          "format": "uri",
+          "maxLength": 200
+        },
+        "amount": {
+          "$ref": "common.schema.json#/$defs/amount"
+        },
+        "currency": {
+          "$ref": "common.schema.json#/$defs/currency"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "eventId": "0193a5b2-8a1d-7c4e-9f50-6b7c8d9e0f1a",
+      "type": "shipment.payment-failed",
+      "schemaVersion": 1,
+      "occurredAt": "2026-11-20T08:20:14.302Z",
+      "aggregateId": "0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b",
+      "sequence": 2,
+      "actor": null,
+      "requestId": "shipment-0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b-authorise",
+      "payload": {
+        "shipmentId": "0193a5b2-7c4e-7d1a-9f3b-2c5d8e1f4a6b",
+        "trackingNumber": "FF-0000004D-K",
+        "organizationId": "0b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091",
+        "payerOrganizationId": "0b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091",
+        "command": "AUTHORISE",
+        "problemType": "https://freightflow.dev/problems/insufficient-funds",
+        "amount": "1840.5000",
+        "currency": "EUR"
+      }
+    }
+  ]
+}

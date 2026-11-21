@@ -1,6 +1,12 @@
 package com.freightflow.banking.common;
 
 import com.freightflow.banking.account.AccountNotActiveException;
+import com.freightflow.banking.approval.ApprovalExceptions.ApprovalExpiredException;
+import com.freightflow.banking.approval.ApprovalExceptions.ApprovalNotFoundException;
+import com.freightflow.banking.approval.ApprovalExceptions.ApprovalNotPendingException;
+import com.freightflow.banking.approval.ApprovalExceptions.FourEyesViolationException;
+import com.freightflow.banking.approval.ApprovalExceptions.InvalidApprovalRequestException;
+import com.freightflow.banking.approval.ApprovalExceptions.ReversalAlreadyRequestedException;
 import com.freightflow.banking.account.AccountNotFoundException;
 import com.freightflow.banking.account.InsufficientFundsException;
 import com.freightflow.banking.account.InvalidAccountNumberException;
@@ -259,6 +265,53 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         );
         problem.setProperty("journalEntryId", ex.getJournalEntryId());
         return problem;
+    }
+
+    @ExceptionHandler(ApprovalNotFoundException.class)
+    public ProblemDetail handleApprovalNotFound(ApprovalNotFoundException ex) {
+        ProblemDetail problem = problem(HttpStatus.NOT_FOUND, "approval-not-found", "Approval request not found",
+                ex.getMessage());
+        problem.setProperty("approvalId", ex.getApprovalId());
+        return problem;
+    }
+
+    @ExceptionHandler(FourEyesViolationException.class)
+    public ProblemDetail handleFourEyesViolation(FourEyesViolationException ex) {
+        ProblemDetail problem = problem(HttpStatus.FORBIDDEN, "four-eyes-required", "A second operator must decide",
+                ex.getMessage());
+        problem.setProperty("approvalId", ex.getApprovalId());
+        return problem;
+    }
+
+    @ExceptionHandler(ApprovalNotPendingException.class)
+    public ProblemDetail handleApprovalNotPending(ApprovalNotPendingException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "approval-not-pending", "Approval request already decided",
+                ex.getMessage());
+        problem.setProperty("approvalId", ex.getApprovalId());
+        problem.setProperty("approvalStatus", ex.getStatus());
+        return problem;
+    }
+
+    @ExceptionHandler(ApprovalExpiredException.class)
+    public ProblemDetail handleApprovalExpired(ApprovalExpiredException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "approval-expired", "Approval request has expired",
+                ex.getMessage());
+        problem.setProperty("approvalId", ex.getApprovalId());
+        problem.setProperty("expiresAt", ex.getExpiresAt());
+        return problem;
+    }
+
+    @ExceptionHandler(ReversalAlreadyRequestedException.class)
+    public ProblemDetail handleReversalAlreadyRequested(ReversalAlreadyRequestedException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "reversal-already-requested",
+                "A reversal is already waiting for approval", ex.getMessage());
+        problem.setProperty("journalEntryId", ex.getJournalEntryId());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidApprovalRequestException.class)
+    public ProblemDetail handleInvalidApprovalRequest(InvalidApprovalRequestException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "invalid-approval-request", "Invalid approval request", ex.getMessage());
     }
 
     @ExceptionHandler(UnbalancedJournalEntryException.class)

@@ -1,13 +1,98 @@
 server:
   port: ${SERVER_PORT:8083}
   shutdown: graceful
+  forward-headers-strategy: framework
 
 spring:
+  # Compose secrets are files under /run/secrets; each file name becomes a property (ADR 0019).
+  config:
+    import: optional:configtree:/run/secrets/
   application:
     name: notification-service
+  datasource:
+    url: ${NOTIFICATION_DB_URL:jdbc:postgresql://127.0.0.1:5443/notification}
+    username: ${NOTIFICATION_DB_USER:notification}
+    # From the compose secret notification_db_password or the environment; no default (ADR 0019).
+    password: ${notification_db_password:${NOTIFICATION_DB_PASSWORD:}}
+    hikari:
+      connection-timeout: ${NOTIFICATION_DB_CONNECTION_TIMEOUT:2000}
+      maximum-pool-size: ${NOTIFICATION_DB_MAX_POOL_SIZE:16}
+  flyway:
+    enabled: true
+  # Its own SCRAM user; the ACLs let it read shipment and hold events and own its retry topics (ADR 0022).
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    security:
+      protocol: SASL_PLAINTEXT
+    properties:
+      sasl.mechanism: SCRAM-SHA-512
+      sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_USERNAME:notification}" password="${freightflow.kafka.password}";
+    admin:
+      operation-timeout: 10s
+    consumer:
+      group-id: notification-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        partition.assignment.strategy: org.apache.kafka.clients.consumer.CooperativeStickyAssignor
+    listener:
+      # Commit after each record; processed_events makes a redelivery harmless (ADR 0026).
+      ack-mode: record
+    # Only retry and dead-letter forwarding produce.
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.block.ms: 5000
+        request.timeout.ms: 10000
+        # At least linger.ms + request.timeout.ms, or the producer refuses to start.
+        delivery.timeout.ms: 25000
+  # SMTP (ADR 0027): Mailpit in compose. Credentials from the compose secret smtp_password; no default (ADR 0019).
+  mail:
+    host: ${SMTP_HOST:127.0.0.1}
+    port: ${SMTP_PORT:1025}
+    username: ${SMTP_USERNAME:freightflow}
+    password: ${smtp_password:${SMTP_PASSWORD:}}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:false}
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
+  messages:
+    basename: mail/messages
+    fallback-to-system-locale: false
+  thymeleaf:
+    # The web views are not used; emails have their own engine (EmailRenderer).
+    check-template-location: false
   mvc:
     problemdetails:
       enabled: true
+  task:
+    scheduling:
+      pool:
+        size: 4
+      thread-name-prefix: notification-sched-
+
+freightflow:
+  kafka:
+    password: ${kafka_password:${KAFKA_PASSWORD:}}
+    replication-factor: ${KAFKA_REPLICATION_FACTOR:1}
+  security:
+    issuer-uri: ${KEYCLOAK_ISSUER_URI:}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
+    audience: notification-service
+  notifications:
+    from: ${NOTIFICATION_FROM:FreightFlow <notifications@freightflow.dev>}
+    send-interval: ${NOTIFICATION_SEND_INTERVAL:500ms}
+    retention: ${NOTIFICATION_RETENTION:90d}
+  events:
+    consumer:
+      # Non-blocking retries (ADR 0026): 1 s, 5 s, 25 s, then the dead-letter topic.
+      attempts: 4
+      retry-delay: 1000
+      retry-multiplier: 5
+      retry-max-delay: 60000
 
 management:
   endpoints:
@@ -18,8 +103,14 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    # A down SMTP server delays emails (they wait in the table); it must not take the service out of rotation.
+    mail:
+      enabled: false
 
 logging:
+  level:
+    org.apache.kafka: WARN
   structured:
     format:
       console: ecs

@@ -22,6 +22,7 @@ import com.freightflow.logistics.shipment.dto.ShipmentPageResponse;
 import com.freightflow.logistics.shipment.dto.ShipmentResponse;
 import com.freightflow.logistics.shipment.dto.TrackingEventResponse;
 import com.freightflow.logistics.common.UuidV7;
+import com.freightflow.logistics.events.LogisticsEvents;
 import com.freightflow.logistics.payment.PaymentCommandType;
 import com.freightflow.logistics.payment.HoldExpiryPolicy;
 import com.freightflow.logistics.payment.PaymentCommands;
@@ -66,6 +67,7 @@ public class ShipmentService {
     private final EntityManager entityManager;
     private final PaymentCommands paymentCommands;
     private final HoldExpiryPolicy holdExpiry;
+    private final LogisticsEvents events;
     private final Clock clock;
 
     public ShipmentService(
@@ -79,7 +81,9 @@ public class ShipmentService {
             EntityManager entityManager,
             PaymentCommands paymentCommands,
             HoldExpiryPolicy holdExpiry,
+            LogisticsEvents events,
             Clock clock) {
+        this.events = events;
         this.shipments = shipments;
         this.trackingEvents = trackingEvents;
         this.quotes = quotes;
@@ -219,6 +223,7 @@ public class ShipmentService {
         paymentCommands.enqueue(saved.getId(), PaymentCommandType.AUTHORISE, saved.getQuotedTotalAmount(),
                 saved.getQuotedCurrency(), saved.getPayerAccountNumber(), null,
                 holdExpiry.initialExpiry(request.plannedPickupDate(), now));
+        events.shipmentBooked(saved, caller.actor());
         log.info("Booked shipment {} (trackingNumber={}, quoteId={}, status={})",
                 saved.getId(), saved.getTrackingNumber(), saved.getQuoteId(), saved.getStatus());
         return ShipmentResponse.from(saved);
@@ -299,10 +304,13 @@ public class ShipmentService {
         ETags.assertMatches(ifMatchHeader, shipment.getVersion());
 
         String reason = request != null ? request.reason() : null;
+        ShipmentStatus previous = shipment.getStatus();
         shipment.cancel(reason, clock.instant());
         shipment.cancelledBy(caller.actor());
         settlePayment(shipment);
         Shipment saved = shipments.saveAndFlush(shipment);
+        // After the flush: the shipment row is locked before the event sequence row, on every path (no deadlock).
+        events.statusChanged(saved, previous, null, caller.actor());
         log.info("Cancelled shipment {} (trackingNumber={}, version={})",
                 saved.getId(), saved.getTrackingNumber(), saved.getVersion());
         return ShipmentResponse.from(saved, caller);
@@ -349,6 +357,7 @@ public class ShipmentService {
         ETags.assertMatches(ifMatchHeader, shipment.getVersion());
 
         Instant now = clock.instant();
+        ShipmentStatus previous = shipment.getStatus();
         TrackingDecision decision = shipment.applyTrackingEvent(request.targetStatus(), request.occurredAt(), now);
         UUID eventId = UuidV7.next(clock);
         List<UUID> inserted = jdbcTemplate.queryForList("""
@@ -380,6 +389,8 @@ public class ShipmentService {
         Shipment savedShipment = shipments.saveAndFlush(shipment);
         TrackingEvent savedEvent = trackingEvents.findById(eventId)
                 .orElseThrow(() -> new IllegalStateException("Inserted tracking event " + eventId + " not found"));
+        events.trackingEventRecorded(savedShipment, savedEvent, caller.actor());
+        events.statusChanged(savedShipment, previous, eventId, caller.actor());
         log.info("Recorded tracking event {} on shipment {} (targetStatus={}, outcome={}, skipped={}, currentStatus={})",
                 eventId, shipmentId, request.targetStatus(), decision.outcome(), decision.skipped(),
                 savedShipment.getStatus());

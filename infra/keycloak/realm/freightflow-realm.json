@@ -51,7 +51,7 @@
   "clientScopes": [
     {
       "name": "freightflow-api",
-      "description": "People through the gateway: audiences of the gateway and both services, roles, organisation",
+      "description": "People through the gateway: audiences of the gateway and every service, roles, organisation",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "false",
@@ -95,6 +95,17 @@
           "protocolMapper": "oidc-audience-mapper",
           "config": {
             "included.custom.audience": "logistics-service",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience notification-service",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "notification-service",
             "access.token.claim": "true",
             "id.token.claim": "false",
             "introspection.token.claim": "true"
@@ -358,6 +369,24 @@
         {
           "type": "password",
           "value": "${KEYCLOAK_PASSWORD_OPERATOR}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "second-operator",
+      "email": "second-operator@freightflow.example",
+      "emailVerified": true,
+      "firstName": "FreightFlow",
+      "lastName": "Second Operator",
+      "enabled": true,
+      "realmRoles": [
+        "operator"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_PASSWORD_SECOND_OPERATOR}",
           "temporary": false
         }
       ]

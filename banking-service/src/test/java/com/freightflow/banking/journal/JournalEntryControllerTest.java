@@ -17,12 +17,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -31,7 +28,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class JournalEntryControllerTest {
 
     private static final UUID ENTRY = UUID.fromString("01930000-0000-7000-8000-000000004000");
-    private static final UUID REVERSAL = UUID.fromString("01930000-0000-7000-8000-000000004001");
 
     @Autowired
     private MockMvc mockMvc;
@@ -50,37 +46,13 @@ class JournalEntryControllerTest {
     }
 
     @Test
-    void reversalIs201WithLocation() throws Exception {
-        given(ledgerService.reverse(any(), eq(ENTRY), any(), eq("rev-1")))
-                .willReturn(entry(REVERSAL, JournalEntryType.REVERSAL, ENTRY));
-
+    void anOperatorCanNoLongerReverseAnEntryAlone() throws Exception {
+        // Reversals are four-eyes approvals now (ADR 0021): the old path is refused, even for an operator.
         mockMvc.perform(post("/api/v1/journal-entries/{id}/reversals", ENTRY)
                         .header("Idempotency-Key", "rev-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"Duplicate invoice\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(header().string("Location", "/api/v1/journal-entries/" + REVERSAL))
-                .andExpect(jsonPath("$.reversesEntryId").value(ENTRY.toString()));
-    }
-
-    @Test
-    void secondReversalIs409() throws Exception {
-        given(ledgerService.reverse(any(), eq(ENTRY), any(), eq("rev-2")))
-                .willThrow(new JournalEntryAlreadyReversedException(ENTRY, "already reversed"));
-
-        mockMvc.perform(post("/api/v1/journal-entries/{id}/reversals", ENTRY).header("Idempotency-Key", "rev-2"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/journal-entry-already-reversed"));
-    }
-
-    @Test
-    void reasonLongerThan160CharactersIsAValidationError() throws Exception {
-        mockMvc.perform(post("/api/v1/journal-entries/{id}/reversals", ENTRY)
-                        .header("Idempotency-Key", "rev-3")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"" + "x".repeat(161) + "\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/validation-failed"));
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -102,6 +74,6 @@ class JournalEntryControllerTest {
         Instant at = Instant.parse("2026-11-10T10:00:00Z");
         return new JournalEntryResponse(id, type, "REF", reverses, null, null, at, List.of(
                 new PostingResponse(UUID.randomUUID(), UUID.randomUUID(), "FF83NAD000001000", new BigDecimal("-10.00"), "NAD", new BigDecimal("90.00"), at),
-                new PostingResponse(UUID.randomUUID(), UUID.randomUUID(), "FF60NAD000001001", new BigDecimal("10.00"), "NAD", new BigDecimal("10.00"), at)), null);
+                new PostingResponse(UUID.randomUUID(), UUID.randomUUID(), "FF60NAD000001001", new BigDecimal("10.00"), "NAD", new BigDecimal("10.00"), at)), null, null);
     }
 }

@@ -59,13 +59,21 @@ curl -s -H "$CUSTOMER" "${GATEWAY}/api/v1/accounts/${NAD_ACC}"          # 200, o
 curl -s -H "$OTHER_CUSTOMER" "${GATEWAY}/api/v1/accounts/${NAD_ACC}"    # 404 account-not-found (ADR 0018)
 ```
 
-## 3. Deposits (operator), FX and a transfer (customer)
+## 3. Deposits (four eyes), FX and a transfer (customer)
+
+A deposit is requested by one operator and posted only when a different operator approves it (ADR 0021).
 
 ```bash
-curl -s -X POST -H "$OPERATOR" -H "Content-Type: application/json" -H "Idempotency-Key: dep-${RUN_ID}" \
-  "${GATEWAY}/api/v1/accounts/${NAD_ID}/deposits" -d '{"amount":100000.00,"currency":"NAD","reference":"DEP"}'
-curl -s -X POST -H "$OPERATOR" -H "Content-Type: application/json" -H "Idempotency-Key: dep-eur-${RUN_ID}" \
-  "${GATEWAY}/api/v1/accounts/${EUR_ID}/deposits" -d '{"amount":5000.00,"currency":"EUR","reference":"DEP"}'
+CHECKER="Authorization: Bearer $(scripts/token.sh second-operator)"
+REQ=$(curl -s -X POST -H "$OPERATOR" -H "Content-Type: application/json" -H "Idempotency-Key: dep-${RUN_ID}" \
+  "${GATEWAY}/api/v1/approvals" \
+  -d "{\"kind\":\"DEPOSIT\",\"account\":\"${NAD_ACC}\",\"amount\":100000.00,\"currency\":\"NAD\",\"reference\":\"DEP\"}")
+APPROVAL=$(echo "$REQ" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')   # status PENDING
+curl -s -X POST -H "$OPERATOR" -H "Idempotency-Key: self-${RUN_ID}" \
+  "${GATEWAY}/api/v1/approvals/${APPROVAL}/approval"          # 403 four-eyes-required
+curl -s -X POST -H "$CHECKER" -H "Idempotency-Key: approve-${RUN_ID}" \
+  "${GATEWAY}/api/v1/approvals/${APPROVAL}/approval"          # 200 APPROVED, postedEntryId
+# The EUR account is funded the same way.
 
 QUOTE=$(curl -s -X POST -H "$CUSTOMER" -H "Content-Type: application/json" "${GATEWAY}/api/v1/fx-quotes" \
   -d '{"sellCurrency":"NAD","buyCurrency":"EUR","sellAmount":20000.00}')      # buyAmount 995.00
@@ -114,3 +122,26 @@ curl -s "${GATEWAY}/api/v1/shipments/track/${TRACK_NO}"                 # public
 
 The script also covers idempotent replays, payload mismatches, reversals, a cancellation that releases its hold, a
 payer that cannot pay (`PAYMENT_FAILED`), and every refusal above.
+
+## 5. Emails in German, once (ADR 0026, ADR 0027)
+
+Hanseatic Imports (Hamburg) wants its emails in German. Mailpit is the stack's SMTP server; with `--profile debug` its
+inbox is at <http://127.0.0.1:8025> and its API at `/api/v1/...`. Without it the script reads the API inside the network
+(`docker compose exec mailpit wget ...`), since nothing but the gateway and Keycloak is published.
+
+```bash
+HANSEATIC_CUSTOMER="Authorization: Bearer $(python scripts/keycloak_token.py customer-hanseatic-imports)"
+curl -s -X PUT -H "$HANSEATIC_CUSTOMER" -H "Content-Type: application/json"   "${GATEWAY}/api/v1/notification-settings"   -d '{"language":"de","timeZone":"Europe/Berlin","recipients":["ops@hanseatic-imports.example"],
+       "kinds":["shipment-booked","shipment-status","payment-failed","payment-captured","payment-released"]}'
+# ... an operator opens and (four eyes) funds a EUR account for Hanseatic; the customer books on it ...
+curl -s "http://127.0.0.1:8025/api/v1/search?query=to%3Aops%40hanseatic-imports.example"   | python -c 'import json,sys; [print(m["Subject"]) for m in json.load(sys.stdin)["messages"]]'
+# Sendung gebucht: FF-...                 (from shipment.booked)
+# after the cancellation:
+# Reservierung freigegeben: FF-...        (from banking's hold.released)
+curl -s -H "$HANSEATIC_CUSTOMER" "${GATEWAY}/api/v1/notifications?limit=5"   # its own history
+```
+
+Then the script takes the booking event out of logistics' outbox, exactly as it was published, sends it to
+`freightflow.shipment.v1` again with `kafka-console-producer.sh` as `admin`, waits until notification-service counts it
+as a duplicate (`freightflow_events_consumed_total{type="shipment.booked",outcome="duplicate"}`) and checks that
+Mailpit still holds one "Sendung gebucht" email.

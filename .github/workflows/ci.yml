@@ -46,11 +46,10 @@ jobs:
           # Compose resolves secrets/ files and keycloak's env_file while rendering the config.
           python3 scripts/generate_secrets.py
           docker compose config --quiet
-          docker compose --profile events config --quiet
-          docker compose --profile notifications config --quiet
-          # The default profile stays the core: the optional pieces may not leak into it.
-          for s in kafka notification-service; do
-            if docker compose config --services | grep -qx "$s"; then echo "::error::$s is in the default profile"; exit 1; fi
+          docker compose --profile debug config --quiet
+          # Kafka (ADR 0022) and the notification service with its database and SMTP server (ADR 0027) are core.
+          for s in kafka kafka-init notification-service notification-db mailpit; do
+            docker compose config --services | grep -qx "$s" || { echo "::error::$s is not in the default profile"; exit 1; }
           done
 
   # The stack as a user starts it. Unit and integration tests can't see a broken compose file or env wiring.
@@ -63,25 +62,70 @@ jobs:
       - name: Generate the stack's secrets into secrets/
         run: python3 scripts/generate_secrets.py
       - run: docker compose up -d --wait --build
+      # Every container's memory peak and each JVM's heap, non-heap and threads through the rest of the job (ADR 0029).
+      - name: Start sampling memory
+        run: mkdir -p memory && nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/memory.stop" --json memory/memory.json > memory/memory.md 2> memory/memory.err &
       - name: Every service is ready, the gateway included
         run: |
           # The gateway's actuator is on its management port (8085); /actuator on 8080 is a 404 (ADR 0015).
           curl -fsS "http://127.0.0.1:8085/actuator/health/readiness"; echo
           # Services and databases publish nothing by default (ADR 0019): ask compose for their health.
-          for service in banking-service logistics-service keycloak; do
+          for service in banking-service logistics-service notification-service keycloak kafka mailpit; do
             test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q "$service")")" = healthy
           done
           # A TCP connect, not curl: Postgres doesn't speak HTTP, so curl fails against a published database port too.
-          for port in 8081 8082 5441 5442; do
+          for port in 8081 8082 8083 5441 5442 5443 9092 29092 1025 8025; do
             if timeout 2 bash -c "</dev/tcp/127.0.0.1/$port" 2>/dev/null; then echo "::error::port $port is published"; exit 1; fi
           done
+      # Straight after --wait and before anything else warms the stack: what the first users of a fresh start get.
+      - name: First requests after a cold start
+        run: |
+          set -o pipefail
+          python3 benchmarks/first_requests.py --json first-requests.json | tee first-requests.md
+          runner="$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1), $(nproc) vCPUs, $(free -m | awk '/^Mem:/ {print $2}') MiB"
+          { echo "## First requests after a cold start"; echo; echo "Runner: $runner"; echo; cat first-requests.md; } >> "$GITHUB_STEP_SUMMARY"
       - name: Seed demo data
         run: ./scripts/seed_demo.sh
       # docs/smoke-test.md as a script: stops at the first unexpected HTTP status.
       - name: Smoke test through the gateway
         run: ./scripts/smoke_test.sh
+      - name: Memory peaks
+        if: always()
+        run: |
+          touch "$RUNNER_TEMP/memory.stop"
+          for _ in $(seq 60); do [ -s memory/memory.json ] && break; sleep 1; done
+          cat memory/memory.err
+          { echo "## Memory peaks, smoke test"; echo; cat memory/memory.md; } >> "$GITHUB_STEP_SUMMARY"
+          cat memory/memory.md
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: memory-${{ github.run_id }}
+          path: memory/
+          retention-days: 90
       - if: failure()
         run: docker compose logs --tail 200
+
+  # A changed event schema must stay compatible with the one already on main (ADR 0023): consumers built against
+  # either read events written under the other. A breaking change goes to a new topic version instead.
+  event-schemas:
+    name: Event schemas stay compatible
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/check_event_schemas.py --self-test
+      - name: Compatible with the base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A pull request is compared with its target; a push to main with main as it was before the push.
+          if [ "$EVENT_NAME" = pull_request ]; then base="origin/$BASE_REF"; else base="$BEFORE"; fi
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then base="HEAD~1"; fi
+          python3 scripts/check_event_schemas.py --base "$base"
 
   # Secrets in the whole history, not just this push. Reviewed findings go in .gitleaksignore.
   gitleaks:

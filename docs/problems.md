@@ -4,9 +4,9 @@ Extension members never reuse the standard member names (`type`, `title`, `statu
 `status` is always the HTTP status code. Phase 1's `account-not-active` used `status` for the account status; since
 Phase 2 that member is `accountStatus`.
 
-Every error emitted by `banking-service` and `logistics-service` uses `Content-Type: application/problem+json` ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)) with a stable `type` URI under `https://freightflow.dev/problems/<slug>`.
+Every error emitted by `banking-service`, `logistics-service` and `notification-service` uses `Content-Type: application/problem+json` ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)) with a stable `type` URI under `https://freightflow.dev/problems/<slug>`.
 
-## Common Problem Types (`banking-service` & `logistics-service`)
+## Common Problem Types (`banking-service`, `logistics-service`, `notification-service`)
 
 | `type` URI | HTTP Status | Title | Extension Fields | When Returned |
 | --- | --- | --- | --- | --- |
@@ -42,6 +42,12 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/same-account-transfer` | `422 Unprocessable Content` | Source and destination accounts must differ | — | Transfer source and destination resolve to the same account |
 | `https://freightflow.dev/problems/journal-entry-not-found` | `404 Not Found` | Journal entry not found | `entryId` | Journal entry UUID does not exist |
 | `https://freightflow.dev/problems/journal-entry-already-reversed` | `409 Conflict` | Journal entry has already been reversed | `entryId` | Attempted to reverse an entry a second time (`uq_journal_entries_reverses_once`) |
+| `https://freightflow.dev/problems/approval-not-found` | `404 Not Found` | Approval request not found | `approvalId` | No four-eyes approval request with this id (ADR 0021) |
+| `https://freightflow.dev/problems/four-eyes-required` | `403 Forbidden` | A second operator must decide | `approvalId` | The operator who requested a deposit or reversal tried to approve or reject it (ADR 0021) |
+| `https://freightflow.dev/problems/approval-not-pending` | `409 Conflict` | Approval request already decided | `approvalId`, `approvalStatus` | Approving or rejecting a request that is already `APPROVED`, `REJECTED` or `EXPIRED`; the loser of two concurrent approvals |
+| `https://freightflow.dev/problems/approval-expired` | `409 Conflict` | Approval request has expired | `approvalId`, `expiresAt` | Deciding a request past its expiry; request it again |
+| `https://freightflow.dev/problems/reversal-already-requested` | `409 Conflict` | A reversal is already waiting for approval | `journalEntryId` | A second reversal request for an entry while one is `PENDING` |
+| `https://freightflow.dev/problems/invalid-approval-request` | `400 Bad Request` | Invalid approval request | — | A `DEPOSIT` without account, amount, currency or reference, a `REVERSAL` without an entry, fields of the other kind, a rejection without a comment, or a list `limit` outside 1..100 |
 | `https://freightflow.dev/problems/transfer-not-found` | `404 Not Found` | Transfer not found | `transferId` | Transfer UUID does not exist |
 | `https://freightflow.dev/problems/fx-quote-not-found` | `404 Not Found` | FX quote not found | `quoteId` | FX quote UUID does not exist |
 | `https://freightflow.dev/problems/fx-quote-expired` | `409 Conflict` | FX quote has expired | `quoteId`, `expiresAt` | FX quote `expiresAt` is not after `clock.instant()` |
@@ -69,9 +75,25 @@ Every error emitted by `banking-service` and `logistics-service` uses `Content-T
 | `https://freightflow.dev/problems/invalid-shipment-state-transition` | `409 Conflict` | Invalid shipment state transition | `currentStatus`, `requestedStatus`, `allowedNextStatuses` | Requested state transition is not in `currentStatus.allowedNextStatuses()` |
 | `https://freightflow.dev/problems/payment-command-not-found` | `404 Not Found` | Payment command not found | `commandId` | Internal operator API: no such payment command |
 | `https://freightflow.dev/problems/payment-command-not-parked` | `409 Conflict` | Payment command is not parked | `commandId`, `commandStatus` | Operator retry of a command that is not `PARKED` |
+| `https://freightflow.dev/problems/dead-letter-not-found` | `404 Not Found` | Dead letter not found | — | `/api/v1/logistics/dead-letters/{id}`: no dead letter with that id (ADR 0026) |
+| `https://freightflow.dev/problems/dead-letter-already-redriven` | `409 Conflict` | Dead letter already redriven | — | The dead letter was redriven before |
+| `https://freightflow.dev/problems/dead-letter-redrive-failed` | `409 Conflict` | Redrive failed | `redriveAttempts` | Handling the stored hold event failed again (for example a poison record); it stays `NEW` with the error recorded |
 | `https://freightflow.dev/problems/precondition-failed` | `412 Precondition Failed` | Precondition failed | `expectedETag`, `currentETag` | `If-Match` header does not match current `shipments.version` ETag |
 
 ---
+
+## `notification-service` Problem Types (ADR 0026, ADR 0027)
+
+| `type` URI | HTTP Status | Title | Extension Fields | When Returned |
+| --- | --- | --- | --- | --- |
+| `https://freightflow.dev/problems/invalid-notification-settings` | `400 Bad Request` | Invalid notification settings | — | `language` is not `de` or `en`, or a `kinds` entry is not one of `shipment-booked`, `shipment-status`, `payment-failed`, `payment-captured`, `payment-released` |
+| `https://freightflow.dev/problems/precondition-failed` | `412 Precondition Failed` | Precondition failed | `expectedETag`, `currentETag` | `PUT /notification-settings` with an `If-Match` that is no longer the settings' `ETag` |
+| `https://freightflow.dev/problems/dead-letter-not-found` | `404 Not Found` | Dead letter not found | — | No dead letter with that id |
+| `https://freightflow.dev/problems/dead-letter-already-redriven` | `409 Conflict` | Dead letter already redriven | — | The dead letter was redriven before; it is not handled twice |
+| `https://freightflow.dev/problems/dead-letter-redrive-failed` | `409 Conflict` | Redrive failed | `redriveAttempts` | Handling the stored event failed again (for example its shipment is still unknown); the letter stays `NEW` with the error recorded |
+| `https://freightflow.dev/problems/notification-not-found` | `404 Not Found` | Notification not found | � | `POST /notifications/{id}/resend` for an id that does not exist |
+| `https://freightflow.dev/problems/notification-not-resendable` | `409 Conflict` | Notification cannot be sent again | `notificationStatus` | Only an `UNKNOWN` email is resent by hand; this one is `PENDING`, `SENDING`, `SENT` or `FAILED` (a second resend finds it `PENDING` or `SENT`) |
+| `https://freightflow.dev/problems/resend-not-acknowledged` | `422 Unprocessable Content` | Duplicate not acknowledged | � | The resend did not send `{"acknowledgeDuplicate": true}`: the email may have arrived, and the operator has to accept that the customer may get it twice |
 
 ## `api-gateway` Problem Types (ADR 0015)
 
