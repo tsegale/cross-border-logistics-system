@@ -68,7 +68,7 @@ def compose(*args: str, check: bool = True) -> str:
 
 def sql(db: str, statement: str) -> str:
     return compose("exec", "-T", f"{db}-db", "sh", "-c",
-                   f'psql -U "$POSTGRES_USER" -d {db} -v ON_ERROR_STOP=1 -tAc "{statement}"').strip()
+                   f'psql -U "$POSTGRES_USER" -d {db} -v ON_ERROR_STOP=1 -qtAc "{statement}"').strip()
 
 
 def get(url: str) -> dict:
@@ -203,7 +203,8 @@ def phase1_emails(watch: Watch, account: str, run: str) -> None:
     ghost = uuid7()
 
     def middle() -> None:
-        time.sleep(60)
+        # Long enough for the emails Mailpit refuses to use up their six attempts (about a minute of backoff) first.
+        time.sleep(150)
         compose("stop", "notification-service")
         log("notification-service stopped; bookings continue")
         # A status change for a shipment notification has not seen yet: retried, then dead-lettered (ADR 0026). Its
@@ -211,15 +212,15 @@ def phase1_emails(watch: Watch, account: str, run: str) -> None:
         publish(ghost, event("shipment.status-changed", ghost, sequence=2, status="BOOKED"))
         log(f"published a status change for unknown shipment {ghost}")
 
-    counts = with_load(load, 6, middle)
+    counts = with_load(load, 8, middle)
     log(f"bookings while broken: {counts}")
     compose("start", "notification-service", "mailpit")
     compose("up", "-d", "--wait", "notification-service", "mailpit")
     log("notification-service and Mailpit back; delayed emails now burn the email budget")
     watch.wait_fired(["ConsumerLagHigh", "EmailsFailing", "ServiceDown", "EmailDeliveryBudgetBurnFast"], 6)
     # A sender that died mid-send, simulated: an email left SENDING with its lease run out becomes UNKNOWN.
-    notification = sql("notification", "UPDATE notifications SET status = 'SENDING', next_attempt_at = now() - "
-                       "interval '1 minute' WHERE id = (SELECT id FROM notifications WHERE status = 'SENT' "
+    notification = sql("notification", "UPDATE notifications SET status = 'SENDING', sent_at = NULL, next_attempt_at = "
+                       "now() - interval '1 minute' WHERE id = (SELECT id FROM notifications WHERE status = 'SENT' "
                        "ORDER BY created_at DESC LIMIT 1) RETURNING id")
     log(f"email {notification} left SENDING, as if its sender died")
     watch.wait_fired(["EmailsUnknown", "DeadLettersWaiting"], 8)
@@ -238,12 +239,15 @@ def phase2_money(watch: Watch, account: str, run: str, second: str) -> None:
     compose("stop", "banking-db")
     counts = with_load(Load(account, run, transfers=(account, second), every=0.5), 4)
     log(f"transfers while banking's database was down: {counts}")
+    # A booking whose hold banking cannot authorise now: its AUTHORISE fails with 503s. Parked here as if it had run
+    # out of attempts; the operator's retry below, once banking is back, pays for it for real.
+    tracking, _ = harness.book(account, f"drill-park-{run}", 1)
+    command = sql("logistics", "UPDATE shipment_payments SET status = 'PARKED', last_error = 'fire drill' WHERE id = "
+                  "(SELECT p.id FROM shipment_payments p JOIN shipments s ON s.id = p.shipment_id WHERE "
+                  f"s.tracking_number = '{tracking}' AND p.command = 'AUTHORISE') RETURNING id")
+    log(f"payment command {command} of {tracking} parked, as if out of attempts")
     compose("start", "banking-db")
     compose("up", "-d", "--wait", "banking-db")
-    command = sql("logistics", "UPDATE shipment_payments SET status = 'PARKED', last_error = 'fire drill' WHERE id = "
-                  "(SELECT id FROM shipment_payments WHERE status = 'SUCCEEDED' AND command = 'AUTHORISE' "
-                  "ORDER BY created_at DESC LIMIT 1) RETURNING id")
-    log(f"payment command {command} parked, as if out of attempts")
     approval = harness.call("operator", "POST", "/api/v1/approvals", {
         "kind": "DEPOSIT", "account": account, "amount": 10.00, "currency": "EUR", "reference": f"DRILL-{run}"},
         headers={"Idempotency-Key": f"drill-approval-{run}"}, expect=201)["id"]
