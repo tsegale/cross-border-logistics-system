@@ -86,9 +86,12 @@ done
 # The observability collector's user (ADR 0031): describes the cluster, every topic and every group, so it can
 # read consumer lag and topic offsets. It reads no record and writes nothing.
 if [[ -r /run/secrets/kafka_monitoring_password ]]; then
+  # acl() expands its arguments unquoted: without noglob the shell would turn '*' into file names.
+  set -f
   acl --allow-principal User:monitoring --cluster --operation Describe
   acl --allow-principal User:monitoring --topic '*' --operation Describe --operation DescribeConfigs
   acl --allow-principal User:monitoring --group '*' --operation Describe
   echo "kafka-init: monitoring describes the cluster, every topic and every group"
+  set +f
 fi
 echo "kafka-init: done"
