@@ -62,6 +62,9 @@ jobs:
       - name: Generate the stack's secrets into secrets/
         run: python3 scripts/generate_secrets.py
       - run: docker compose up -d --wait --build
+      # Every container's memory peak and each JVM's heap, non-heap and threads through the rest of the job (ADR 0029).
+      - name: Start sampling memory
+        run: mkdir -p memory && nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/memory.stop" --json memory/memory.json > memory/memory.md 2> memory/memory.err &
       - name: Every service is ready, the gateway included
         run: |
           # The gateway's actuator is on its management port (8085); /actuator on 8080 is a 404 (ADR 0015).
@@ -86,6 +89,20 @@ jobs:
       # docs/smoke-test.md as a script: stops at the first unexpected HTTP status.
       - name: Smoke test through the gateway
         run: ./scripts/smoke_test.sh
+      - name: Memory peaks
+        if: always()
+        run: |
+          touch "$RUNNER_TEMP/memory.stop"
+          for _ in $(seq 60); do [ -s memory/memory.json ] && break; sleep 1; done
+          cat memory/memory.err
+          { echo "## Memory peaks, smoke test"; echo; cat memory/memory.md; } >> "$GITHUB_STEP_SUMMARY"
+          cat memory/memory.md
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: memory-${{ github.run_id }}
+          path: memory/
+          retention-days: 90
       - if: failure()
         run: docker compose logs --tail 200
 

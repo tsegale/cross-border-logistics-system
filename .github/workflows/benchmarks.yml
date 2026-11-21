@@ -73,6 +73,10 @@ jobs:
           python3 scripts/generate_secrets.py
           $COMPOSE up -d --wait --build
 
+      # Every container's memory peak and each JVM's heap, non-heap and threads across every suite (ADR 0029).
+      - name: Start sampling memory
+        run: nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/memory.stop" --json benchmarks/out/memory.json > benchmarks/out/memory.md 2> benchmarks/out/memory.err &
+
       - name: Transfers (ADR 0005)
         if: contains(inputs.suites, 'transfers')
         env:
@@ -153,9 +157,15 @@ jobs:
                  $COMPOSE logs --no-log-prefix debezium | head -60; exit 1; }
           { echo; echo "## Relay against Debezium"; echo; echo '```'; cat benchmarks/out/cdc/cdc.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Container memory at the end of the run
+      - name: Memory peaks
         if: always()
-        run: docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' | tee benchmarks/out/docker-stats.txt
+        run: |
+          docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' | tee benchmarks/out/docker-stats.txt
+          touch "$RUNNER_TEMP/memory.stop"
+          for _ in $(seq 60); do [ -s benchmarks/out/memory.json ] && break; sleep 1; done
+          cat benchmarks/out/memory.err
+          { echo; echo "## Memory peaks"; echo; cat benchmarks/out/memory.md; } >> "$GITHUB_STEP_SUMMARY"
+          cat benchmarks/out/memory.md
 
       - uses: actions/upload-artifact@v7
         if: always()
