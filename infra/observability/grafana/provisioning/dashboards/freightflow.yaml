@@ -1,0 +1,13 @@
+# Dashboards as code (ADR 0032): every JSON file in infra/observability/grafana/dashboards is loaded at start and
+# re-read every 30 s. Changes made in the UI are not kept: edit the file.
+apiVersion: 1
+
+providers:
+  - name: freightflow
+    folder: FreightFlow
+    type: file
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
