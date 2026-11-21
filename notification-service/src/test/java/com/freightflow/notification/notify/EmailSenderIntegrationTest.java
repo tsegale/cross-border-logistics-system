@@ -4,16 +4,20 @@ import com.freightflow.notification.config.NotificationProperties;
 import com.freightflow.notification.support.Events;
 import com.freightflow.notification.support.IntegrationTest;
 import com.freightflow.notification.support.Mailpit;
+import com.freightflow.notification.support.TestCallers;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.MediaType;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
@@ -23,6 +27,10 @@ import java.util.Properties;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Sending is at most once and refusals are retried (ADR 0027). These tests drive their own sender against the
@@ -45,6 +53,9 @@ class EmailSenderIntegrationTest extends IntegrationTest {
 
     @Autowired
     private Clock clock;
+
+    @Autowired
+    private MockMvc mockMvc;
 
     @Test
     void aRefusingServerIsRetriedWithBackoffThenTheEmailIsMarkedFailed() {
@@ -89,6 +100,56 @@ class EmailSenderIntegrationTest extends IntegrationTest {
 
         assertThat(row(eventId).get("status")).isEqualTo("UNKNOWN");
         assertThat(Mailpit.to(recipient)).isEmpty();
+    }
+
+    @Test
+    void anOperatorSendsAnUnknownEmailAgainOnlyAfterAcknowledgingADuplicateAndIsRecorded() throws Exception {
+        String recipient = "resend-" + UUID.randomUUID() + "@example.org";
+        UUID eventId = queue(recipient);
+        jdbcTemplate.update("UPDATE notifications SET status = 'SENDING', attempts = 1, "
+                + "next_attempt_at = now() - interval '1 second' WHERE event_id = ?", eventId);
+        EmailSender sender = sender(realSmtp, 5, Duration.ofMinutes(1));
+        sender.sendDue();
+        UUID id = jdbcTemplate.queryForObject("SELECT id FROM notifications WHERE event_id = ?", UUID.class, eventId);
+
+        mockMvc.perform(get("/api/v1/notifications").param("status", "UNKNOWN").param("limit", "200")
+                        .with(TestCallers.as(TestCallers.AUDITOR)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.id == '%s')].status", id).value("UNKNOWN"));
+        mockMvc.perform(get("/api/v1/notifications").param("status", "LOST").with(TestCallers.operator()))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(resend(id, null)).andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/resend-not-acknowledged"));
+        mockMvc.perform(resend(id, "{\"acknowledgeDuplicate\":false}")).andExpect(status().isUnprocessableContent());
+        assertThat(row(eventId).get("status")).isEqualTo("UNKNOWN");
+
+        mockMvc.perform(resend(id, "{\"acknowledgeDuplicate\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.attempts").value(0))
+                .andExpect(jsonPath("$.resendCount").value(1))
+                .andExpect(jsonPath("$.resentBy").value(TestCallers.OPERATOR.subject()));
+        Map<String, Object> resent = jdbcTemplate.queryForMap("SELECT resent_by_client_id, resent_at "
+                + "FROM notifications WHERE id = ?", id);
+        assertThat(resent.get("resent_by_client_id")).isEqualTo(TestCallers.OPERATOR.clientId());
+        assertThat(resent.get("resent_at")).isNotNull();
+
+        sender.sendDue();
+        assertThat(row(eventId).get("status")).isEqualTo("SENT");
+        assertThat(Mailpit.to(recipient)).hasSize(1);
+
+        mockMvc.perform(resend(id, "{\"acknowledgeDuplicate\":true}")).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/notification-not-resendable"))
+                .andExpect(jsonPath("$.notificationStatus").value("SENT"));
+        mockMvc.perform(resend(UUID.randomUUID(), "{\"acknowledgeDuplicate\":true}"))
+                .andExpect(status().isNotFound());
+    }
+
+    private MockHttpServletRequestBuilder resend(UUID id, String body) {
+        MockHttpServletRequestBuilder request = post("/api/v1/notifications/{id}/resend", id)
+                .with(TestCallers.operator());
+        return body == null ? request : request.contentType(MediaType.APPLICATION_JSON).content(body);
     }
 
     private UUID queue(String recipient) {

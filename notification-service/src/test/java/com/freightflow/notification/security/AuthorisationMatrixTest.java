@@ -62,6 +62,8 @@ class AuthorisationMatrixTest extends IntegrationTest {
         table.put("GET settings",           new int[] {200, 200, 403, 403, 403, 401});
         table.put("PUT settings",           new int[] {200, 200, 403, 403, 403, 401});
         table.put("GET notifications",      new int[] {200, 200, 200, 200, 403, 401});
+        table.put("GET unknown notifications", new int[] {200, 200, 200, 200, 403, 401});
+        table.put("POST notification resend", new int[] {403, 403, 200, 403, 403, 401});
         table.put("GET dead letters",       new int[] {403, 403, 200, 200, 403, 401});
         table.put("GET dead letter",        new int[] {403, 403, 200, 200, 403, 401});
         table.put("POST dead letter redrive", new int[] {403, 403, 409, 403, 403, 401});
@@ -83,6 +85,8 @@ class AuthorisationMatrixTest extends IntegrationTest {
 
     private UUID deadLetter;
 
+    private UUID unknownEmail;
+
     /** A poison dead letter: redriving it fails again (409), which is what an operator is allowed to find out. */
     @BeforeEach
     void deadLetter() {
@@ -93,6 +97,7 @@ class AuthorisationMatrixTest extends IntegrationTest {
                 VALUES (?, 'freightflow.hold.v1.notification-service-dlt', 0, ?, 'freightflow.hold.v1', '{not json',
                         'poison', ?, 'NEW')
                 """, deadLetter, Math.abs(deadLetter.getLeastSignificantBits()), Timestamp.from(Instant.now()));
+        unknownEmail = notification(TestCallers.NAMIB, "UNKNOWN", 1);
     }
 
     @ParameterizedTest(name = "{0} as {1} -> {2}")
@@ -110,6 +115,9 @@ class AuthorisationMatrixTest extends IntegrationTest {
             case "PUT settings" -> put("/api/v1/notification-settings").contentType(MediaType.APPLICATION_JSON)
                     .content("{\"language\":\"de\",\"recipients\":[],\"kinds\":[\"shipment-booked\"]}");
             case "GET notifications" -> get("/api/v1/notifications");
+            case "GET unknown notifications" -> get("/api/v1/notifications").param("status", "UNKNOWN");
+            case "POST notification resend" -> post("/api/v1/notifications/{id}/resend", unknownEmail)
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"acknowledgeDuplicate\":true}");
             case "GET dead letters" -> get("/api/v1/dead-letters");
             case "GET dead letter" -> get("/api/v1/dead-letters/{id}", deadLetter);
             case "POST dead letter redrive" -> post("/api/v1/dead-letters/{id}/redrive", deadLetter);
@@ -142,13 +150,17 @@ class AuthorisationMatrixTest extends IntegrationTest {
     }
 
     private UUID notification(UUID organization) {
+        return notification(organization, "FAILED", 6);
+    }
+
+    private UUID notification(UUID organization, String status, int attempts) {
         UUID id = UUID.randomUUID();
         jdbcTemplate.update("""
                 INSERT INTO notifications (id, event_id, event_type, kind, organization_id, recipient, language,
                                            subject, body_text, body_html, status, attempts, next_attempt_at, created_at)
-                VALUES (?, ?, 'shipment.booked', 'shipment-booked', ?, 'x@example.org', 'en', 's', 't', 'h', 'FAILED',
-                        6, now(), now())
-                """, id, UUID.randomUUID(), organization);
+                VALUES (?, ?, 'shipment.booked', 'shipment-booked', ?, 'x@example.org', 'en', 's', 't', 'h', ?,
+                        ?, now() + interval '1 day', now())
+                """, id, UUID.randomUUID(), organization, status, attempts);
         return id;
     }
 

@@ -85,6 +85,8 @@ public class SecurityConfig {
                         .pathMatchers("/api/v1/notification-settings").hasRole("customer")
                         .pathMatchers(HttpMethod.POST, "/api/v1/dead-letters/*/redrive",
                                 "/api/v1/logistics/dead-letters/*/redrive").hasRole("operator")
+                        // An UNKNOWN email sent again, with the duplicate acknowledged (ADR 0027).
+                        .pathMatchers(HttpMethod.POST, "/api/v1/notifications/*/resend").hasRole("operator")
                         .pathMatchers("/api/v1/dead-letters", "/api/v1/dead-letters/**",
                                 "/api/v1/logistics/dead-letters", "/api/v1/logistics/dead-letters/**")
                                 .hasAnyRole("operator", "auditor")

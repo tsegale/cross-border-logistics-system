@@ -81,12 +81,12 @@ spring:
                 - Path=/api/v1/quotes/**,/api/v1/shipments/**,/api/v1/payment-commands/**,/api/v1/logistics/dead-letters,/api/v1/logistics/dead-letters/**,/docs/logistics/**
               filters:
                 - PreserveHostHeader
-            # Emails (ADR 0027): an organisation's settings and history, operators' dead letters.
+            # Emails (ADR 0027): an organisation's settings and history, operators' resends and dead letters.
             - id: notification
               order: 10
               uri: ${NOTIFICATION_SERVICE_URI:http://127.0.0.1:8083}
               predicates:
-                - Path=/api/v1/notification-settings,/api/v1/notifications,/api/v1/dead-letters,/api/v1/dead-letters/**
+                - Path=/api/v1/notification-settings,/api/v1/notifications,/api/v1/notifications/**,/api/v1/dead-letters,/api/v1/dead-letters/**
               filters:
                 - PreserveHostHeader
 

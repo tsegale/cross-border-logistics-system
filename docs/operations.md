@@ -24,7 +24,7 @@ means and the one condition that should page someone. Names are as Prometheus sh
 | Sent | `freightflow_emails_sent_total` (by `kind`, `language`) | none on its own; the rate is the denominator for the next row | |
 | Failed | `freightflow_emails_failed_total{final="true"}` | more than 1 % of sent over an hour | single refusals are retried; final failures at that rate mean the relay, its credentials or the addresses are wrong |
 | Waiting | `freightflow_emails{status="PENDING"}` | above 500 for 15 minutes | the sender stopped or the SMTP server is down; customers are not being told |
-| Unknown | `freightflow_emails{status="UNKNOWN"}` | any increase | a sender died mid-send; the customer may have missed that email and support should know |
+| Unknown | `freightflow_emails{status="UNKNOWN"}` | any increase | a sender died mid-send; the customer may have missed that email. Support checks with the customer, then an operator resends it (`GET /api/v1/notifications?status=UNKNOWN`, `POST /api/v1/notifications/{id}/resend` with `acknowledgeDuplicate`) |
 | Delay | `freightflow_emails_delay_seconds` (queued to accepted by SMTP) | p95 above 60 s over 30 minutes | normally under a second; a minute is a struggling relay |
 
 ## Payments (ADR 0012)

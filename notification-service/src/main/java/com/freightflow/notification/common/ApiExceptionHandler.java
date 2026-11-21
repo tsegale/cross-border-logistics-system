@@ -3,6 +3,9 @@ package com.freightflow.notification.common;
 import com.freightflow.notification.deadletter.DeadLetterExceptions.DeadLetterAlreadyRedrivenException;
 import com.freightflow.notification.deadletter.DeadLetterExceptions.DeadLetterNotFoundException;
 import com.freightflow.notification.deadletter.DeadLetterExceptions.RedriveFailedException;
+import com.freightflow.notification.notify.NotificationExceptions.NotificationNotFoundException;
+import com.freightflow.notification.notify.NotificationExceptions.NotificationNotResendableException;
+import com.freightflow.notification.notify.NotificationExceptions.ResendNotAcknowledgedException;
 import com.freightflow.notification.settings.SettingsExceptions.InvalidSettingsException;
 import com.freightflow.notification.settings.SettingsExceptions.SettingsChangedException;
 import org.slf4j.Logger;
@@ -95,6 +98,25 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 ex.getMessage());
         problem.setProperty("redriveAttempts", ex.attempts());
         return problem;
+    }
+
+    @ExceptionHandler(NotificationNotFoundException.class)
+    public ProblemDetail handleNotificationNotFound(NotificationNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "notification-not-found", "Notification not found", ex.getMessage());
+    }
+
+    @ExceptionHandler(NotificationNotResendableException.class)
+    public ProblemDetail handleNotResendable(NotificationNotResendableException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "notification-not-resendable",
+                "Notification cannot be sent again", ex.getMessage());
+        problem.setProperty("notificationStatus", ex.status());
+        return problem;
+    }
+
+    @ExceptionHandler(ResendNotAcknowledgedException.class)
+    public ProblemDetail handleResendNotAcknowledged(ResendNotAcknowledgedException ex) {
+        return problem(HttpStatus.UNPROCESSABLE_CONTENT, "resend-not-acknowledged", "Duplicate not acknowledged",
+                ex.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

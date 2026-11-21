@@ -140,5 +140,5 @@ What an event says is acted on later, elsewhere, possibly twice. ADRs 0023 to 00
 | Information disclosure | A customer reads another organisation's recipients or email history | Settings and history are scoped by the token's organisation; matrix test per role | notification `AuthorisationMatrixTest` |
 | Spoofing | Someone sends mail through the stack's SMTP server | Mailpit requires SMTP auth (`secrets/smtp_password`) and is not published | compose `mailpit`; CI port check (1025, 8025 closed) |
 
-Residual: an email that was being sent when its sender died is marked `UNKNOWN` and not resent, so a customer can miss
-one; SMTP on the compose network is plaintext, a production relay takes STARTTLS (`SMTP_STARTTLS=true`).
+Residual: an email that was being sent when its sender died is marked `UNKNOWN` and not resent on its own, so a
+customer can miss one until an operator resends it (acknowledging a possible duplicate, recorded with the operator); SMTP on the compose network is plaintext, a production relay takes STARTTLS (`SMTP_STARTTLS=true`).

@@ -57,6 +57,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/notification-settings").hasRole(Caller.CUSTOMER)
                         .requestMatchers(HttpMethod.GET, "/api/v1/notifications")
                                 .hasAnyRole(Caller.CUSTOMER, Caller.OPERATOR, Caller.AUDITOR)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/notifications/*/resend").hasRole(Caller.OPERATOR)
                         .requestMatchers(HttpMethod.POST, "/api/v1/dead-letters/*/redrive").hasRole(Caller.OPERATOR)
                         .requestMatchers(HttpMethod.GET, "/api/v1/dead-letters", "/api/v1/dead-letters/**")
                                 .hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)

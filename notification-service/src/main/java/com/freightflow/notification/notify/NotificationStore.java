@@ -1,6 +1,7 @@
 package com.freightflow.notification.notify;
 
 import com.freightflow.notification.common.UuidV7;
+import com.freightflow.notification.security.Actor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -12,7 +13,9 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -32,7 +35,7 @@ public class NotificationStore {
     public record Notification(UUID id, UUID eventId, String eventType, NotificationKind kind, UUID organizationId,
                                UUID shipmentId, String recipient, String language, String subject, String bodyText,
                                String bodyHtml, Status status, int attempts, String lastError, Instant createdAt,
-                               Instant sentAt) {
+                               Instant sentAt, int resendCount, Instant resentAt, String resentBySubject) {
     }
 
     private final JdbcTemplate jdbcTemplate;
@@ -95,18 +98,54 @@ public class NotificationStore {
                 """, Timestamp.from(clock.instant()));
     }
 
+    public Optional<Notification> find(UUID id) {
+        return jdbcTemplate.query("SELECT * FROM notifications WHERE id = ?", NotificationStore::map, id).stream()
+                .findFirst();
+    }
+
+    /** The row, locked while a resend is decided. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<Notification> lock(UUID id) {
+        return jdbcTemplate.query("SELECT * FROM notifications WHERE id = ? FOR UPDATE", NotificationStore::map, id)
+                .stream().findFirst();
+    }
+
+    /**
+     * An operator sends an UNKNOWN email again: PENDING now with a fresh set of attempts, the operator recorded
+     * (ADR 0020). Only from UNKNOWN; returns whether the row changed.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean resend(UUID id, Actor actor) {
+        Instant now = clock.instant();
+        return jdbcTemplate.update("""
+                UPDATE notifications SET status = 'PENDING', attempts = 0, next_attempt_at = ?,
+                    resend_count = resend_count + 1, resent_at = ?, resent_by_subject = ?, resent_by_client_id = ?,
+                    resend_request_id = ?
+                WHERE id = ? AND status = 'UNKNOWN'
+                """, Timestamp.from(now), Timestamp.from(now), actor.subject(), actor.clientId(), actor.requestId(),
+                id) == 1;
+    }
+
     public List<Notification> forEvent(UUID eventId) {
         return jdbcTemplate.query("SELECT * FROM notifications WHERE event_id = ? ORDER BY recipient",
                 NotificationStore::map, eventId);
     }
 
-    /** Newest first, of one organisation or (null) of all. */
-    public List<Notification> history(UUID organizationId, int limit) {
-        return organizationId == null
-                ? jdbcTemplate.query("SELECT * FROM notifications ORDER BY created_at DESC, id DESC LIMIT ?",
-                        NotificationStore::map, limit)
-                : jdbcTemplate.query("SELECT * FROM notifications WHERE organization_id = ? "
-                        + "ORDER BY created_at DESC, id DESC LIMIT ?", NotificationStore::map, organizationId, limit);
+    /** Newest first, of one organisation or (null) of all, in one status or (null) any. */
+    public List<Notification> history(UUID organizationId, Status status, int limit) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM notifications WHERE true");
+        List<Object> args = new ArrayList<>();
+        if (organizationId != null) {
+            sql.append(" AND organization_id = ?");
+            args.add(organizationId);
+        }
+        if (status != null) {
+            sql.append(" AND status = ?");
+            args.add(status.name());
+        }
+        sql.append(" ORDER BY created_at DESC, id DESC LIMIT ?");
+        args.add(limit);
+        return jdbcTemplate.query(sql.toString(), NotificationStore::map, args.toArray());
     }
 
     public long count(Status status) {
@@ -124,13 +163,15 @@ public class NotificationStore {
 
     private static Notification map(ResultSet rs, int row) throws SQLException {
         Timestamp sentAt = rs.getTimestamp("sent_at");
+        Timestamp resentAt = rs.getTimestamp("resent_at");
         return new Notification(rs.getObject("id", UUID.class), rs.getObject("event_id", UUID.class),
                 rs.getString("event_type"), NotificationKind.of(rs.getString("kind")).orElseThrow(),
                 rs.getObject("organization_id", UUID.class), rs.getObject("shipment_id", UUID.class),
                 rs.getString("recipient"), rs.getString("language"), rs.getString("subject"),
                 rs.getString("body_text"), rs.getString("body_html"), Status.valueOf(rs.getString("status")),
                 rs.getInt("attempts"), rs.getString("last_error"), rs.getTimestamp("created_at").toInstant(),
-                sentAt == null ? null : sentAt.toInstant());
+                sentAt == null ? null : sentAt.toInstant(), rs.getInt("resend_count"),
+                resentAt == null ? null : resentAt.toInstant(), rs.getString("resent_by_subject"));
     }
 
     private static String truncate(String value) {

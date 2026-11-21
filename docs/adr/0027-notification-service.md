@@ -58,6 +58,15 @@ the row said `SENT` would send it again. A customer may then miss one email (vis
 the metric) but never gets two. Each email carries `Message-ID: <notification id@notifications.freightflow.dev>` and
 `X-FreightFlow-Event-Id`, so a duplicate would at least be recognisable downstream.
 
+**Resending an UNKNOWN email** (Phase 5): operators list them (`GET /api/v1/notifications?status=UNKNOWN`, auditors
+too) and send one again with `POST /api/v1/notifications/{id}/resend` and `{"acknowledgeDuplicate": true}`; without
+the acknowledgement it is a `422 resend-not-acknowledged`. The row goes back to `PENDING` with fresh attempts, and the
+operator (subject, client, request id), the time and the count are recorded on it (ADR 0020); a warning is logged.
+Only `UNKNOWN` can be resent (`409 notification-not-resendable` otherwise): a `FAILED` email was refused by the server
+every time, so its cause (an address, the relay) is fixed first, and a new event sends the next one. The same
+`Message-ID` goes out again, so a mail client that has the first copy may fold the two together. One operator is
+enough: it moves no money (ADR 0021).
+
 **Options not taken.** A hosted email API (SES, SendGrid) with its own idempotency key would give exactly-once at
 the provider; it is the production choice once there is a provider account, and `EmailSender` is the only class that
 changes. Sending from the consumer thread would tie Kafka throughput to SMTP latency and make a slow SMTP server look
