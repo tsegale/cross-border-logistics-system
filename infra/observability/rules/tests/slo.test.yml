@@ -43,6 +43,17 @@ tests:
       - eval_time: 120m
         alertname: BookingAvailabilityBudgetBurnSlow
         exp_alerts: []
+  - name: booking_availability recovers
+    interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{service="logistics-service",uri="/api/v1/shipments",method="POST",outcome="SUCCESS"}'
+        values: '0+90x60 5400+100x100'
+      - series: 'http_server_requests_seconds_count{service="logistics-service",uri="/api/v1/shipments",method="POST",outcome="SERVER_ERROR"}'
+        values: '0+10x60 600+0x100'
+    alert_rule_test:
+      - eval_time: 160m
+        alertname: BookingAvailabilityBudgetBurnFast
+        exp_alerts: []
   - name: transfer_availability burning
     interval: 1m
     input_series:
@@ -80,6 +91,17 @@ tests:
         exp_alerts: []
       - eval_time: 120m
         alertname: TransferAvailabilityBudgetBurnSlow
+        exp_alerts: []
+  - name: transfer_availability recovers
+    interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{service="banking-service",uri="/api/v1/transfers",method="POST",outcome="SUCCESS"}'
+        values: '0+90x60 5400+100x100'
+      - series: 'http_server_requests_seconds_count{service="banking-service",uri="/api/v1/transfers",method="POST",outcome="SERVER_ERROR"}'
+        values: '0+10x60 600+0x100'
+    alert_rule_test:
+      - eval_time: 160m
+        alertname: TransferAvailabilityBudgetBurnFast
         exp_alerts: []
   - name: booking_latency burning
     interval: 1m
@@ -119,6 +141,17 @@ tests:
       - eval_time: 120m
         alertname: BookingLatencyBudgetBurnSlow
         exp_alerts: []
+  - name: booking_latency recovers
+    interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{service="logistics-service",uri="/api/v1/shipments",method="POST"}'
+        values: '0+100x160'
+      - series: 'http_server_requests_seconds_bucket{service="logistics-service",uri="/api/v1/shipments",method="POST",le="0.5"}'
+        values: '0+10x60 600+100x100'
+    alert_rule_test:
+      - eval_time: 160m
+        alertname: BookingLatencyBudgetBurnFast
+        exp_alerts: []
   - name: email_delivery burning
     interval: 1m
     input_series:
@@ -156,4 +189,15 @@ tests:
         exp_alerts: []
       - eval_time: 120m
         alertname: EmailDeliveryBudgetBurnSlow
+        exp_alerts: []
+  - name: email_delivery recovers
+    interval: 1m
+    input_series:
+      - series: 'freightflow_emails_end_to_end_seconds_count{service="notification-service"}'
+        values: '0+100x160'
+      - series: 'freightflow_emails_end_to_end_seconds_bucket{service="notification-service",le="60.0"}'
+        values: '0+80x60 4800+100x100'
+    alert_rule_test:
+      - eval_time: 160m
+        alertname: EmailDeliveryBudgetBurnFast
         exp_alerts: []

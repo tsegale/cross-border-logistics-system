@@ -145,6 +145,31 @@ def render_tests() -> str:
                     f"of {budget * 100:g} % runs out early.\"",
                     f"              runbook_url: {RUNBOOKS}/{runbook}",
                 ]
+        # Recovery: an hour of burning, then 100 minutes of healthy traffic. The fast alert has cleared (both of its
+        # short windows are clean); the slow one still fires, as it should, from its 2 h window.
+        burning = min(round(100 * budget * 20, 3), 90)
+        good_while_burning = round(100 - burning, 3)
+        lines += [f"  - name: {name} recovers", "    interval: 1m", "    input_series:"]
+        if kind == "bad":
+            lines += [
+                f"      - series: '{metric}{{{labels},outcome=\"SUCCESS\"}}'",
+                f"        values: '0+{good_while_burning:g}x60 {good_while_burning * 60:g}+100x100'",
+                f"      - series: '{metric}{{{labels}{extra}}}'",
+                f"        values: '0+{burning:g}x60 {burning * 60:g}+0x100'",
+            ]
+        else:
+            lines += [
+                f"      - series: '{metric}_count{{{labels}}}'",
+                "        values: '0+100x160'",
+                f"      - series: '{metric}_bucket{{{labels}{extra}}}'",
+                f"        values: '0+{good_while_burning:g}x60 {good_while_burning * 60:g}+100x100'",
+            ]
+        lines += [
+            "    alert_rule_test:",
+            "      - eval_time: 160m",
+            f"        alertname: {camel(name)}BudgetBurnFast",
+            "        exp_alerts: []",
+        ]
     return "\n".join(lines) + "\n"
 
 

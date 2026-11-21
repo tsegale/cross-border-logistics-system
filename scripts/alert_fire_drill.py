@@ -19,8 +19,8 @@ fixes are the real ones: an operator's retry and an operator's resend, through t
     phase  3  bookings: logistics' database stopped, then paused, while bookings continue (booking availability and
               latency budgets, gateway upstream errors), and a container filled to 92 % of its memory limit (container memory).
 
-Slow-burn alerts (1 d and 3 d windows) keep firing for hours after any burn by design; the drill records that they
-fired, and their recovery is covered by promtool tests. Needs the stack with --profile observability,
+Burn-rate alerts keep firing after the burn by design (a fast burn up to 30 minutes, a slow one for hours); the drill
+records that they fired, and their recovery is covered by promtool tests. Needs the stack with --profile observability,
 infra/observability/observability.env and benchmarks/compose.bench.yml (Mailpit's API). About 40 minutes.
 
     python3 scripts/alert_fire_drill.py --json drill.json
@@ -54,8 +54,9 @@ EXPECTED = [
     "BookingAvailabilityBudgetBurnFast", "BookingAvailabilityBudgetBurnSlow", "BookingLatencyBudgetBurnFast",
     "BookingLatencyBudgetBurnSlow", "GatewayUpstreamErrors", "ContainerMemoryNearLimit",
 ]
-# Their windows outlast the drill: they must fire, they are not expected to resolve within it.
-STAYS_FIRING = {name for name in EXPECTED if name.endswith("BurnSlow")}
+# Burn-rate alerts outlast the drill: a fast burn keeps firing up to 30 minutes after the outage (its 6 h and 30 m
+# pair), a slow burn for hours. They must fire here; that they clear is proved by the promtool recovery tests.
+STAYS_FIRING = {name for name in EXPECTED if "BudgetBurn" in name}
 
 
 def log(message: str) -> None:

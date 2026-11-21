@@ -83,4 +83,37 @@ The drill's first runs found two faults the unit tests had not. Table gauges que
 with a database down the scrape timed out and the request metrics of that very outage went missing (`BoundedGauge`
 since, ADR 0031). And Tempo's search returns trace ids without leading zeros, which the CI trace check now pads.
 
-Evidence: recorded below after each run.
+### Evidence
+
+Run [44932705895](https://github.com/tsegale/cross-border-logistics-system/actions/runs/44932705895), 2026-11-21,
+GitHub-hosted runner (Intel Xeon 6975P-C, 4 vCPUs, 15,701 MiB), 18:00:40 to 18:52:23 UTC. **Every one of the 20 alerts
+fired**; Alertmanager sent 32 emails to the on-call address. Times UTC.
+
+| Alert | Caused by | Fired | Resolved |
+| --- | --- | --- | --- |
+| LedgerDrift | an account's balance changed by 1.0000 | 18:01:00 | 18:01:30 |
+| EmailsFailing | Mailpit stopped while bookings went on | 18:03:20 | 18:19:00 |
+| ServiceDown | notification-service stopped | 18:05:20 | 18:13:20 |
+| ConsumerLagHigh | notification-service stopped | 18:13:00 | 18:13:40 |
+| EmailDeliveryBudgetBurnFast | the emails delayed by both | 18:15:50 | (burn-rate, see below) |
+| EmailsUnknown | an email left SENDING (simulated) | 18:17:20 | 18:19:30, after an operator's resend |
+| DeadLettersWaiting | hold.released for a shipment not yet seen | 18:19:10 | 18:19:40, after the shipment's booking and a redrive |
+| ReconciliationNotRunning | banking without its scheduled reconciliation | 18:22:00 | 18:40:50, banking restored |
+| TransferAvailabilityBudgetBurnFast | banking's database stopped under transfers | 18:22:20 | (burn-rate) |
+| GatewayUpstreamErrors | the same outage behind the gateway | 18:25:10 | 18:45:20 |
+| PaymentCommandsParked | a booking's AUTHORISE parked (simulated) | 18:25:50 | 18:40:30, after an operator's retry |
+| OutboxStuck | Kafka stopped while bookings went on | 18:27:00 | 18:28:00 |
+| EmailDeliveryBudgetBurnSlow | as the fast burn | 18:28:50 | (burn-rate) |
+| ApprovalsNearExpiry | an approval due in 20 minutes | 18:29:00 | 18:29:30, after a second operator approved |
+| BookingAvailabilityBudgetBurnFast | logistics' database stopped under bookings | 18:31:50 | (burn-rate) |
+| TransferAvailabilityBudgetBurnSlow | as the fast burn | 18:35:20 | (burn-rate) |
+| BookingLatencyBudgetBurnFast | logistics' database paused under bookings | 18:35:20 | (burn-rate) |
+| ContainerMemoryNearLimit | a container held at 92 % of its 64 MiB | 18:39:40 | 18:45:20, container removed |
+| BookingAvailabilityBudgetBurnSlow | as the fast burn | 18:44:50 | (burn-rate) |
+| BookingLatencyBudgetBurnSlow | as the fast burn | 18:44:50 | (burn-rate) |
+
+The twelve symptom alerts all resolved within the drill. The eight burn-rate alerts were still firing at its end, as
+the method intends: a fast burn keeps firing until its 30-minute window is clean (up to 30 minutes after the
+outage), a slow burn until its 2-hour or 6-hour one is. Their clearing is proved by promtool instead
+(`slo.test.yml`, "recovers": an hour of burning, then 100 minutes of healthy traffic, the fast alert cleared). That
+run counted the fast burns as failures; the drill now expects every burn-rate alert to outlast it.
