@@ -10,14 +10,14 @@ fixes are the real ones: an operator's retry and an operator's resend, through t
     phase  0  ledger drift: an account's stored balance is changed; an operator's reconciliation finds it.
            then banking runs without its scheduled reconciliation for the rest of the drill (ReconciliationNotRunning).
     phase  1  emails and events: Mailpit and notification-service stopped while bookings continue (emails failing,
-              consumer lag, the service down), an event for an unknown shipment (dead letter), an email in UNKNOWN;
+              consumer lag, the service down), a hold event for an unknown shipment (dead letter), an email in UNKNOWN;
               then restored, the dead letter redriven, the UNKNOWN email resent. The delayed emails burn the
               email-delivery budget.
     phase  2  money: banking's database stopped while transfers continue (transfer budget), a payment command parked
               and retried, an approval about to expire and then approved, Kafka stopped while bookings continue
               (outbox stuck).
-    phase  3  bookings: logistics' database paused while bookings continue (booking availability and latency budgets,
-              gateway upstream errors), and a container filled to 94 % of its memory limit (container memory).
+    phase  3  bookings: logistics' database stopped, then paused, while bookings continue (booking availability and
+              latency budgets, gateway upstream errors), and a container filled to 94 % of its memory limit (container memory).
 
 Slow-burn alerts (1 d and 3 d windows) keep firing for hours after any burn by design; the drill records that they
 fired, and their recovery is covered by promtool tests. Needs the stack with --profile observability,
@@ -95,9 +95,20 @@ def event(kind: str, shipment: uuid.UUID, sequence: int, status: str) -> str:
     return json.dumps(body, separators=(",", ":"))
 
 
-def publish(key: uuid.UUID, value: str) -> None:
+def hold_released(shipment: uuid.UUID) -> tuple[uuid.UUID, str]:
+    """banking's hold.released for a hold taken for this shipment (its reference names the shipment)."""
+    schema = Path(__file__).resolve().parent.parent / "docs" / "events" / "hold.released.schema.json"
+    body = json.loads(schema.read_text(encoding="utf-8"))["examples"][0]
+    hold = uuid7()
+    body.update(eventId=str(uuid7()), aggregateId=str(hold), sequence=2,
+                occurredAt=datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"))
+    body["payload"]["hold"].update(holdId=str(hold), organizationId=harness.HANSEATIC, reference=f"SHIPMENT {shipment}")
+    return hold, json.dumps(body, separators=(",", ":"))
+
+
+def publish(key: uuid.UUID, value: str, topic: str = "freightflow.shipment.v1") -> None:
     harness.kafka(f"echo '{key}|{value}' | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:29092 "
-                  "--producer.config /tmp/bench-client.properties --topic freightflow.shipment.v1 "
+                  f"--producer.config /tmp/bench-client.properties --topic {topic} "
                   "--property parse.key=true --property key.separator='|'")
 
 
@@ -207,10 +218,11 @@ def phase1_emails(watch: Watch, account: str, run: str) -> None:
         time.sleep(150)
         compose("stop", "notification-service")
         log("notification-service stopped; bookings continue")
-        # A status change for a shipment notification has not seen yet: retried, then dead-lettered (ADR 0026). Its
-        # shipment.booked follows later, and the operator's redrive then applies it.
-        publish(ghost, event("shipment.status-changed", ghost, sequence=2, status="BOOKED"))
-        log(f"published a status change for unknown shipment {ghost}")
+        # A hold released for a shipment notification has not seen yet: retried on the retry topics, then
+        # dead-lettered (ADR 0026). The shipment's booking event follows later, and the operator's redrive applies it.
+        hold, released = hold_released(ghost)
+        publish(hold, released, topic="freightflow.hold.v1")
+        log(f"published hold.released for unknown shipment {ghost}")
 
     counts = with_load(load, 8, middle)
     log(f"bookings while broken: {counts}")
@@ -267,13 +279,20 @@ def phase2_money(watch: Watch, account: str, run: str, second: str) -> None:
 
 
 def phase3_bookings(watch: Watch, account: str, run: str) -> None:
-    log("phase 3: logistics' database paused, a container near its memory limit")
+    log("phase 3: logistics' database stopped then paused, a container near its memory limit")
     hog = f"freightflow-drill-memory-{run}"
     subprocess.run(["docker", "run", "-d", "--rm", "--name", hog, "--memory", "64m", "alpine:3.22", "sh", "-c",
                     "head -c 60m /dev/zero | tail -c 60m > /dev/null & sleep 900"], check=True,
                    capture_output=True)
+    # Stopped: bookings fail with 503 within the connection timeout (availability). Paused: they wait on the database
+    # and finish late once it is back (latency).
+    compose("stop", "logistics-db")
+    counts = with_load(Load(account, run + "s", every=0.5), 4)
+    compose("start", "logistics-db")
+    compose("up", "-d", "--wait", "logistics-db")
+    log(f"bookings while logistics' database was stopped: {counts}")
     compose("pause", "logistics-db")
-    counts = with_load(Load(account, run + "p", every=0.5), 7)
+    counts = with_load(Load(account, run + "p", every=0.5), 3)
     compose("unpause", "logistics-db")
     log(f"bookings while logistics' database was paused: {counts}")
     watch.wait_fired(["BookingAvailabilityBudgetBurnFast", "BookingLatencyBudgetBurnFast", "GatewayUpstreamErrors",
