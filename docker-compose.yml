@@ -14,7 +14,7 @@ name: freightflow
 services:
   # ---------------- Databases: one per service ----------------
   banking-db:
-    mem_limit: 320m
+    mem_limit: 256m
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: banking
@@ -82,7 +82,7 @@ services:
       retries: 12
 
   keycloak:
-    mem_limit: 640m
+    mem_limit: 704m
     build: ./infra/keycloak
     image: freightflow-keycloak
     command: ["start", "--optimized", "--import-realm"]
@@ -290,13 +290,13 @@ services:
   # ---------------- Events ----------------
   # Single-node Kafka 4 in KRaft mode (ADR 0003): SCRAM-SHA-512 per service, ACLs, nothing published (ADR 0022).
   kafka:
-    mem_limit: 448m
+    mem_limit: 512m
     image: apache/kafka:4.3.1
     entrypoint: ["bash", "/etc/freightflow/kafka/start.sh"]
     environment:
       # Fixed for this one-node cluster; the storage is formatted with it once.
       CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
-      # Inside its 448m limit with page cache and metadata log buffers beside it (ADR 0029).
+      # Inside its 512m limit with page cache and metadata log buffers beside it (ADR 0029).
       KAFKA_HEAP_OPTS: -Xms256m -Xmx256m
     secrets: [kafka_admin_password]
     volumes:
