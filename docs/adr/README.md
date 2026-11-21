@@ -33,3 +33,8 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | [0026](0026-consumer-idempotency-retries-and-ordering.md) | Consumers: idempotency, retries, dead letters and ordering | Accepted |
 | [0027](0027-notification-service.md) | notification-service: emails in German and English, at most once | Accepted |
 | [0028](0028-logistics-reacts-to-banking-hold-events.md) | logistics reacts to banking's hold events; payment commands stay HTTP | Accepted |
+| [0029](0029-memory-budgets-and-jvm-sizing.md) | Memory budgets per container, and JVM sizing from each limit | Accepted |
+| [0030](0030-opentelemetry-and-trace-propagation.md) | OpenTelemetry in every service, and one trace per booking through outboxes and Kafka | Accepted |
+| [0031](0031-collector-sampling-and-redaction.md) | An OpenTelemetry Collector in front of the backends: tail sampling, redaction, infrastructure metrics | Accepted |
+| [0032](0032-observability-stack.md) | The observability stack: separate Grafana, Prometheus, Tempo, Loki and Alertmanager behind a profile | Accepted |
+| [0033](0033-slos-and-burn-rate-alerting.md) | SLOs on what customers feel, multi-window burn-rate alerts, and a fire drill | Accepted |
