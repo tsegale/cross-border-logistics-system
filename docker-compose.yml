@@ -351,7 +351,7 @@ services:
   # SMTP needs a login, the password from secrets/smtp_password, as a real relay would.
   mailpit:
     mem_limit: 48m
-    image: axllent/mailpit:v1.33.0
+    image: axllent/mailpit:v1.34.0
     entrypoint: ["/bin/sh", "-c", "MP_SMTP_AUTH=\"freightflow:$$(cat /run/secrets/smtp_password)\" exec /mailpit"]
     environment:
       # Plain SMTP inside the compose network; a real relay takes STARTTLS (SMTP_STARTTLS=true).
@@ -504,7 +504,7 @@ services:
 
   grafana:
     profiles: [observability]
-    image: grafana/grafana:13.2.6
+    image: grafana/grafana:13.3.1
     mem_limit: 256m
     environment:
       # Local profile: anyone on 127.0.0.1 may look and explore (every panel links to Explore), nothing is saved:
