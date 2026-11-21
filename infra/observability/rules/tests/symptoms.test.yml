@@ -1,0 +1,198 @@
+# promtool test rules infra/observability/rules/tests/*.test.yml (CI, ADR 0033): every symptom alert stays quiet on
+# healthy series and fires, with its labels and annotations, once the condition has held for its "for".
+rule_files:
+  - ../symptoms.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: ledger drift fires at once, and when the check stops running
+    interval: 1m
+    input_series:
+      - series: freightflow_ledger_discrepancies{service="banking-service"}
+        values: 0 0 2 2 0
+      - series: freightflow_ledger_unbalanced_currencies{service="banking-service"}
+        values: 0 0 0 0 0
+      - series: freightflow_ledger_reconciliation_age_seconds{service="banking-service"}
+        values: 60 120 180 240 1000 1000 1000 1000 1000 1000 1000
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: LedgerDrift
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: LedgerDrift
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "The ledger does not reconcile: 2 account(s) or currencies off"
+              description: "An account's stored balance differs from its postings, or a currency's postings do not sum to zero."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/ledger-drift.md
+      - eval_time: 4m
+        alertname: LedgerDrift
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: ReconciliationNotRunning
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: ReconciliationNotRunning
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: "The ledger has not been reconciled for 16m 40s"
+              description: "The scheduled reconciliation runs every 5 minutes; without it LedgerDrift cannot fire."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/ledger-drift.md
+
+  - name: parked payment commands and approvals about to expire
+    interval: 1m
+    input_series:
+      - series: freightflow_payment_commands_parked{service="logistics-service"}
+        values: 0 1 1 1 1
+      - series: freightflow_approvals_expiring{service="banking-service"}
+        values: 0 1 1 1 1 1 1 1
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: PaymentCommandsParked
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: PaymentCommandsParked
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "1 payment command(s) parked, waiting for an operator"
+              description: "A hold, capture, release or extension ran out of attempts; its shipment waits for an operator (ADR 0012)."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/payment-commands-parked.md
+      - eval_time: 5m
+        alertname: ApprovalsNearExpiry
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ApprovalsNearExpiry
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: "1 approval request(s) expire within the hour"
+              description: "A deposit or reversal waits for a second operator and will expire undecided (ADR 0021)."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/approvals-near-expiry.md
+
+  - name: a stuck outbox, consumer lag and dead letters
+    interval: 1m
+    input_series:
+      - series: freightflow_outbox_oldest_age_seconds{service="logistics-service",outbox="payment-commands"}
+        values: 0 0 90 150 210 270
+      - series: freightflow_outbox_oldest_age_seconds{service="banking-service"}
+        values: 0 0 0 0 0 0
+      - series: kafka_consumer_group_lag{group="notification-service",topic="freightflow.shipment.v1",partition="0"}
+        values: 0 80 80 80 80 80 80 80
+      - series: kafka_consumer_group_lag{group="notification-service",topic="freightflow.shipment.v1",partition="1"}
+        values: 0 40 40 40 40 40 40 40
+      - series: freightflow_dead_letters{service="logistics-service",status="NEW"}
+        values: 0 3 3 3 3 3 3 3
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: OutboxStuck
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: OutboxStuck
+        exp_alerts:
+          - exp_labels: {severity: page, service: logistics-service, outbox: payment-commands}
+            exp_annotations:
+              summary: "logistics-service: the oldest unsent outbox row is 3m 30s old"
+              description: "The relay polls every 200 ms (ADR 0025); a minute means the broker, banking or the relay itself is not working."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/outbox-stuck.md
+      - eval_time: 5m
+        alertname: ConsumerLagHigh
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ConsumerLagHigh
+        exp_alerts:
+          - exp_labels: {severity: ticket, group: notification-service, topic: freightflow.shipment.v1}
+            exp_annotations:
+              summary: "notification-service is 120 records behind on freightflow.shipment.v1"
+              description: "A consumer is down, stuck on a record, or slower than its producer."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/consumer-lag.md
+      - eval_time: 6m
+        alertname: DeadLettersWaiting
+        exp_alerts:
+          - exp_labels: {severity: ticket, service: logistics-service}
+            exp_annotations:
+              summary: "logistics-service: 3 dead letter(s) waiting for an operator"
+              description: "Events that failed every retry, or could not be read, wait to be redriven (ADR 0026)."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/dead-letters.md
+
+  - name: emails that may not have arrived, and emails refused every time
+    interval: 1m
+    input_series:
+      - series: freightflow_emails{service="notification-service",status="UNKNOWN"}
+        values: 0 0 1 1 1
+      - series: freightflow_emails_failed_total{service="notification-service",kind="shipment-booked",final="true"}
+        values: 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: EmailsUnknown
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: EmailsUnknown
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: "1 email(s) may not have arrived (UNKNOWN)"
+              description: "A sender stopped while handing an email to SMTP; it is never resent on its own (ADR 0027)."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/emails-unknown.md
+      - eval_time: 2m
+        alertname: EmailsFailing
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: EmailsFailing
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: "Emails were refused by the mail server on every attempt in the last 15 minutes"
+              description: "The relay, its credentials or a recipient address is wrong."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/emails-failing.md
+      - eval_time: 20m
+        alertname: EmailsFailing
+        exp_alerts: []
+
+  - name: a service that stops answering, upstream errors, and memory near the limit
+    interval: 1m
+    input_series:
+      - series: up{job="services",service="banking-service",instance="banking-service:8081"}
+        values: 1 0 0 0
+      - series: spring_cloud_gateway_requests_seconds_count{routeId="logistics",outcome="SUCCESS"}
+        values: 0+90x10
+      - series: spring_cloud_gateway_requests_seconds_count{routeId="logistics",outcome="SERVER_ERROR"}
+        values: 0+10x10
+      - series: container_memory_usage_total_bytes{container_name="freightflow-keycloak-1"}
+        values: 620000000x15
+      - series: container_memory_usage_limit_bytes{container_name="freightflow-keycloak-1"}
+        values: 671088640x15
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels: {severity: page, job: services, service: banking-service, instance: "banking-service:8081"}
+            exp_annotations:
+              summary: "banking-service does not answer its metrics scrape"
+              description: "The container is down, restarting or out of memory."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/service-down.md
+      - eval_time: 10m
+        alertname: GatewayUpstreamErrors
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "10% of requests through the gateway end in a server error"
+              description: "Every route, not only bookings and transfers: a service or Keycloak is failing behind the gateway."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/service-down.md
+      - eval_time: 9m
+        alertname: ContainerMemoryNearLimit
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: ContainerMemoryNearLimit
+        exp_alerts:
+          - exp_labels: {severity: ticket, container_name: freightflow-keycloak-1}
+            exp_annotations:
+              summary: "freightflow-keycloak-1 uses 92.39% of its memory limit"
+              description: "The limits are sized from measured peaks (ADR 0029); this one is close to being OOM-killed."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/container-memory.md

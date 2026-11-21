@@ -1,0 +1,121 @@
+# Symptom alerts (docs/slo.md): conditions that need a person whatever the error budget says. Each names its runbook,
+# has a promtool test in tests/symptoms.test.yml and fired once in the alert fire drill (scripts/alert_fire_drill.py).
+groups:
+  - name: money
+    rules:
+      # The ledger's own invariant (ADR 0004): never acceptable, so no objective and no grace period.
+      - alert: LedgerDrift
+        expr: max(freightflow_ledger_discrepancies) > 0 or max(freightflow_ledger_unbalanced_currencies) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "The ledger does not reconcile: {{ $value }} account(s) or currencies off"
+          description: "An account's stored balance differs from its postings, or a currency's postings do not sum to zero."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/ledger-drift.md
+      - alert: ReconciliationNotRunning
+        expr: max(freightflow_ledger_reconciliation_age_seconds) > 900
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "The ledger has not been reconciled for {{ $value | humanizeDuration }}"
+          description: "The scheduled reconciliation runs every 5 minutes; without it LedgerDrift cannot fire."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/ledger-drift.md
+      - alert: PaymentCommandsParked
+        expr: max(freightflow_payment_commands_parked) > 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $value }} payment command(s) parked, waiting for an operator"
+          description: "A hold, capture, release or extension ran out of attempts; its shipment waits for an operator (ADR 0012)."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/payment-commands-parked.md
+      - alert: ApprovalsNearExpiry
+        expr: max(freightflow_approvals_expiring) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value }} approval request(s) expire within the hour"
+          description: "A deposit or reversal waits for a second operator and will expire undecided (ADR 0021)."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/approvals-near-expiry.md
+
+  - name: events
+    rules:
+      - alert: OutboxStuck
+        expr: max by (service, outbox) (freightflow_outbox_oldest_age_seconds) > 60
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.service }}: the oldest unsent outbox row is {{ $value | humanizeDuration }} old"
+          description: "The relay polls every 200 ms (ADR 0025); a minute means the broker, banking or the relay itself is not working."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/outbox-stuck.md
+      - alert: ConsumerLagHigh
+        expr: sum by (group, topic) (kafka_consumer_group_lag) > 100
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.group }} is {{ $value }} records behind on {{ $labels.topic }}"
+          description: "A consumer is down, stuck on a record, or slower than its producer."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/consumer-lag.md
+      - alert: DeadLettersWaiting
+        expr: sum by (service) (freightflow_dead_letters{status="NEW"}) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.service }}: {{ $value }} dead letter(s) waiting for an operator"
+          description: "Events that failed every retry, or could not be read, wait to be redriven (ADR 0026)."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/dead-letters.md
+
+  - name: emails
+    rules:
+      - alert: EmailsUnknown
+        expr: max(freightflow_emails{status="UNKNOWN"}) > 0
+        for: 1m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value }} email(s) may not have arrived (UNKNOWN)"
+          description: "A sender stopped while handing an email to SMTP; it is never resent on its own (ADR 0027)."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/emails-unknown.md
+      - alert: EmailsFailing
+        expr: sum(increase(freightflow_emails_failed_total{final="true"}[15m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Emails were refused by the mail server on every attempt in the last 15 minutes"
+          description: "The relay, its credentials or a recipient address is wrong."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/emails-failing.md
+
+  - name: platform
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"services|keycloak"} == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.service }} does not answer its metrics scrape"
+          description: "The container is down, restarting or out of memory."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/service-down.md
+      - alert: GatewayUpstreamErrors
+        expr: sum(rate(spring_cloud_gateway_requests_seconds_count{outcome="SERVER_ERROR"}[5m])) / sum(rate(spring_cloud_gateway_requests_seconds_count[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of requests through the gateway end in a server error"
+          description: "Every route, not only bookings and transfers: a service or Keycloak is failing behind the gateway."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/service-down.md
+      - alert: ContainerMemoryNearLimit
+        expr: max by (container_name) (container_memory_usage_total_bytes / container_memory_usage_limit_bytes) > 0.9
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.container_name }} uses {{ $value | humanizePercentage }} of its memory limit"
+          description: "The limits are sized from measured peaks (ADR 0029); this one is close to being OOM-killed."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/container-memory.md

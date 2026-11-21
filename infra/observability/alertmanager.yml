@@ -1,0 +1,36 @@
+# Alertmanager (ADR 0033): alerts go out as emails to the on-call address, through the stack's own SMTP server
+# (Mailpit, so they can be seen at 127.0.0.1:8025 with --profile debug). A real deployment points smarthost at its relay
+# and adds a pager receiver for severity=page.
+global:
+  smtp_smarthost: mailpit:1025
+  smtp_from: alerts@freightflow.dev
+  smtp_auth_username: freightflow
+  smtp_auth_password_file: /run/secrets/smtp_password
+  smtp_require_tls: false
+
+route:
+  receiver: on-call
+  group_by: [alertname, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # A page is repeated hourly until someone acts; a ticket every 12 hours.
+    - matchers: [severity="page"]
+      receiver: on-call
+      repeat_interval: 1h
+    - matchers: [severity="ticket"]
+      receiver: on-call
+      repeat_interval: 12h
+
+inhibit_rules:
+  # A service that is down explains its burning budgets and stuck outboxes: page for the cause, not every symptom.
+  - source_matchers: [alertname="ServiceDown"]
+    target_matchers: [severity=~"page|ticket", alertname!="ServiceDown"]
+    equal: [service]
+
+receivers:
+  - name: on-call
+    email_configs:
+      - to: on-call@freightflow.dev
+        send_resolved: true

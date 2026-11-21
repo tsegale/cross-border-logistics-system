@@ -1,0 +1,60 @@
+name: Alert fire drill
+
+# Makes every alert fire once against the whole stack with the observability profile, and checks each fires and
+# (except the slow-burn alerts, whose windows outlast it) resolves (scripts/alert_fire_drill.py, docs/slo.md).
+# Started by hand: it takes about 40 minutes and stops and pauses parts of the stack on purpose.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: fire-drill
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  COMPOSE: docker compose --env-file .env --env-file infra/observability/observability.env -f docker-compose.yml -f benchmarks/compose.bench.yml --profile observability
+
+jobs:
+  drill:
+    name: Every alert fires once
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start the stack with the observability profile
+        run: |
+          sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
+          python3 scripts/generate_secrets.py
+          $COMPOSE up -d --wait --build
+      - name: Record the runner
+        run: |
+          mkdir -p drill
+          echo "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1), $(nproc) vCPUs, $(free -m | awk '/^Mem:/ {print $2}') MiB" | tee drill/runner.txt
+      - name: One booking's trace first, and the screenshots of it
+        run: |
+          ./scripts/seed_demo.sh
+          python3 scripts/trace_booking.py --json drill/trace.json
+          pip install --quiet playwright==1.65.2 && python3 -m playwright install --with-deps chromium > /dev/null
+          python3 scripts/grafana_screenshots.py --trace-json drill/trace.json --out drill/images
+      - name: Fire drill
+        run: |
+          set -o pipefail
+          python3 scripts/alert_fire_drill.py --json drill/drill.json 2>&1 | tee drill/drill.log
+          { echo "## Alert fire drill"; echo; echo "Runner: $(cat drill/runner.txt)"; echo; echo '```'; cat drill/drill.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Screenshots of the alerts it fired
+        if: always()
+        run: python3 scripts/grafana_screenshots.py --alerts --out drill/images || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: fire-drill-${{ github.run_id }}
+          path: drill/
+          retention-days: 90
+      - if: failure()
+        run: $COMPOSE logs --tail 100

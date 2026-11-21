@@ -1,0 +1,52 @@
+# Prometheus (ADR 0032): scrapes the services' /actuator/prometheus in the OpenMetrics format, which carries their
+# exemplars (trace ids on latency buckets, ADR 0031), plus Keycloak, the collector and the backends. The collector's
+# infrastructure receivers (Postgres, Kafka lag, Redis, container memory) and Tempo's span metrics arrive by remote
+# write. Rules are files in rules/, each with a promtool test (docs/slo.md).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: local
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
+
+scrape_configs:
+  - job_name: services
+    metrics_path: /actuator/prometheus
+    scrape_protocols: [OpenMetricsText1.0.0, OpenMetricsText0.0.1, PrometheusText0.0.4]
+    static_configs:
+      - targets: [banking-service:8081]
+        labels: {service: banking-service}
+      - targets: [logistics-service:8082]
+        labels: {service: logistics-service}
+      - targets: [notification-service:8083]
+        labels: {service: notification-service}
+      # The gateway's actuator is on its management port (ADR 0015).
+      - targets: [api-gateway:8085]
+        labels: {service: api-gateway}
+
+  # Keycloak's own metrics, on its management port (KC_METRICS_ENABLED, infra/keycloak/Dockerfile).
+  - job_name: keycloak
+    metrics_path: /metrics
+    static_configs:
+      - targets: [keycloak:9000]
+        labels: {service: keycloak}
+
+  - job_name: observability
+    static_configs:
+      - targets: [otel-collector:8888]
+        labels: {service: otel-collector}
+      - targets: [tempo:3200]
+        labels: {service: tempo}
+      - targets: [loki:3100]
+        labels: {service: loki}
+      - targets: [alertmanager:9093]
+        labels: {service: alertmanager}
+      - targets: [localhost:9090]
+        labels: {service: prometheus}
