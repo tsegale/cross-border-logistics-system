@@ -506,9 +506,11 @@ services:
     image: grafana/grafana:13.2.6
     mem_limit: 256m
     environment:
-      # Local profile: anyone on 127.0.0.1 may look, nobody may change anything (dashboards are files).
+      # Local profile: anyone on 127.0.0.1 may look and explore (every panel links to Explore), nothing is saved:
+      # the dashboards are provisioned files that the UI cannot overwrite.
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_VIEWERS_CAN_EDIT: "true"
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"

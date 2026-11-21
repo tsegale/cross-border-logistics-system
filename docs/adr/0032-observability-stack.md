@@ -40,7 +40,7 @@ which hop is slow) are answered by traces and exemplars. JFR on demand stays ava
 `trace_id` its trace, Tempo's service map from its span metrics), and eight dashboards generated from
 `infra/observability/grafana/build_dashboards.py` (one RED dashboard per service, booking to email, money, Kafka,
 runtime). Every panel links to the matching traces or logs; `scripts/check_dashboards.py` fails CI otherwise. Anonymous
-viewers, no editors: a change is a commit.
+viewers who may explore, and nothing they change is saved: a change to a dashboard is a commit.
 
 ## Measured
 Run 44899628552 (Intel Xeon 6975P-C, 4 vCPUs), 2 bookings/s for 120 s with the services exporting everything
