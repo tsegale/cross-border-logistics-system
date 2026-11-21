@@ -5,6 +5,7 @@ import com.freightflow.logistics.support.IntegrationTest;
 import com.freightflow.logistics.support.KafkaBroker;
 import com.freightflow.logistics.support.LogisticsFixtures;
 import com.freightflow.logistics.support.SharedContainers;
+import com.freightflow.logistics.telemetry.TraceContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.test.web.servlet.MockMvc;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -63,6 +64,9 @@ class EventRelayIntegrationTest extends IntegrationTest {
 
     @Autowired
     private OutboxClaims claims;
+
+    @Autowired
+    private TraceContext traces;
 
     @Autowired
     private EventOutbox outbox;
@@ -162,7 +166,7 @@ class EventRelayIntegrationTest extends IntegrationTest {
     @Test
     void aRelayThatDiesBeforeMarkingSendsTheEventAgainAndNeverSkipsOne() {
         UUID shipment = shipmentWithEvents(1);
-        EventOutbox dying = new EventOutbox(jdbcTemplate, claims, clock) {
+        EventOutbox dying = new EventOutbox(jdbcTemplate, claims, clock, traces) {
             @Override
             public void markPublished(List<UUID> eventIds) {
                 throw new IllegalStateException("relay died after the broker acknowledged");
@@ -282,7 +286,7 @@ class EventRelayIntegrationTest extends IntegrationTest {
         admin.setOperationTimeout(3);
         // The topics are the context's NewTopic beans (EventTopics), as in the running service.
         admin.setApplicationContext(context);
-        return new EventRelay(store, claims, template, admin, properties, clock, new SimpleMeterRegistry());
+        return new EventRelay(store, claims, template, admin, properties, clock, new SimpleMeterRegistry(), traces);
     }
 
     /** Runs the relay until every event of the aggregate is acknowledged (leftovers of other tests go along). */

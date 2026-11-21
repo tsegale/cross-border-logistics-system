@@ -1,10 +1,12 @@
 package com.freightflow.logistics.events;
 
+import com.freightflow.logistics.telemetry.TraceContext;
 import com.freightflow.logistics.outbox.Backoff;
 import com.freightflow.logistics.outbox.OutboxClaims;
 import com.freightflow.logistics.outbox.OutboxMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.tracing.Span;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
@@ -56,12 +58,14 @@ public class EventRelay {
     private final OutboxProperties properties;
     private final Clock clock;
     private final MeterRegistry meters;
+    private final TraceContext traces;
     private final Timer lag;
     private volatile boolean topicsDeclared;
 
     public EventRelay(EventOutbox outbox, OutboxClaims claims, KafkaTemplate<String, String> kafka, KafkaAdmin admin,
-                      OutboxProperties properties, Clock clock, MeterRegistry meters) {
+                      OutboxProperties properties, Clock clock, MeterRegistry meters, TraceContext traces) {
         this.outbox = outbox;
+        this.traces = traces;
         this.kafka = kafka;
         this.admin = admin;
         this.properties = properties;
@@ -125,8 +129,18 @@ public class EventRelay {
     private RoundResult send(List<EventOutbox.PendingEvent> batch) {
         Map<EventOutbox.PendingEvent, CompletableFuture<SendResult<String, String>>> inFlight = new LinkedHashMap<>();
         Map<EventOutbox.PendingEvent, Throwable> failed = new LinkedHashMap<>();
+        Map<EventOutbox.PendingEvent, Span> spans = new LinkedHashMap<>();
         for (EventOutbox.PendingEvent event : batch) {
-            try {
+            // The trace of the transaction that wrote the event goes on; Kafka's producer span is its child and
+            // carries it in the record's traceparent header (ADR 0030).
+            Span span = traces.continueFrom(event.traceparent(), "event-outbox relay")
+                    .tag("freightflow.event.type", event.type())
+                    .tag("freightflow.event.id", event.eventId().toString())
+                    .tag("freightflow.shipment.id", event.aggregateId().toString())
+                    .tag("messaging.destination.name", event.topic())
+                    .tag("freightflow.outbox.attempt", Integer.toString(event.attempts()));
+            spans.put(event, span);
+            try (var scope = traces.inScope(span)) {
                 inFlight.put(event, kafka.send(record(event)));
             } catch (RuntimeException ex) {
                 // No metadata for the topic within max.block.ms, or the producer is closed.
@@ -153,6 +167,13 @@ public class EventRelay {
                 failed.put(event, ex);
             }
         }
+        spans.forEach((event, span) -> {
+            Throwable error = failed.get(event);
+            if (error != null) {
+                span.error(error);
+            }
+            span.end();
+        });
         return new RoundResult(acknowledged, failed);
     }
 

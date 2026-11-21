@@ -110,8 +110,32 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- Traces and logs over OTLP (ADR 0030): Spring Boot's own OpenTelemetry support, no Java agent. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
+        <!-- Logs over OTLP are not part of Spring Boot: the appender release built on the OpenTelemetry API Boot
+             manages (1.62.0). Only "-alpha" releases exist. -->
+        <dependency>
+            <groupId>io.opentelemetry.instrumentation</groupId>
+            <artifactId>opentelemetry-logback-appender-1.0</artifactId>
+            <version>2.28.0-alpha</version>
+        </dependency>
 
         <!-- Tests: integration tests run on real Postgres in Testcontainers, never H2 -->
+        <!-- Reads the spans a test causes (TestSpans); the version comes from Spring Boot's OpenTelemetry BOM. -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- @AutoConfigureTracing: without it a Spring Boot test exports no span, not even to TestSpans. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-micrometer-tracing-test</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

@@ -1,5 +1,9 @@
 package com.freightflow.logistics.events;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.freightflow.logistics.telemetry.TraceContext;
 import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.payment.PaymentCommandType;
 import com.freightflow.logistics.security.Actor;
@@ -87,9 +91,13 @@ public class LogisticsEvents {
     // ------------------------------------------------------------------ publishing
 
     private final EventOutbox outbox;
+    private final TraceContext traces;
+    private final MeterRegistry meters;
 
-    public LogisticsEvents(EventOutbox outbox) {
+    public LogisticsEvents(EventOutbox outbox, TraceContext traces, MeterRegistry meters) {
         this.outbox = outbox;
+        this.traces = traces;
+        this.meters = meters;
     }
 
     public void shipmentBooked(Shipment shipment, Actor actor) {
@@ -138,6 +146,37 @@ public class LogisticsEvents {
 
     private void append(Type type, Shipment shipment, Object payload, Actor actor) {
         outbox.append(type.topic(), type.typeName(), type.schemaVersion(), shipment.getId(), payload, actor);
+        // The shipment on the span that changed it (ADR 0030); ids only, never its parties (ADR 0024).
+        traces.tag("freightflow.shipment.id", shipment.getId());
+        traces.event("freightflow.event " + type.typeName());
+        // Business metrics (ADR 0031), counted once the change has committed: a rollback counts nothing.
+        String tag = switch (payload) {
+            case ShipmentStatusChanged changed -> changed.status();
+            default -> "";
+        };
+        afterCommit(() -> {
+            switch (type) {
+                case SHIPMENT_BOOKED -> meters.counter("freightflow.shipments.booked").increment();
+                case SHIPMENT_STATUS_CHANGED -> meters.counter("freightflow.shipments.status.changes", "status", tag)
+                        .increment();
+                case SHIPMENT_PAYMENT_FAILED -> meters.counter("freightflow.shipments.payment.failures").increment();
+                default -> {
+                }
+            }
+        });
+    }
+
+    private static void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     private static String money(BigDecimal amount) {

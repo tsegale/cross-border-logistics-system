@@ -3,6 +3,9 @@ server:
   shutdown: graceful
 
 spring:
+  # MDC (trace ids, request id) follows a request through Reactor's threads (ADR 0030).
+  reactor:
+    context-propagation: auto
   application:
     name: api-gateway
   data:
@@ -112,6 +115,41 @@ freightflow:
     audience: api-gateway
 
 management:
+  # OpenTelemetry (ADR 0030). Every trace is kept by the service: sampling is the collector's (tail-based, ADR 0031).
+  # Nothing is exported unless the otlp profile is on (application-otlp.yml, the observability compose profile);
+  # trace and span ids still reach the logs and the outbox rows without it.
+  tracing:
+    sampling:
+      probability: 1.0
+    export:
+      otlp:
+        enabled: false
+  logging:
+    export:
+      otlp:
+        enabled: false
+  # Latency histograms for the RED dashboards and the SLOs, with a bucket on each threshold (docs/slo.md). Exemplars
+  # link a bucket to a trace that landed in it (ADR 0031).
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        spring.cloud.gateway.requests: true
+      slo:
+        http.server.requests: 100ms,250ms,500ms,1s,2s
+        spring.cloud.gateway.requests: 100ms,250ms,500ms,1s,2s
+  # Metrics are scraped from /actuator/prometheus (with exemplars), not pushed over OTLP.
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  opentelemetry:
+    tracing:
+    # The edge decides for the whole trace, whatever sampled flag a caller sends (ADR 0030).
+      sampler: always-on
+    resource-attributes:
+      service.version: ${SERVICE_VERSION:dev}
+      deployment.environment.name: ${DEPLOYMENT_ENVIRONMENT:local}
   # Health and metrics on their own port, published on 127.0.0.1 only; /actuator on 8080 is a 404 (ADR 0015).
   server:
     port: ${MANAGEMENT_PORT:8085}
@@ -131,4 +169,9 @@ logging:
     ecs:
       service:
         name: ${spring.application.name}
-        version: ${SERVICE_VERSION:0.1.0}
+        version: ${SERVICE_VERSION:dev}
+    # The OpenTelemetry names, so a log line and its trace find each other in Grafana (ADR 0030).
+    json:
+      rename:
+        traceId: trace_id
+        spanId: span_id

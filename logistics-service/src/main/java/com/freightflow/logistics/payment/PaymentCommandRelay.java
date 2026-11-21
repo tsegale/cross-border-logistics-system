@@ -3,9 +3,11 @@ package com.freightflow.logistics.payment;
 import com.freightflow.logistics.common.RequestIdFilter;
 import com.freightflow.logistics.outbox.OutboxClaims;
 import com.freightflow.logistics.outbox.OutboxMetrics;
+import com.freightflow.logistics.telemetry.TraceContext;
 import io.micrometer.core.instrument.Gauge;
 import jakarta.annotation.PreDestroy;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Span;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -41,12 +43,14 @@ public class PaymentCommandRelay {
     private final Clock clock;
     private final boolean enabled;
     private final ExecutorService executor;
+    private final TraceContext traces;
 
     public PaymentCommandRelay(PaymentCommands outbox, PaymentCommandRepository commands, BankingPayments banking,
                                PaymentOutcomeRecorder recorder, PaymentProperties properties, Clock clock,
-                               MeterRegistry meters, OutboxClaims claims,
+                               MeterRegistry meters, OutboxClaims claims, TraceContext traces,
                                @Value("${freightflow.logistics.payments.relay-enabled:true}") boolean enabled) {
         this.outbox = outbox;
+        this.traces = traces;
         this.commands = commands;
         this.banking = banking;
         this.recorder = recorder;
@@ -103,22 +107,36 @@ public class PaymentCommandRelay {
             return;
         }
         // The command's idempotency key is its request id in both services' logs (ADR 0015), and in the events its
-        // outcome causes.
-        try (MDC.MDCCloseable ignored = MDC.putCloseable(RequestIdFilter.MDC_KEY, command.getIdempotencyKey())) {
-            PaymentOutcome outcome = banking.send(command);
-            if (outcome instanceof PaymentOutcome.Unknown unknown && !unknown.reachedBanking()) {
-                // Circuit open, bulkhead full or no token: nothing was sent, so this does not count as an attempt.
-                log.warn("{} for shipment {} not sent, retrying later: {}", command.getCommand(),
-                        command.getShipmentId(), unknown.reason());
-                outbox.refundAttempt(id, clock.instant().plus(properties.retryBackoff()));
-                return;
+        // outcome causes. The call to banking continues the trace that enqueued the command (ADR 0030).
+        Span span = traces.continueFrom(command.getTraceparent(), "payment-command send")
+                .tag("freightflow.payment_command.type", command.getCommand().name())
+                .tag("freightflow.payment_command.id", id.toString())
+                .tag("freightflow.shipment.id", command.getShipmentId().toString())
+                .tag("freightflow.payment_command.attempt", Integer.toString(command.getAttempts()));
+        if (command.getHoldId() != null) {
+            span.tag("freightflow.hold.id", command.getHoldId().toString());
+        }
+        try {
+            try (MDC.MDCCloseable ignored = MDC.putCloseable(RequestIdFilter.MDC_KEY, command.getIdempotencyKey());
+                 var scope = traces.inScope(span)) {
+                PaymentOutcome outcome = banking.send(command);
+                span.tag("freightflow.payment_command.outcome", outcome.getClass().getSimpleName());
+                if (outcome instanceof PaymentOutcome.Unknown unknown && !unknown.reachedBanking()) {
+                    // Circuit open, bulkhead full or no token: nothing was sent, so this does not count as an attempt.
+                    log.warn("{} for shipment {} not sent, retrying later: {}", command.getCommand(),
+                            command.getShipmentId(), unknown.reason());
+                    outbox.refundAttempt(id, clock.instant().plus(properties.retryBackoff()));
+                    return;
+                }
+                try {
+                    recorder.record(id, outcome);
+                } catch (RuntimeException ex) {
+                    // The lease runs out and the command is sent again with the same key: banking replays its answer.
+                    log.error("Could not record the outcome of payment command {}; it will be retried", id, ex);
+                }
             }
-            try {
-                recorder.record(id, outcome);
-            } catch (RuntimeException ex) {
-                // The lease runs out and the command is sent again with the same key: banking replays its answer.
-                log.error("Could not record the outcome of payment command {}; it will be retried", id, ex);
-            }
+        } finally {
+            span.end();
         }
     }
 }

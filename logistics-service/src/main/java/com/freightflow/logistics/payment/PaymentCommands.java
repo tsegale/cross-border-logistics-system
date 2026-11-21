@@ -1,5 +1,6 @@
 package com.freightflow.logistics.payment;
 
+import com.freightflow.logistics.telemetry.TraceContext;
 import com.freightflow.logistics.common.UuidV7;
 import com.freightflow.logistics.outbox.OutboxClaims;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -33,11 +34,13 @@ public class PaymentCommands {
     private final JdbcTemplate jdbcTemplate;
     private final OutboxClaims claims;
     private final Clock clock;
+    private final TraceContext traces;
 
-    public PaymentCommands(JdbcTemplate jdbcTemplate, OutboxClaims claims, Clock clock) {
+    public PaymentCommands(JdbcTemplate jdbcTemplate, OutboxClaims claims, Clock clock, TraceContext traces) {
         this.jdbcTemplate = jdbcTemplate;
         this.claims = claims;
         this.clock = clock;
+        this.traces = traces;
     }
 
     public static String idempotencyKey(UUID shipmentId, PaymentCommandType command) {
@@ -95,14 +98,15 @@ public class PaymentCommands {
         return jdbcTemplate.update("""
                 INSERT INTO shipment_payments (id, shipment_id, command, status, amount, currency, payer_account_number,
                                                idempotency_key, hold_id, expires_at, attempts, next_attempt_at,
-                                               created_at, updated_at, payer_organization_id, on_behalf_of_subject)
-                SELECT ?, s.id, ?, 'PENDING', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, s.payer_organization_id, s.booked_by_subject
+                                               created_at, updated_at, payer_organization_id, on_behalf_of_subject,
+                                               traceparent)
+                SELECT ?, s.id, ?, 'PENDING', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, s.payer_organization_id, s.booked_by_subject, ?
                 FROM shipments s WHERE s.id = ?
                 ON CONFLICT DO NOTHING
                 """,
                 UuidV7.next(clock), command.name(), amount, currency, payerAccountNumber, key, holdId,
                 expiresAt == null ? null : Timestamp.from(expiresAt),
-                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now), shipmentId);
+                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now), traces.current(), shipmentId);
     }
 
     /**

@@ -1,0 +1,21 @@
+# Exports traces and logs over OTLP to the collector (ADR 0030, ADR 0031): on with the observability compose profile
+# (infra/observability/observability.env sets SPRING_PROFILES_ACTIVE=otlp). A profile, not empty defaults in
+# application.yml: the log exporter is created whenever its endpoint property is set, and an empty one fails startup.
+management:
+  tracing:
+    export:
+      otlp:
+        enabled: true
+  logging:
+    export:
+      otlp:
+        enabled: true
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_ENDPOINT}/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTLP_ENDPOINT}/v1/logs

@@ -3,6 +3,7 @@ package com.freightflow.banking.events;
 import com.freightflow.banking.common.RequestIdFilter;
 import com.freightflow.banking.common.UuidV7;
 import com.freightflow.banking.security.Actor;
+import com.freightflow.banking.telemetry.TraceContext;
 import org.slf4j.MDC;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -32,15 +33,17 @@ public class EventOutbox {
 
     private final JdbcTemplate jdbcTemplate;
     private final Clock clock;
+    private final TraceContext traces;
 
-    public EventOutbox(JdbcTemplate jdbcTemplate, Clock clock) {
+    public EventOutbox(JdbcTemplate jdbcTemplate, Clock clock, TraceContext traces) {
         this.jdbcTemplate = jdbcTemplate;
         this.clock = clock;
+        this.traces = traces;
     }
 
     /** One claimed event, ready to send. */
     public record PendingEvent(UUID eventId, String topic, String type, UUID aggregateId, long sequence,
-                               String envelope, Instant occurredAt, int attempts) {
+                               String envelope, Instant occurredAt, int attempts, String traceparent) {
     }
 
     /**
@@ -63,10 +66,10 @@ public class EventOutbox {
                 aggregateId, sequence, EventEnvelope.EventActor.of(actor), requestId, payload);
         jdbcTemplate.update("""
                 INSERT INTO event_outbox (id, topic, event_type, aggregate_id, sequence, envelope, occurred_at,
-                                          attempts, next_attempt_at)
-                VALUES (?, ?, ?, ?, ?, ?::json, ?, 0, ?)
+                                          attempts, next_attempt_at, traceparent)
+                VALUES (?, ?, ?, ?, ?, ?::json, ?, 0, ?, ?)
                 """, envelope.eventId(), topic, type, aggregateId, sequence, JSON.writeValueAsString(envelope),
-                Timestamp.from(now), Timestamp.from(now));
+                Timestamp.from(now), Timestamp.from(now), traces.current());
         return envelope;
     }
 
@@ -91,11 +94,13 @@ public class EventOutbox {
                     LIMIT ?
                     FOR UPDATE SKIP LOCKED
                 )
-                RETURNING id, topic, event_type, aggregate_id, sequence, envelope::text AS envelope, occurred_at, attempts
+                RETURNING id, topic, event_type, aggregate_id, sequence, envelope::text AS envelope, occurred_at, attempts,
+                          traceparent
                 """,
                 (rs, row) -> new PendingEvent(rs.getObject("id", UUID.class), rs.getString("topic"),
                         rs.getString("event_type"), rs.getObject("aggregate_id", UUID.class), rs.getLong("sequence"),
-                        rs.getString("envelope"), rs.getTimestamp("occurred_at").toInstant(), rs.getInt("attempts")),
+                        rs.getString("envelope"), rs.getTimestamp("occurred_at").toInstant(), rs.getInt("attempts"),
+                        rs.getString("traceparent")),
                 Timestamp.from(now.plus(lease)), Timestamp.from(now), limit);
     }
 

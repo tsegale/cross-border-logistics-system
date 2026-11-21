@@ -1,5 +1,6 @@
 package com.freightflow.logistics.payment;
 
+import com.freightflow.logistics.telemetry.TraceContext;
 import com.freightflow.logistics.events.HoldEvent;
 import com.freightflow.logistics.events.ProcessedEvents;
 import com.freightflow.logistics.shipment.Shipment;
@@ -46,9 +47,12 @@ public class BankingHoldEvents {
     private final Counter unexpectedCaptures;
     private final Clock clock;
 
+    private final TraceContext traces;
+
     public BankingHoldEvents(ProcessedEvents processed, ShipmentRepository shipments, PaymentCommands outbox,
                              PaymentCommandRepository commands, HoldExpiryPolicy holdExpiry, MeterRegistry meters,
-                             Clock clock) {
+                             Clock clock, TraceContext traces) {
+        this.traces = traces;
         this.processed = processed;
         this.shipments = shipments;
         this.outbox = outbox;
@@ -63,6 +67,10 @@ public class BankingHoldEvents {
 
     @Transactional
     public void handle(HoldEvent event, String topic) {
+        // On the consumer span Kafka's observation continued from the record's traceparent (ADR 0030).
+        traces.tag("freightflow.event.type", event.type());
+        traces.tag("freightflow.event.id", event.eventId());
+        traces.tag("freightflow.hold.id", event.payload().hold().holdId());
         if (!processed.firstTime(event.eventId(), topic, event.type())) {
             count(event, "duplicate");
             return;

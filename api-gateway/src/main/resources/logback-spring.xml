@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Spring Boot's defaults (ECS JSON on the console, from logging.structured.format.console), plus OTLP log export
+     (ADR 0030). The appender stays idle until TelemetryConfig installs the SDK, and the SDK exports nothing unless the
+     otlp profile is on. -->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/structured-console-appender.xml"/>
+    <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+        <!-- The request id travels with every line, as in the console JSON. -->
+        <captureMdcAttributes>requestId</captureMdcAttributes>
+    </appender>
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="OTEL"/>
+    </root>
+</configuration>

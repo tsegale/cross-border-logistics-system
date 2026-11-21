@@ -15,7 +15,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "spring.datasource.hikari.connection-timeout=60000"
 })
 @AutoConfigureMockMvc
-@org.springframework.context.annotation.Import({TestSecurity.class, Funding.class})
+@org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing
+@org.springframework.context.annotation.Import({TestSecurity.class, Funding.class, TestSpans.class})
 @ImportTestcontainers(SharedContainers.class)
 @Testcontainers(disabledWithoutDocker = true)
 public abstract class IntegrationTest {

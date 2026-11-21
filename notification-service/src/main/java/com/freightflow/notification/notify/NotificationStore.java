@@ -2,6 +2,7 @@ package com.freightflow.notification.notify;
 
 import com.freightflow.notification.common.UuidV7;
 import com.freightflow.notification.security.Actor;
+import com.freightflow.notification.telemetry.TraceContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -35,15 +36,18 @@ public class NotificationStore {
     public record Notification(UUID id, UUID eventId, String eventType, NotificationKind kind, UUID organizationId,
                                UUID shipmentId, String recipient, String language, String subject, String bodyText,
                                String bodyHtml, Status status, int attempts, String lastError, Instant createdAt,
-                               Instant sentAt, int resendCount, Instant resentAt, String resentBySubject) {
+                               Instant sentAt, int resendCount, Instant resentAt, String resentBySubject,
+                               String traceparent) {
     }
 
     private final JdbcTemplate jdbcTemplate;
     private final Clock clock;
+    private final TraceContext traces;
 
-    public NotificationStore(JdbcTemplate jdbcTemplate, Clock clock) {
+    public NotificationStore(JdbcTemplate jdbcTemplate, Clock clock, TraceContext traces) {
         this.jdbcTemplate = jdbcTemplate;
         this.clock = clock;
+        this.traces = traces;
     }
 
     /** One email for one event and recipient; nothing if that pair exists already. Returns whether it was new. */
@@ -54,11 +58,12 @@ public class NotificationStore {
         return jdbcTemplate.update("""
                 INSERT INTO notifications (id, event_id, event_type, kind, organization_id, shipment_id, recipient,
                                            language, subject, body_text, body_html, status, attempts, next_attempt_at,
-                                           created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0, ?, ?)
+                                           created_at, traceparent)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0, ?, ?, ?)
                 ON CONFLICT (event_id, recipient) DO NOTHING
                 """, UuidV7.next(clock), eventId, eventType, kind.code(), organizationId, shipmentId, recipient,
-                language, email.subject(), email.text(), email.html(), Timestamp.from(now), Timestamp.from(now)) == 1;
+                language, email.subject(), email.text(), email.html(), Timestamp.from(now), Timestamp.from(now),
+                traces.current()) == 1;
     }
 
     /** Claims up to {@code limit} due emails: SENDING, leased, one attempt more ({@code FOR UPDATE SKIP LOCKED}). */
@@ -171,7 +176,8 @@ public class NotificationStore {
                 rs.getString("body_text"), rs.getString("body_html"), Status.valueOf(rs.getString("status")),
                 rs.getInt("attempts"), rs.getString("last_error"), rs.getTimestamp("created_at").toInstant(),
                 sentAt == null ? null : sentAt.toInstant(), rs.getInt("resend_count"),
-                resentAt == null ? null : resentAt.toInstant(), rs.getString("resent_by_subject"));
+                resentAt == null ? null : resentAt.toInstant(), rs.getString("resent_by_subject"),
+                rs.getString("traceparent"));
     }
 
     private static String truncate(String value) {

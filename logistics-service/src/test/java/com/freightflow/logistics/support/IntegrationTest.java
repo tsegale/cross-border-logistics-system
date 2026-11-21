@@ -24,7 +24,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "resilience4j.circuitbreaker.instances.banking.sliding-window-size=1000"
 })
 @AutoConfigureMockMvc
-@org.springframework.context.annotation.Import(TestSecurity.class)
+@org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing
+@org.springframework.context.annotation.Import({TestSecurity.class, TestSpans.class})
 @ImportTestcontainers(SharedContainers.class)
 @Testcontainers(disabledWithoutDocker = true)
 public abstract class IntegrationTest {

@@ -1,5 +1,6 @@
 package com.freightflow.notification.notify;
 
+import com.freightflow.notification.telemetry.TraceContext;
 import com.freightflow.notification.events.ConsumedEvent;
 import com.freightflow.notification.events.ProcessedEvents;
 import com.freightflow.notification.settings.NotificationSettings;
@@ -39,9 +40,12 @@ public class EventNotifier {
     private final MessageSource messages;
     private final MeterRegistry meters;
 
+    private final TraceContext traces;
+
     public EventNotifier(ProcessedEvents processed, ShipmentProjection shipments, SettingsStore settings,
                          NotificationStore notifications, EmailRenderer renderer, MessageSource messages,
-                         MeterRegistry meters) {
+                         MeterRegistry meters, TraceContext traces) {
+        this.traces = traces;
         this.processed = processed;
         this.shipments = shipments;
         this.settings = settings;
@@ -60,6 +64,10 @@ public class EventNotifier {
 
     @Transactional
     public void onEvent(ConsumedEvent event, String topic) {
+        // On the consumer span Kafka's observation continued from the record's traceparent (ADR 0030).
+        traces.tag("freightflow.event.type", event.type());
+        traces.tag("freightflow.event.id", event.eventId());
+        traces.tag("freightflow." + (topic.contains(".hold.") ? "hold" : "shipment") + ".id", event.aggregateId());
         if (!processed.firstTime(event.eventId(), topic, event.type())) {
             count(event, "duplicate");
             return;

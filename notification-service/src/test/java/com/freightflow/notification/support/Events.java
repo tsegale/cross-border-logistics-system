@@ -5,7 +5,9 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -40,16 +42,24 @@ public final class Events {
     /** A random UUID with version 7 and the RFC 9562 variant, as the envelope requires. */
     public static UUID uuidV7() {
         UUID random = UUID.randomUUID();
-        long msb = (random.getMostSignificantBits() & ~0xF000L) | 0x7000L;
+        // The first 48 bits are now in milliseconds, as a producer's are (RFC 9562).
+        long msb = (System.currentTimeMillis() << 16) | 0x7000L | (random.getMostSignificantBits() & 0x0FFFL);
         long lsb = (random.getLeastSignificantBits() & 0x3FFFFFFFFFFFFFFFL) | 0x8000000000000000L;
         return new UUID(msb, lsb);
     }
 
     /** Publishes as {@code user} (logistics writes shipment events, banking hold events: ADR 0022). */
     public static void publish(String user, String topic, String key, String value) {
+        publish(user, topic, key, value, Map.of());
+    }
+
+    /** With record headers, such as the {@code traceparent} a producer's relay sets (ADR 0030). */
+    public static void publish(String user, String topic, String key, String value, Map<String, String> headers) {
         try (KafkaProducer<String, String> producer = new KafkaProducer<>(SharedContainers.KAFKA.clientConfig(user),
                 new StringSerializer(), new StringSerializer())) {
-            producer.send(new ProducerRecord<>(topic, key, value)).get(30, TimeUnit.SECONDS);
+            ProducerRecord<String, String> record = new ProducerRecord<>(topic, key, value);
+            headers.forEach((name, header) -> record.headers().add(name, header.getBytes(StandardCharsets.UTF_8)));
+            producer.send(record).get(30, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new IllegalStateException("Could not publish to " + topic, e);
         }

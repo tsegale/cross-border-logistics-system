@@ -17,7 +17,9 @@ import java.util.regex.Pattern;
 /**
  * Puts the gateway's {@code X-Request-Id} (ADR 0015) into the log context as {@code requestId}, so it appears in
  * every ECS log line of the request, and echoes it on the response. A request that did not come through the gateway
- * gets a new id. Full tracing is Phase 5.
+ * gets a new id. The id is also on the request's server span as freightflow.request_id (ADR 0030):
+ * the trace id follows the work, across threads, the outbox and Kafka; the request id is what a caller
+ * quotes.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)

@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 /**
  * Gives every request an {@code X-Request-Id} (ADR 0015): the client's if it is valid, a new UUID otherwise. It is
  * forwarded upstream, returned on the response, and logged with the outcome of the request. banking and logistics
- * put it in their MDC. Full tracing is Phase 5.
+ * put it in their MDC. The id is also on the server span as freightflow.request_id (ADR 0030).
  */
 @Component
 public class RequestIdFilter implements WebFilter, Ordered {

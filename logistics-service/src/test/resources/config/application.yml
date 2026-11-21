@@ -21,3 +21,9 @@ spring:
         registration:
           banking:
             client-secret: test-only-secret
+# Spans reach TestSpans' in-memory exporter within 50 ms instead of the 5 s default (ADR 0030).
+management:
+  opentelemetry:
+    tracing:
+      export:
+        schedule-delay: 50ms

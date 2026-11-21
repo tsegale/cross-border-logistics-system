@@ -26,6 +26,9 @@ spring:
       ddl-auto: validate
   # Its own SCRAM user on the broker; the ACLs let it write only its own topics (ADR 0022).
   kafka:
+    # Producer and consumer spans, with traceparent in the record headers (ADR 0030).
+    template:
+      observation-enabled: true
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
     security:
       protocol: SASL_PLAINTEXT
@@ -146,6 +149,39 @@ springdoc:
   default-produces-media-type: application/json
 
 management:
+  # OpenTelemetry (ADR 0030). Every trace is kept by the service: sampling is the collector's (tail-based, ADR 0031).
+  # Nothing is exported unless the otlp profile is on (application-otlp.yml, the observability compose profile);
+  # trace and span ids still reach the logs and the outbox rows without it.
+  tracing:
+    sampling:
+      probability: 1.0
+    export:
+      otlp:
+        enabled: false
+  logging:
+    export:
+      otlp:
+        enabled: false
+  # Latency histograms for the RED dashboards and the SLOs, with a bucket on each threshold (docs/slo.md). Exemplars
+  # link a bucket to a trace that landed in it (ADR 0031).
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 100ms,250ms,500ms,1s,2s
+  # Metrics are scraped from /actuator/prometheus (with exemplars), not pushed over OTLP.
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  opentelemetry:
+    tracing:
+    # Follows the gateway's decision, which is to keep everything (ADR 0030).
+      sampler: parent-based-always-on
+    resource-attributes:
+      service.version: ${SERVICE_VERSION:dev}
+      deployment.environment.name: ${DEPLOYMENT_ENVIRONMENT:local}
   endpoints:
     web:
       exposure:
@@ -167,4 +203,9 @@ logging:
     ecs:
       service:
         name: ${spring.application.name}
-        version: ${SERVICE_VERSION:0.1.0}
+        version: ${SERVICE_VERSION:dev}
+    # The OpenTelemetry names, so a log line and its trace find each other in Grafana (ADR 0030).
+    json:
+      rename:
+        traceId: trace_id
+        spanId: span_id

@@ -1,5 +1,9 @@
 package com.freightflow.banking.events;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.freightflow.banking.telemetry.TraceContext;
 import com.freightflow.banking.account.Account;
 import com.freightflow.banking.approval.ApprovalRequest;
 import com.freightflow.banking.common.MoneyRounding;
@@ -12,6 +16,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /**
@@ -101,9 +108,13 @@ public class BankingEvents {
     // ------------------------------------------------------------------ publishing
 
     private final EventOutbox outbox;
+    private final TraceContext traces;
+    private final MeterRegistry meters;
 
-    public BankingEvents(EventOutbox outbox) {
+    public BankingEvents(EventOutbox outbox, TraceContext traces, MeterRegistry meters) {
         this.outbox = outbox;
+        this.traces = traces;
+        this.meters = meters;
     }
 
     public void accountOpened(Account account, Actor actor) {
@@ -113,6 +124,8 @@ public class BankingEvents {
     }
 
     public void journalEntryPosted(JournalEntry entry, List<PostingLine> postings, Actor actor) {
+        // The collector keeps every trace that moved money, whatever it samples of the rest (ADR 0031).
+        traces.tag("freightflow.money.moved", true);
         append(Type.JOURNAL_ENTRY_POSTED, entry.getId(), new JournalEntryPosted(entry.getId(),
                 entry.getEntryType().name(), entry.getReversesEntryId(), entry.getApprovalId(),
                 rate(entry.getFxRate()), postings), actor);
@@ -152,6 +165,56 @@ public class BankingEvents {
 
     private void append(Type type, UUID aggregateId, Object payload, Actor actor) {
         outbox.append(type.topic(), type.typeName(), type.schemaVersion(), aggregateId, payload, actor);
+        // Business metrics (ADR 0031), counted once the change has committed: a rollback counts nothing.
+        if (type.topic().equals("freightflow.hold.v1")) {
+            String event = type.typeName().substring("hold.".length());
+            afterCommit(() -> meters.counter("freightflow.holds", "event", event).increment());
+        }
+        if (payload instanceof JournalEntryPosted posted) {
+            countMoney(posted);
+        }
+        // The aggregate's id on the span that changed it, as freightflow.hold.id, freightflow.journal_entry.id, ...
+        // (ADR 0030); ids only, never personal data (ADR 0024).
+        traces.tag("freightflow." + aggregate(type) + ".id", aggregateId);
+        traces.event("freightflow.event " + type.typeName());
+    }
+
+    /**
+     * {@code freightflow.money.moved{currency, entry_type}}: the debit side of each posted entry, per currency, in
+     * that currency's units. A gauge of money for dashboards, not the ledger: the ledger is the record (ADR 0004).
+     */
+    private void countMoney(JournalEntryPosted posted) {
+        Map<String, BigDecimal> moved = new TreeMap<>();
+        for (PostingLine line : posted.postings()) {
+            BigDecimal amount = new BigDecimal(line.amount());
+            if (amount.signum() > 0) {
+                moved.merge(line.currency(), amount, BigDecimal::add);
+            }
+        }
+        String entryType = posted.entryType().toLowerCase(Locale.ROOT);
+        afterCommit(() -> moved.forEach((currency, amount) -> {
+            meters.counter("freightflow.money.moved", "currency", currency, "entry_type", entryType)
+                    .increment(amount.doubleValue());
+            meters.counter("freightflow.journal.entries", "entry_type", entryType).increment();
+        }));
+    }
+
+    private static void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
+    }
+
+    /** freightflow.journal-entry.v1 -> journal_entry. */
+    static String aggregate(Type type) {
+        return type.topic().split("\\.")[1].replace('-', '_');
     }
 
     private static HoldView view(Hold hold, UUID organizationId) {

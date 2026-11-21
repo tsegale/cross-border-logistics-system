@@ -1,5 +1,6 @@
 package com.freightflow.logistics.events;
 
+import com.freightflow.logistics.telemetry.TraceContext;
 import com.freightflow.logistics.common.RequestIdFilter;
 import com.freightflow.logistics.common.UuidV7;
 import com.freightflow.logistics.outbox.OutboxClaims;
@@ -37,16 +38,18 @@ public class EventOutbox {
     private final JdbcTemplate jdbcTemplate;
     private final OutboxClaims claims;
     private final Clock clock;
+    private final TraceContext traces;
 
-    public EventOutbox(JdbcTemplate jdbcTemplate, OutboxClaims claims, Clock clock) {
+    public EventOutbox(JdbcTemplate jdbcTemplate, OutboxClaims claims, Clock clock, TraceContext traces) {
         this.jdbcTemplate = jdbcTemplate;
         this.claims = claims;
         this.clock = clock;
+        this.traces = traces;
     }
 
     /** One claimed event, ready to send. */
     public record PendingEvent(UUID eventId, String topic, String type, UUID aggregateId, long sequence,
-                               String envelope, Instant occurredAt, int attempts) {
+                               String envelope, Instant occurredAt, int attempts, String traceparent) {
     }
 
     /**
@@ -69,10 +72,10 @@ public class EventOutbox {
                 aggregateId, sequence, EventEnvelope.EventActor.of(actor), requestId, payload);
         jdbcTemplate.update("""
                 INSERT INTO event_outbox (id, topic, event_type, aggregate_id, sequence, envelope, occurred_at,
-                                          attempts, next_attempt_at)
-                VALUES (?, ?, ?, ?, ?, ?::json, ?, 0, ?)
+                                          attempts, next_attempt_at, traceparent)
+                VALUES (?, ?, ?, ?, ?, ?::json, ?, 0, ?, ?)
                 """, envelope.eventId(), topic, type, aggregateId, sequence, JSON.writeValueAsString(envelope),
-                Timestamp.from(now), Timestamp.from(now));
+                Timestamp.from(now), Timestamp.from(now), traces.current());
         return envelope;
     }
 
@@ -83,10 +86,12 @@ public class EventOutbox {
      */
     public List<PendingEvent> claim(int limit, Duration lease) {
         return claims.claim(TABLE, limit, lease,
-                "id, topic, event_type, aggregate_id, sequence, envelope::text AS envelope, occurred_at, attempts",
+                "id, topic, event_type, aggregate_id, sequence, envelope::text AS envelope, occurred_at, attempts, "
+                        + "traceparent",
                 (rs, row) -> new PendingEvent(rs.getObject("id", UUID.class), rs.getString("topic"),
                         rs.getString("event_type"), rs.getObject("aggregate_id", UUID.class), rs.getLong("sequence"),
-                        rs.getString("envelope"), rs.getTimestamp("occurred_at").toInstant(), rs.getInt("attempts")));
+                        rs.getString("envelope"), rs.getTimestamp("occurred_at").toInstant(), rs.getInt("attempts"),
+                        rs.getString("traceparent")));
     }
 
     /** Only after the broker acknowledged: a row is never marked for an event that might not be on the topic. */

@@ -5,14 +5,22 @@ import com.freightflow.notification.security.Caller;
 import com.freightflow.notification.support.Events;
 import com.freightflow.notification.support.IntegrationTest;
 import com.freightflow.notification.support.Mailpit;
+import com.freightflow.notification.support.TelemetryLeaks;
 import com.freightflow.notification.support.TestCallers;
+import com.freightflow.notification.support.TestSpans;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.trace.data.SpanData;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -26,6 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * From event to inbox (ADR 0027): logistics' and banking's events, published to the real topics as their producers,
  * become emails in the organisation's language that arrive at Mailpit, once per event and recipient.
  */
+@ExtendWith(OutputCaptureExtension.class)
 class NotificationFlowIntegrationTest extends IntegrationTest {
 
     @Autowired
@@ -33,6 +42,34 @@ class NotificationFlowIntegrationTest extends IntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    /**
+     * The email is part of the booking's trace (ADR 0030): Kafka's consumer span continues the record's traceparent,
+     * the notification row keeps it, and the send is a span of the same trace. The recipient is in neither the spans
+     * nor the logs (ADR 0024).
+     */
+    @Test
+    void theEmailIsSentInTheTraceOfTheEventAndTheRecipientStaysOutOfTelemetry(CapturedOutput output) throws Exception {
+        Org org = org("en");
+        UUID shipment = UUID.randomUUID();
+        String traceId = UUID.randomUUID().toString().replace("-", "");
+        String booked = booked(org, shipment, "FF-000000B4-8");
+
+        Events.publish("logistics", EventTopics.SHIPMENT, shipment.toString(), booked,
+                Map.of("traceparent", "00-" + traceId + "-00f067aa0ba902b7-01"));
+
+        await(30, () -> first(org.recipient()));
+        assertThat(jdbcTemplate.queryForObject("SELECT traceparent FROM notifications WHERE shipment_id = ?",
+                String.class, shipment)).contains(traceId);
+        List<SpanData> spans = TestSpans.trace(traceId, found -> TestSpans.names(found).contains("email send"));
+        assertThat(spans).extracting(SpanData::getKind).contains(SpanKind.CONSUMER);
+        assertThat(spans).filteredOn(span -> span.getName().equals("email send")).singleElement()
+                .satisfies(span -> assertThat(span.getAttributes().asMap().toString())
+                        .contains("freightflow.notification.kind=shipment-booked", "freightflow.shipment.id=" + shipment)
+                        .doesNotContain(org.recipient()));
+        assertThat(TelemetryLeaks.in(spans)).isEmpty();
+        assertThat(TelemetryLeaks.in(output.getAll())).isEmpty();
+    }
 
     @Test
     void aGermanOrganisationGetsSendungGebuchtFormattedForGermany() throws Exception {

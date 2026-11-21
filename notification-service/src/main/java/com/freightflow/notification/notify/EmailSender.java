@@ -3,8 +3,11 @@ package com.freightflow.notification.notify;
 import com.freightflow.notification.config.NotificationProperties;
 import com.freightflow.notification.notify.NotificationStore.Notification;
 import com.freightflow.notification.notify.NotificationStore.Status;
+import com.freightflow.notification.telemetry.Redaction;
+import com.freightflow.notification.telemetry.TraceContext;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Span;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
@@ -38,12 +41,14 @@ public class EmailSender {
     private final MeterRegistry meters;
     private final Clock clock;
     private final boolean enabled;
+    private final TraceContext traces;
 
     public EmailSender(NotificationStore store, JavaMailSender mail, NotificationProperties properties,
-                       MeterRegistry meters, Clock clock,
+                       MeterRegistry meters, Clock clock, TraceContext traces,
                        @org.springframework.beans.factory.annotation.Value("${freightflow.notifications.sender-enabled:true}")
                        boolean enabled) {
         this.store = store;
+        this.traces = traces;
         this.mail = mail;
         this.properties = properties;
         this.meters = meters;
@@ -82,30 +87,77 @@ public class EmailSender {
         return sent;
     }
 
+    /**
+     * Sends one email in the trace of the event that queued it (ADR 0030). The span carries the notification, its
+     * kind and event, never the recipient or the body (ADR 0024).
+     */
     private boolean send(Notification notification) {
-        try {
-            mail.send(message(notification));
-        } catch (MailException | MessagingException ex) {
-            boolean giveUp = notification.attempts() >= properties.maxAttempts();
-            Instant retryAt = clock.instant().plus(backoff(notification.attempts()));
-            store.refused(notification.id(), ex.toString(), retryAt, giveUp);
-            meters.counter("freightflow.emails.failed", "kind", notification.kind().code(),
-                    "final", Boolean.toString(giveUp)).increment();
-            if (giveUp) {
-                log.error("Email {} ({}) failed {} times, giving up: {}", notification.id(),
-                        notification.kind().code(), notification.attempts(), ex.toString());
-            } else {
-                log.warn("Email {} ({}) refused, attempt {}, retrying at {}: {}", notification.id(),
-                        notification.kind().code(), notification.attempts(), retryAt, ex.toString());
-            }
-            return false;
+        Span span = traces.continueFrom(notification.traceparent(), "email send")
+                .tag("freightflow.notification.id", notification.id().toString())
+                .tag("freightflow.notification.kind", notification.kind().code())
+                .tag("freightflow.event.type", notification.eventType())
+                .tag("freightflow.event.id", notification.eventId().toString())
+                .tag("freightflow.email.attempt", Integer.toString(notification.attempts()));
+        if (notification.shipmentId() != null) {
+            span.tag("freightflow.shipment.id", notification.shipmentId().toString());
         }
-        store.sent(notification.id());
-        meters.counter("freightflow.emails.sent", "kind", notification.kind().code(),
-                "language", notification.language()).increment();
-        meters.timer("freightflow.emails.delay", "kind", notification.kind().code())
-                .record(Duration.between(notification.createdAt(), clock.instant()));
-        return true;
+        try (var scope = traces.inScope(span)) {
+            try {
+                mail.send(message(notification));
+            } catch (MailException | MessagingException ex) {
+                // A refusal quotes the recipient: never into a log line or a span (ADR 0024).
+                String error = Redaction.emails(ex.toString());
+                boolean giveUp = notification.attempts() >= properties.maxAttempts();
+                Instant retryAt = clock.instant().plus(backoff(notification.attempts()));
+                store.refused(notification.id(), ex.toString(), retryAt, giveUp);
+                meters.counter("freightflow.emails.failed", "kind", notification.kind().code(),
+                        "final", Boolean.toString(giveUp)).increment();
+                span.tag("freightflow.email.outcome", giveUp ? "failed" : "refused");
+                span.error(new MailRefusedException(error));
+                if (giveUp) {
+                    log.error("Email {} ({}) failed {} times, giving up: {}", notification.id(),
+                            notification.kind().code(), notification.attempts(), error);
+                } else {
+                    log.warn("Email {} ({}) refused, attempt {}, retrying at {}: {}", notification.id(),
+                            notification.kind().code(), notification.attempts(), retryAt, error);
+                }
+                return false;
+            }
+            store.sent(notification.id());
+            span.tag("freightflow.email.outcome", "sent");
+            meters.counter("freightflow.emails.sent", "kind", notification.kind().code(),
+                    "language", notification.language()).increment();
+            meters.timer("freightflow.emails.delay", "kind", notification.kind().code())
+                    .record(Duration.between(notification.createdAt(), clock.instant()));
+            // From the change that caused the email to the SMTP server's acceptance (docs/slo.md): the event id is a
+            // UUIDv7, whose first 48 bits are the time the producer wrote it, in its transaction (ADR 0023).
+            Instant now = clock.instant();
+            writtenAt(notification.eventId())
+                    // A producer's clock may run a little ahead; anything outside a plausible range is not timed.
+                    .filter(written -> written.isAfter(now.minus(Duration.ofDays(30))) && written.isBefore(now.plusSeconds(60)))
+                    .ifPresent(written -> meters.timer("freightflow.emails.end_to_end", "kind", notification.kind().code())
+                            .record(Duration.between(written, now).isNegative() ? Duration.ZERO : Duration.between(written, now)));
+            return true;
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * The millisecond a UUIDv7 was made (RFC 9562, section 5.7); empty for any other version, whose first bits are no
+     * time. The producers' event ids are v7 (ADR 0023).
+     */
+    static java.util.Optional<Instant> writtenAt(java.util.UUID eventId) {
+        return eventId.version() == 7
+                ? java.util.Optional.of(Instant.ofEpochMilli(eventId.getMostSignificantBits() >>> 16))
+                : java.util.Optional.empty();
+    }
+
+    /** The server's refusal, addresses taken out, as the span's error. */
+    static final class MailRefusedException extends RuntimeException {
+        MailRefusedException(String message) {
+            super(message, null, false, false);
+        }
     }
 
     private MimeMessage message(Notification notification) throws MessagingException {

@@ -5,6 +5,7 @@ import com.freightflow.notification.support.Events;
 import com.freightflow.notification.support.IntegrationTest;
 import com.freightflow.notification.support.Mailpit;
 import com.freightflow.notification.support.TestCallers;
+import com.freightflow.notification.telemetry.TraceContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
@@ -56,6 +57,9 @@ class EmailSenderIntegrationTest extends IntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private TraceContext traces;
 
     @Test
     void aRefusingServerIsRetriedWithBackoffThenTheEmailIsMarkedFailed() {
@@ -173,7 +177,7 @@ class EmailSenderIntegrationTest extends IntegrationTest {
     private EmailSender sender(JavaMailSender smtp, int maxAttempts, Duration lease) {
         NotificationProperties properties = new NotificationProperties(null, Duration.ofMillis(100), 50, lease,
                 maxAttempts, Duration.ofMillis(10), Duration.ofMillis(20), Duration.ofDays(90));
-        return new EmailSender(store, smtp, properties, new SimpleMeterRegistry(), clock, false);
+        return new EmailSender(store, smtp, properties, new SimpleMeterRegistry(), clock, traces, false);
     }
 
     /** An SMTP client whose server never accepts: nothing is delivered. */

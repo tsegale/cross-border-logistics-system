@@ -88,6 +88,10 @@ public class PaymentCommand {
     @Column(name = "problem_detail", length = 1000)
     private String problemDetail;
 
+    /** The trace of the transaction that enqueued the command (ADR 0030); written by PaymentCommands only. */
+    @Column(name = "traceparent", length = 55, insertable = false, updatable = false)
+    private String traceparent;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -154,6 +158,10 @@ public class PaymentCommand {
 
     public BigDecimal roundedAmount() {
         return MoneyRounding.roundToMinorUnits(amount, currency);
+    }
+
+    public String getTraceparent() {
+        return traceparent;
     }
 
     public UUID getId() {

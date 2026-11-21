@@ -12,6 +12,7 @@ import com.freightflow.banking.support.IntegrationTest;
 import com.freightflow.banking.support.KafkaBroker;
 import com.freightflow.banking.support.SharedContainers;
 import com.freightflow.banking.support.TestCallers;
+import com.freightflow.banking.telemetry.TraceContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -74,6 +75,9 @@ class EventRelayIntegrationTest extends IntegrationTest {
 
     @Autowired
     private EventOutbox outbox;
+
+    @Autowired
+    private TraceContext traces;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -166,7 +170,7 @@ class EventRelayIntegrationTest extends IntegrationTest {
         UUID first = jdbcTemplate.queryForObject("SELECT id FROM event_outbox WHERE aggregate_id = ? AND sequence = 1",
                 UUID.class, hold);
         AtomicBoolean acknowledged = new AtomicBoolean();
-        EventOutbox dying = new EventOutbox(jdbcTemplate, clock) {
+        EventOutbox dying = new EventOutbox(jdbcTemplate, clock, traces) {
             @Override
             public void markPublished(List<UUID> eventIds) {
                 // A send the broker did not acknowledge in time (a slow runner) is not the case under test: only an
@@ -299,7 +303,7 @@ class EventRelayIntegrationTest extends IntegrationTest {
         admin.setOperationTimeout(3);
         // The topics are the context's NewTopic beans (EventTopics), as in the running service.
         admin.setApplicationContext(context);
-        return new EventRelay(store, template, admin, properties, clock, new SimpleMeterRegistry());
+        return new EventRelay(store, template, admin, properties, clock, new SimpleMeterRegistry(), traces);
     }
 
     /** Runs the relay until every event of the aggregate is acknowledged (leftovers of other tests go along). */

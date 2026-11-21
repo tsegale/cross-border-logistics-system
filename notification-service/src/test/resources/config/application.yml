@@ -7,3 +7,9 @@ freightflow:
   security:
     issuer-uri: http://keycloak.test/realms/freightflow
     jwk-set-uri: http://127.0.0.1:1/certs
+# Spans reach TestSpans' in-memory exporter within 50 ms instead of the 5 s default (ADR 0030).
+management:
+  opentelemetry:
+    tracing:
+      export:
+        schedule-delay: 50ms
