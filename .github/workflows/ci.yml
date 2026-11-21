@@ -32,7 +32,7 @@ jobs:
         if: matrix.service == 'logistics-service'
         run: docker build -t freightflow-banking-service:latest banking-service
       # Unit tests plus Testcontainers integration tests (Docker is available on GitHub-hosted runners).
-      - run: ./mvnw -B -ntp verify
+      - run: ./mvnw -B -ntp -s ../.github/maven-settings.xml verify
         working-directory: ${{ matrix.service }}
 
   compose:

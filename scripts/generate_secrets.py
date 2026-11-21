@@ -85,10 +85,12 @@ def main() -> None:
     for name in FILES:
         path = SECRETS_DIR / name
         if not path.exists():
-            _mounted(path, _value() + "\n")
+            _mounted(path, _value())
             added += 1
         else:
-            os.chmod(path, 0o644)  # files made by an earlier version were 0600
+            # No trailing newline: Postgres and the shell scripts strip one, the collector's ${file:} provider keeps it
+            # as part of the password (ADR 0031). Files made by an earlier version were 0600 and ended in one.
+            _mounted(path, path.read_text(encoding="utf-8").strip())
     env = read_env_file()
     for key in KEYCLOAK_GENERATED:
         if key not in env:
