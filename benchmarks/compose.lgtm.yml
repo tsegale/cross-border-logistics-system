@@ -1,0 +1,23 @@
+# Benchmark only (ADR 0032): grafana/otel-lgtm in place of the separate observability stack, to compare their memory
+# under the same workload. The services send traces, logs and (here only) metrics over OTLP to its built-in collector.
+#   docker compose --env-file .env --env-file infra/observability/observability.env -f docker-compose.yml \
+#     -f benchmarks/compose.bench.yml -f benchmarks/compose.lgtm.yml --profile lgtm up -d --wait
+x-lgtm-telemetry: &lgtm-telemetry
+  OTLP_ENDPOINT: http://lgtm:4318
+  MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "true"
+  MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://lgtm:4318/v1/metrics
+  MANAGEMENT_OTLP_METRICS_EXPORT_STEP: 15s
+
+services:
+  lgtm:
+    profiles: [lgtm]
+    image: grafana/otel-lgtm:0.41.1
+
+  banking-service:
+    environment: *lgtm-telemetry
+  logistics-service:
+    environment: *lgtm-telemetry
+  notification-service:
+    environment: *lgtm-telemetry
+  api-gateway:
+    environment: *lgtm-telemetry

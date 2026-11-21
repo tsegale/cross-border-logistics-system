@@ -1,0 +1,52 @@
+# Loki 3, single binary, filesystem storage (ADR 0032): logs from the collector over OTLP (/otlp/v1/logs).
+# service.name and deployment.environment.name become the labels service_name and deployment_environment_name;
+# trace_id, span_id and requestId arrive as structured metadata, so a trace's lines are
+#   {service_name="logistics-service"} | trace_id="<id>"
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2026-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  allow_structured_metadata: true
+  # Logs of a week: enough to follow last week's incident, little enough for a laptop.
+  retention_period: 168h
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 32
+
+analytics:
+  reporting_enabled: false

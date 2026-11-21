@@ -27,7 +27,7 @@ for attempt in $(seq 1 60); do
   sleep 2
 done
 
-for service in banking logistics notification; do
+for service in banking logistics notification monitoring; do
   secret="/run/secrets/kafka_${service}_password"
   if [[ ! -r "$secret" ]]; then
     echo "kafka-init: no ${secret}, skipping user ${service}"
@@ -83,4 +83,12 @@ for type in LITERAL PREFIXED; do
   done
   unset -n owned readers groups
 done
+# The observability collector's user (ADR 0031): describes the cluster, every topic and every group, so it can
+# read consumer lag and topic offsets. It reads no record and writes nothing.
+if [[ -r /run/secrets/kafka_monitoring_password ]]; then
+  acl --allow-principal User:monitoring --cluster --operation Describe
+  acl --allow-principal User:monitoring --topic '*' --operation Describe --operation DescribeConfigs
+  acl --allow-principal User:monitoring --group '*' --operation Describe
+  echo "kafka-init: monitoring describes the cluster, every topic and every group"
+fi
 echo "kafka-init: done"

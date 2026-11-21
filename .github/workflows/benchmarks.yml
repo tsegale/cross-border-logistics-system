@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       suites:
-        description: "Comma-separated: transfers, hot-accounts, payment-flow, system-balance, events, cdc"
+        description: "Comma-separated: transfers, hot-accounts, payment-flow, system-balance, events, cdc, observability, lgtm"
         default: "transfers,hot-accounts,payment-flow,system-balance,events"
         required: true
       rounds:
@@ -162,6 +162,34 @@ jobs:
                  $COMPOSE logs --no-log-prefix debezium | grep -E '"level":"(ERROR|WARN)"' | head -40;
                  $COMPOSE logs --no-log-prefix debezium | head -60; exit 1; }
           { echo; echo "## Relay against Debezium"; echo; echo '```'; cat benchmarks/out/cdc/cdc.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      # The observability stack's memory under the events workload (ADR 0032), then grafana/otel-lgtm in its place.
+      - name: Observability stack under the events workload (ADR 0032)
+        if: contains(inputs.suites, 'observability')
+        env:
+          OBS: docker compose --env-file .env --env-file infra/observability/observability.env -f docker-compose.yml -f benchmarks/compose.bench.yml --profile observability
+        run: |
+          mkdir -p benchmarks/out/observability
+          set -o pipefail
+          $OBS up -d --wait
+          COMPOSE="$OBS" nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/obs.stop" --json benchmarks/out/observability/memory.json > benchmarks/out/observability/memory.md 2>&1 &
+          COMPOSE="$OBS" python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 0 --json benchmarks/out/observability/events.json 2>&1 | tee benchmarks/out/observability/events.log
+          touch "$RUNNER_TEMP/obs.stop"; for _ in $(seq 60); do [ -s benchmarks/out/observability/memory.json ] && break; sleep 1; done
+          { echo; echo "## Observability stack"; echo; cat benchmarks/out/observability/memory.md; } >> "$GITHUB_STEP_SUMMARY"
+          $OBS rm -sf otel-collector tempo loki prometheus alertmanager grafana
+
+      - name: grafana/otel-lgtm under the same workload (ADR 0032)
+        if: contains(inputs.suites, 'lgtm')
+        env:
+          LGTM: docker compose --env-file .env --env-file infra/observability/observability.env -f docker-compose.yml -f benchmarks/compose.bench.yml -f benchmarks/compose.lgtm.yml --profile lgtm
+        run: |
+          mkdir -p benchmarks/out/lgtm
+          set -o pipefail
+          $LGTM up -d --wait
+          COMPOSE="$LGTM" nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/lgtm.stop" --json benchmarks/out/lgtm/memory.json > benchmarks/out/lgtm/memory.md 2>&1 &
+          COMPOSE="$LGTM" python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 0 --json benchmarks/out/lgtm/events.json 2>&1 | tee benchmarks/out/lgtm/events.log
+          touch "$RUNNER_TEMP/lgtm.stop"; for _ in $(seq 60); do [ -s benchmarks/out/lgtm/memory.json ] && break; sleep 1; done
+          { echo; echo "## grafana/otel-lgtm"; echo; cat benchmarks/out/lgtm/memory.md; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Memory peaks
         if: always()

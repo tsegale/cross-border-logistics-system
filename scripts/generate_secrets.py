@@ -32,6 +32,8 @@ FILES = (
     "kafka_banking_password",
     "kafka_logistics_password",
     "kafka_notification_password",
+    # The observability collector reads consumer lag as this user, describe-only (ADR 0031).
+    "kafka_monitoring_password",
     "notification_db_password",
     "smtp_password",
 )

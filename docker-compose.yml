@@ -131,6 +131,11 @@ services:
     mem_limit: 512m
     build: ./banking-service
     environment:
+      # OpenTelemetry (ADR 0030): exported only with infra/observability/observability.env (the otlp profile).
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-default}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://otel-collector:4318}
+      SERVICE_VERSION: ${SERVICE_VERSION:-dev}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       # Heap 45% of the 512m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
       JAVA_OPTS: >-
         -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
@@ -142,6 +147,8 @@ services:
       TRANSFER_LOCKING_STRATEGY: ${TRANSFER_LOCKING_STRATEGY:-pessimistic}
       # locked | unlocked | sharded (ADR 0010); unset keeps the service default.
       SYSTEM_ACCOUNT_POSTING_MODE: ${SYSTEM_ACCOUNT_POSTING_MODE:-unlocked}
+      # The scheduled ledger reconciliation (ADR 0031); the alert fire drill turns it off to see it noticed.
+      FREIGHTFLOW_BANKING_RECONCILIATION_ENABLED: ${FREIGHTFLOW_BANKING_RECONCILIATION_ENABLED:-true}
       # banking validates the relayed token itself, for its own audience (ADR 0017).
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
@@ -171,6 +178,11 @@ services:
     mem_limit: 512m
     build: ./logistics-service
     environment:
+      # OpenTelemetry (ADR 0030): exported only with infra/observability/observability.env (the otlp profile).
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-default}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://otel-collector:4318}
+      SERVICE_VERSION: ${SERVICE_VERSION:-dev}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       # Heap 50% of the 512m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
       JAVA_OPTS: >-
         -XX:MaxRAMPercentage=50 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
@@ -223,6 +235,11 @@ services:
     mem_limit: 320m
     build: ./api-gateway
     environment:
+      # OpenTelemetry (ADR 0030): exported only with infra/observability/observability.env (the otlp profile).
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-default}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://otel-collector:4318}
+      SERVICE_VERSION: ${SERVICE_VERSION:-dev}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       # Heap 45% of the 320m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
       JAVA_OPTS: >-
         -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
@@ -265,6 +282,7 @@ services:
   # Off by default: then every request has to come through the gateway (ADR 0019).
   debug-ports:
     profiles: [debug]
+    mem_limit: 32m
     image: alpine/socat:1.8.0.3
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -318,7 +336,8 @@ services:
     environment:
       # The CLI tools (kafka-configs, kafka-acls) need little heap.
       KAFKA_HEAP_OPTS: -Xmx128m
-    secrets: [kafka_admin_password, kafka_banking_password, kafka_logistics_password, kafka_notification_password]
+    secrets: [kafka_admin_password, kafka_banking_password, kafka_logistics_password, kafka_notification_password,
+              kafka_monitoring_password]
     volumes:
       - ./infra/kafka:/etc/freightflow/kafka:ro
     depends_on:
@@ -348,6 +367,11 @@ services:
     mem_limit: 352m
     build: ./notification-service
     environment:
+      # OpenTelemetry (ADR 0030): exported only with infra/observability/observability.env (the otlp profile).
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-default}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://otel-collector:4318}
+      SERVICE_VERSION: ${SERVICE_VERSION:-dev}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       # Heap 45% of the 352m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
       JAVA_OPTS: >-
         -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
@@ -384,6 +408,114 @@ services:
       start_period: 420s
       start_interval: 3s
 
+  # ---------------- Observability (--profile observability, ADR 0032) ----------------
+  #   docker compose --env-file .env --env-file infra/observability/observability.env --profile observability up -d
+  # The services send traces and logs to the collector, never to a backend (ADR 0031); Prometheus scrapes their
+  # metrics. Grafana on 127.0.0.1:3000; Prometheus, Tempo, Loki and Alertmanager on 127.0.0.1 for the CI checks.
+  otel-collector:
+    profiles: [observability]
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    mem_limit: 192m
+    # Root, for the Docker socket the docker_stats receiver reads (container memory against its limit). Read-only
+    # mount; the trade-off is in ADR 0031.
+    user: "0"
+    environment:
+      GOMEMLIMIT: 150MiB
+      TAIL_SAMPLING_PERCENTAGE: ${TAIL_SAMPLING_PERCENTAGE:-100}
+      BANKING_DB_USER: ${BANKING_DB_USER:?set in .env}
+      LOGISTICS_DB_USER: ${LOGISTICS_DB_USER:?set in .env}
+      NOTIFICATION_DB_USER: ${NOTIFICATION_DB_USER:?set in .env}
+    secrets: [banking_db_password, logistics_db_password, notification_db_password, kafka_monitoring_password]
+    volumes:
+      - ./infra/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+      prometheus:
+        condition: service_started
+
+  tempo:
+    profiles: [observability]
+    image: grafana/tempo:3.1.1
+    command: ["-target=all", "-config.file=/etc/tempo.yaml"]
+    mem_limit: 384m
+    user: "0"
+    volumes:
+      - ./infra/observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "127.0.0.1:3200:3200"
+
+  loki:
+    profiles: [observability]
+    image: grafana/loki:3.7.10
+    command: ["-config.file=/etc/loki/config.yaml"]
+    mem_limit: 256m
+    volumes:
+      - ./infra/observability/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.16.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      # The collector's infrastructure metrics and Tempo's span metrics arrive by remote write.
+      - --web.enable-remote-write-receiver
+      # Exemplars: a latency bucket keeps the trace id of a request that landed in it (ADR 0031).
+      - --enable-feature=exemplar-storage
+    mem_limit: 384m
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  alertmanager:
+    profiles: [observability]
+    image: prom/alertmanager:v0.35.0
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
+    mem_limit: 64m
+    secrets: [smtp_password]
+    volumes:
+      - ./infra/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "127.0.0.1:9093:9093"
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:13.2.6
+    mem_limit: 256m
+    environment:
+      # Local profile: anyone on 127.0.0.1 may look, nobody may change anything (dashboards are files).
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+
 secrets:
   # Generated by scripts/generate_secrets.py into secrets/ (git-ignored).
   banking_db_password:
@@ -406,6 +538,8 @@ secrets:
     file: ./secrets/notification_db_password
   smtp_password:
     file: ./secrets/smtp_password
+  kafka_monitoring_password:
+    file: ./secrets/kafka_monitoring_password
 
 volumes:
   banking-db-data:
@@ -413,3 +547,6 @@ volumes:
   keycloak-db-data:
   kafka-data:
   notification-db-data:
+  tempo-data:
+  loki-data:
+  prometheus-data:
