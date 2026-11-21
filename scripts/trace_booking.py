@@ -127,13 +127,21 @@ def loki_lines(trace_id: str, started: float) -> list[tuple[str, str]]:
     query = urllib.parse.urlencode({"query": f'{{service_name=~".+"}} | trace_id="{trace_id}"', "limit": 1000,
                                     "start": int((started - 60) * 1e9), "end": int((time.time() + 600) * 1e9)})
 
+    seen: set[str] = set()
+
     def found():
         result = get(f"{LOKI}/loki/api/v1/query_range?{query}")["data"]["result"]
         lines = [(stream["stream"].get("service_name", "?"), value[1]) for stream in result
                  for value in stream["values"]]
-        return lines if len({service for service, _ in lines}) >= 3 else None
+        seen.update(service for service, _ in lines)
+        return lines if len(seen) >= 3 else None
 
-    return wait("the trace's log lines in Loki", 90, found)
+    try:
+        # Log batches leave every second, and Loki makes them queryable a few seconds later; a cold Loki, longer.
+        return wait("the trace's log lines in Loki", 180, found)
+    except SystemExit:
+        print(f"trace_booking: Loki had lines of the trace only from {sorted(seen)}", file=sys.stderr)
+        raise
 
 
 def prometheus_checks() -> dict:
