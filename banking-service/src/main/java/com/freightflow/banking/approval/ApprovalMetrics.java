@@ -1,5 +1,6 @@
 package com.freightflow.banking.approval;
 
+import com.freightflow.banking.telemetry.BoundedGauge;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,14 +26,18 @@ public class ApprovalMetrics {
     public ApprovalMetrics(JdbcTemplate jdbcTemplate, Clock clock, MeterRegistry meters) {
         this.jdbcTemplate = jdbcTemplate;
         this.clock = clock;
-        Gauge.builder("freightflow.approvals.pending", this, ApprovalMetrics::pending)
+        Gauge.builder("freightflow.approvals.pending", new BoundedGauge(this::pending), BoundedGauge::value)
+                .strongReference(true)
                 .description("Approval requests waiting for a second operator")
                 .register(meters);
-        Gauge.builder("freightflow.approvals.pending.oldest.age", this, ApprovalMetrics::oldestAgeSeconds)
+        Gauge.builder("freightflow.approvals.pending.oldest.age", new BoundedGauge(this::oldestAgeSeconds),
+                        BoundedGauge::value)
+                .strongReference(true)
                 .description("Seconds the oldest waiting approval request has waited; 0 when none waits")
                 .baseUnit("seconds")
                 .register(meters);
-        Gauge.builder("freightflow.approvals.expiring", this, ApprovalMetrics::expiringSoon)
+        Gauge.builder("freightflow.approvals.expiring", new BoundedGauge(this::expiringSoon), BoundedGauge::value)
+                .strongReference(true)
                 .description("Waiting approval requests that expire within the hour")
                 .register(meters);
     }

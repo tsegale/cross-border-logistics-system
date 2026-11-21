@@ -1,5 +1,6 @@
 package com.freightflow.logistics.outbox;
 
+import com.freightflow.logistics.telemetry.BoundedGauge;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 
@@ -14,11 +15,14 @@ public final class OutboxMetrics {
 
     public static void register(MeterRegistry meters, OutboxClaims claims, String outbox, OutboxClaims.Table table,
                                 String timeColumn) {
-        Gauge.builder("freightflow.outbox.backlog", claims, c -> c.backlog(table))
+        Gauge.builder("freightflow.outbox.backlog", new BoundedGauge(() -> claims.backlog(table)), BoundedGauge::value)
+                .strongReference(true)
                 .description("Rows written but not yet relayed")
                 .tag("outbox", outbox)
                 .register(meters);
-        Gauge.builder("freightflow.outbox.oldest.age", claims, c -> c.oldestPendingAgeSeconds(table, timeColumn))
+        Gauge.builder("freightflow.outbox.oldest.age",
+                        new BoundedGauge(() -> claims.oldestPendingAgeSeconds(table, timeColumn)), BoundedGauge::value)
+                .strongReference(true)
                 .description("Seconds since the oldest row still to be relayed was written")
                 .tag("outbox", outbox)
                 .baseUnit("seconds")

@@ -1,5 +1,6 @@
 package com.freightflow.notification.notify;
 
+import com.freightflow.notification.telemetry.BoundedGauge;
 import com.freightflow.notification.config.NotificationProperties;
 import com.freightflow.notification.notify.NotificationStore.Notification;
 import com.freightflow.notification.notify.NotificationStore.Status;
@@ -55,7 +56,8 @@ public class EmailSender {
         this.clock = clock;
         this.enabled = enabled;
         for (Status status : List.of(Status.PENDING, Status.FAILED, Status.UNKNOWN)) {
-            Gauge.builder("freightflow.emails", store, s -> s.count(status))
+            Gauge.builder("freightflow.emails", new BoundedGauge(() -> store.count(status)), BoundedGauge::value)
+                    .strongReference(true)
                     .description("Emails by status: PENDING waits, FAILED was refused every time, UNKNOWN may not "
                             + "have arrived")
                     .tag("status", status.name())

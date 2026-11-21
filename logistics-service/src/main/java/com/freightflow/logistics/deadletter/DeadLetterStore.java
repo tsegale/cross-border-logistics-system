@@ -1,5 +1,6 @@
 package com.freightflow.logistics.deadletter;
 
+import com.freightflow.logistics.telemetry.BoundedGauge;
 import com.freightflow.logistics.common.UuidV7;
 import com.freightflow.logistics.security.Actor;
 import io.micrometer.core.instrument.Gauge;
@@ -40,7 +41,8 @@ public class DeadLetterStore {
     public DeadLetterStore(JdbcTemplate jdbcTemplate, MeterRegistry meters, Clock clock) {
         this.jdbcTemplate = jdbcTemplate;
         this.clock = clock;
-        Gauge.builder("freightflow.dead-letters", this, DeadLetterStore::countNew)
+        Gauge.builder("freightflow.dead-letters", new BoundedGauge(this::countNew), BoundedGauge::value)
+                .strongReference(true)
                 .description("Dead letters waiting for an operator")
                 .tag("status", "NEW")
                 .register(meters);

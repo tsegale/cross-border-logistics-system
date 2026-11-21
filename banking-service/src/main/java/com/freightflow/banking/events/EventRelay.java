@@ -1,5 +1,6 @@
 package com.freightflow.banking.events;
 
+import com.freightflow.banking.telemetry.BoundedGauge;
 import com.freightflow.banking.telemetry.TraceContext;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -75,10 +76,13 @@ public class EventRelay {
                 .publishPercentiles(0.5, 0.95, 0.99)
                 .publishPercentileHistogram()
                 .register(meters);
-        Gauge.builder("freightflow.outbox.backlog", outbox, EventOutbox::backlog)
+        Gauge.builder("freightflow.outbox.backlog", new BoundedGauge(outbox::backlog), BoundedGauge::value)
+                .strongReference(true)
                 .description("Events written but not yet acknowledged by the broker")
                 .register(meters);
-        Gauge.builder("freightflow.outbox.oldest.age", outbox, EventOutbox::oldestUnpublishedAgeSeconds)
+        Gauge.builder("freightflow.outbox.oldest.age", new BoundedGauge(outbox::oldestUnpublishedAgeSeconds),
+                        BoundedGauge::value)
+                .strongReference(true)
                 .description("Seconds since the oldest unpublished event occurred")
                 .baseUnit("seconds")
                 .register(meters);

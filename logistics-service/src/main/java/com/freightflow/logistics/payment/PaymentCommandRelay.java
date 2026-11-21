@@ -1,5 +1,6 @@
 package com.freightflow.logistics.payment;
 
+import com.freightflow.logistics.telemetry.BoundedGauge;
 import com.freightflow.logistics.common.RequestIdFilter;
 import com.freightflow.logistics.outbox.OutboxClaims;
 import com.freightflow.logistics.outbox.OutboxMetrics;
@@ -60,7 +61,8 @@ public class PaymentCommandRelay {
         this.executor = Executors.newFixedThreadPool(properties.parallelism(),
                 Thread.ofPlatform().name("payment-relay-", 0).daemon(true).factory());
         OutboxMetrics.register(meters, claims, "payment-commands", PaymentCommands.TABLE, "created_at");
-        Gauge.builder("freightflow.payment.commands.parked", outbox, PaymentCommands::countParked)
+        Gauge.builder("freightflow.payment.commands.parked", new BoundedGauge(outbox::countParked), BoundedGauge::value)
+                .strongReference(true)
                 .description("Payment commands out of attempts, waiting for an operator")
                 .register(meters);
     }
