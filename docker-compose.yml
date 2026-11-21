@@ -431,6 +431,16 @@ services:
       - ./infra/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
+      # The monitoring user exists only once kafka-init has run; a first login that fails is not retried by the
+      # kafka_metrics receiver's client.
+      kafka-init:
+        condition: service_completed_successfully
+      banking-db:
+        condition: service_healthy
+      logistics-db:
+        condition: service_healthy
+      notification-db:
+        condition: service_healthy
       tempo:
         condition: service_started
       loki:
