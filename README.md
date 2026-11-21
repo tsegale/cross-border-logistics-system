@@ -72,6 +72,15 @@ flowchart LR
   alerts from parked payments to ledger drift, a promtool test and a [runbook](docs/runbooks/README.md) for each, and a
   fire drill that makes each one fire.
 
+One booking in Grafana: the gateway's request, logistics' transaction, both relays, the call to banking, Kafka and the
+email, 19 spans from four services in one trace (CI's trace check, AMD EPYC 9V74 runner):
+
+![One booking's trace in Grafana: 19 spans from the gateway, logistics, banking and notification](docs/images/observability-booking-trace.png)
+
+The booking-to-email dashboard during the fire drill, every panel linked to its traces and logs:
+
+![The booking-to-email dashboard](docs/images/observability-flow-dashboard.png)
+
 ```bash
 cp .env.example .env && python scripts/generate_secrets.py
 docker compose --env-file .env --env-file infra/observability/observability.env --profile observability up -d --wait

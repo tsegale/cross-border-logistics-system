@@ -71,11 +71,16 @@ service pages once.
 ## Fire drill
 
 `scripts/alert_fire_drill.py` (the Actions workflow "Alert fire drill") makes every alert fire once against the whole
-stack: it stops Mailpit, notification-service, banking's database and Kafka, pauses logistics' database, fills a
-container to 94 % of its limit, publishes an event for an unknown shipment, and changes an account's balance. It then
-undoes each and waits for the alerts to resolve. Two conditions are simulated in the database, because causing them
-for real takes a crash at an exact moment or many minutes of backoff: a parked payment command and an email in UNKNOWN.
-Their fixes are the real operator actions (a retry, a resend with the duplicate acknowledged). The slow-burn alerts
-fire, and by design keep firing for hours after the burn; their recovery is in the promtool tests.
+stack: it changes an account's balance, stops Mailpit and notification-service while bookings continue, publishes a
+hold event for a shipment notification has not seen, stops banking's database while transfers continue, stops Kafka,
+stops and then pauses logistics' database while bookings continue, and fills a container to 92 % of its memory limit.
+It then undoes each and waits for the alerts to resolve. Two conditions are simulated in the database, because causing
+them for real takes a crash at an exact moment or minutes of backoff: a parked payment command and an email in UNKNOWN.
+Their fixes are the real operator actions (a retry, a resend with the duplicate acknowledged, a redrive). The
+slow-burn alerts fire, and by design keep firing for hours after the burn; their recovery is in the promtool tests.
+
+The drill's first runs found two faults the unit tests had not. Table gauges queried the database on every scrape, so
+with a database down the scrape timed out and the request metrics of that very outage went missing (`BoundedGauge`
+since, ADR 0031). And Tempo's search returns trace ids without leading zeros, which the CI trace check now pads.
 
 Evidence: recorded below after each run.
