@@ -1,4 +1,4 @@
-# Threat model (Phase 3; insider misuse and the broker added in Phase 4)
+# Threat model (Phase 3; insider misuse and the broker added in Phase 4, telemetry in Phase 5)
 
 STRIDE per trust boundary. Every threat names the control that stops it and the test or check that proves the
 control works. "Residual" is what remains, and where it is addressed.
@@ -142,3 +142,21 @@ What an event says is acted on later, elsewhere, possibly twice. ADRs 0023 to 00
 
 Residual: an email that was being sent when its sender died is marked `UNKNOWN` and not resent on its own, so a
 customer can miss one until an operator resends it (acknowledging a possible duplicate, recorded with the operator); SMTP on the compose network is plaintext, a production relay takes STARTTLS (`SMTP_STARTTLS=true`).
+
+## 9. Telemetry: traces, logs and metrics
+
+Every request now leaves a trace, log lines and metrics in a second set of stores, kept for days and read by more
+people than the databases. ADRs 0030 to 0033.
+
+| STRIDE | Threat | Control | Proof |
+| --- | --- | --- | --- |
+| Information disclosure | A recipient, a party's contact or a bearer token copied into a span, a log line or a log body, then kept in Tempo or Loki | Spans carry ids only (ADR 0030); request bodies and headers are not attributes; an SMTP refusal is masked before it is logged (`Redaction`); the collector masks any email address, bearer token or JWT in any attribute and any key naming authorization or password, and the same patterns in log bodies (ADR 0031) | `TelemetryLeaks` in `BookingTraceIntegrationTest`, `HoldTraceIntegrationTest`, `NotificationFlowIntegrationTest` (and its own `TelemetryLeaksTest`); CI `scripts/trace_booking.py` scans the booking's whole trace and its Loki lines |
+| Information disclosure | Someone reads traces or dashboards: shipment ids, organisations, amounts | The observability ports are published on 127.0.0.1 only, with the profile; Grafana is read-only for anonymous local viewers | compose `observability` services; ADR 0032 |
+| Tampering | A caller sends `traceparent: ...-00` to switch tracing off for its requests, or floods traces | The gateway samples always (`always-on`) whatever the caller's flag; services follow the gateway; the collector's memory limiter refuses before it runs out | `application.yml` sampler settings; collector `memory_limiter` |
+| Spoofing | A caller chooses its request's trace id | Accepted: the id identifies nothing and grants nothing; the request id and the token's identity are what the services record (ADR 0020) | ADR 0030, consequences |
+| Elevation of privilege | The collector's Docker socket mount (container memory) used to control containers | Mounted read-only; the collector publishes no port and is reachable only on the compose network | compose `otel-collector`; ADR 0031 |
+| Information disclosure | The Kafka monitoring credential reads events | The `monitoring` user may Describe the cluster, topics and groups, and nothing else: no Read, no Write | `infra/kafka/init.sh`; ADR 0031 |
+
+Residual: a read-only Docker socket still lets the collector list and inspect every container on the host (their
+environment included); in Kubernetes the kubelet's metrics replace it. Tail sampling keeps 10 % of healthy traces in
+production, so an exemplar can point at a trace that was dropped.
