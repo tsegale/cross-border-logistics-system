@@ -46,9 +46,9 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The relay against a real broker (ADR 0025): what is acknowledged is marked, nothing is lost while the broker is
@@ -163,14 +163,32 @@ class EventRelayIntegrationTest extends IntegrationTest {
     @Test
     void aRelayThatDiesBeforeMarkingSendsTheEventAgainAndNeverSkipsOne() {
         UUID hold = holdWithExtensions(1);
+        UUID first = jdbcTemplate.queryForObject("SELECT id FROM event_outbox WHERE aggregate_id = ? AND sequence = 1",
+                UUID.class, hold);
+        AtomicBoolean acknowledged = new AtomicBoolean();
         EventOutbox dying = new EventOutbox(jdbcTemplate, clock) {
             @Override
             public void markPublished(List<UUID> eventIds) {
-                throw new IllegalStateException("relay died after the broker acknowledged");
+                // A send the broker did not acknowledge in time (a slow runner) is not the case under test: only an
+                // acknowledged one is followed by the relay dying.
+                if (eventIds.contains(first)) {
+                    acknowledged.set(true);
+                    throw new IllegalStateException("relay died after the broker acknowledged");
+                }
+                super.markPublished(eventIds);
             }
         };
-        assertThatThrownBy(() -> relay(SharedContainers.KAFKA, dying).relayOnce())
-                .hasMessageContaining("relay died");
+        EventRelay dyingRelay = relay(SharedContainers.KAFKA, dying);
+        long deadline = System.nanoTime() + Duration.ofMinutes(1).toNanos();
+        while (!acknowledged.get()) {
+            assertThat(System.nanoTime()).as("the broker never acknowledged the first event").isLessThan(deadline);
+            makeDue(hold);
+            try {
+                dyingRelay.relayOnce();
+            } catch (IllegalStateException died) {
+                assertThat(died).hasMessageContaining("relay died");
+            }
+        }
         assertThat(unpublished(hold)).as("the row was never marked").isEqualTo(2);
 
         // The dead relay's lease runs out; another instance picks the event up again.
