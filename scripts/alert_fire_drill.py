@@ -17,7 +17,7 @@ fixes are the real ones: an operator's retry and an operator's resend, through t
               and retried, an approval about to expire and then approved, Kafka stopped while bookings continue
               (outbox stuck).
     phase  3  bookings: logistics' database stopped, then paused, while bookings continue (booking availability and
-              latency budgets, gateway upstream errors), and a container filled to 94 % of its memory limit (container memory).
+              latency budgets, gateway upstream errors), and a container filled to 92 % of its memory limit (container memory).
 
 Slow-burn alerts (1 d and 3 d windows) keep firing for hours after any burn by design; the drill records that they
 fired, and their recovery is covered by promtool tests. Needs the stack with --profile observability,
@@ -37,7 +37,7 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "benchmarks"))
@@ -150,12 +150,25 @@ class Watch(threading.Thread):
             time.sleep(5)
 
 
+def book_quoted(quote: str, account: str, run: str, index: int) -> None:
+    pickup = (datetime.now(timezone.utc).date() + timedelta(days=7)).isoformat()
+    harness.call("customer-hanseatic-imports", "POST", "/api/v1/shipments", {
+        "quoteId": quote,
+        "shipper": {"name": "Namib Fisheries", "address": "Walvis Bay", "contact": "x"},
+        "consignee": {"name": "Hanseatic Seafood", "address": "Hamburg", "contact": "y"},
+        "payerAccountNumber": account, "goodsDescription": "Frozen hake", "declaredValue": 18500.00,
+        "declaredValueCurrency": "EUR", "plannedPickupDate": pickup,
+    }, headers={"Idempotency-Key": f"drill-quoted-{run}-{index}"}, expect=201)
+
+
 class Load(threading.Thread):
     """Bookings (and, when asked, transfers) through the gateway at a steady rate; failures are the point."""
 
-    def __init__(self, account: str, run: str, transfers: tuple[str, str] | None = None, every: float = 1.0) -> None:
+    def __init__(self, account: str, run: str, transfers: tuple[str, str] | None = None, every: float = 1.0,
+                 quotes: list[str] | None = None) -> None:
         super().__init__(daemon=True)
         self.account, self.run_id, self.transfers, self.every = account, run, transfers, every
+        self.quotes = quotes
         self.stop = threading.Event()
         self.counts = {"ok": 0, "failed": 0}
 
@@ -170,6 +183,9 @@ class Load(threading.Thread):
                         "sourceAccount": source, "targetAccount": target, "amount": 1.00, "currency": "EUR",
                         "reference": f"DRILL-{self.run_id}-{index}"},
                         headers={"Idempotency-Key": f"drill-transfer-{self.run_id}-{index}"}, expect=201)
+                elif self.quotes:
+                    # Quoted before the outage: the booking itself is what reaches logistics.
+                    book_quoted(self.quotes[(index - 1) % len(self.quotes)], self.account, self.run_id, index)
                 else:
                     harness.book(self.account, f"drill-{self.run_id}", index)
                 self.counts["ok"] += 1
@@ -287,13 +303,16 @@ def phase3_bookings(watch: Watch, account: str, run: str) -> None:
                     'BEGIN { s = sprintf("%60000000s", ""); system("sleep 1200") }'], check=True, capture_output=True)
     # Stopped: bookings fail with 503 within the connection timeout (availability). Paused: they wait on the database
     # and finish late once it is back (latency).
+    # Quotes first: with the database down a quote fails too, and the booking (the SLI) would never be asked for.
+    quotes = [harness.call("customer-hanseatic-imports", "POST", "/api/v1/quotes", harness.QUOTE, expect=201)["id"]
+              for _ in range(40)]
     compose("stop", "logistics-db")
-    counts = with_load(Load(account, run + "s", every=0.5), 7)
+    counts = with_load(Load(account, run + "s", every=0.5, quotes=quotes), 7)
     compose("start", "logistics-db")
     compose("up", "-d", "--wait", "logistics-db")
     log(f"bookings while logistics' database was stopped: {counts}")
     compose("pause", "logistics-db")
-    counts = with_load(Load(account, run + "p", every=0.5), 4)
+    counts = with_load(Load(account, run + "p", every=0.5, quotes=quotes), 4)
     compose("unpause", "logistics-db")
     log(f"bookings while logistics' database was paused: {counts}")
     watch.wait_fired(["BookingAvailabilityBudgetBurnFast", "BookingLatencyBudgetBurnFast", "GatewayUpstreamErrors",
