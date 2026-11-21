@@ -131,6 +131,14 @@ processors:
         probabilistic:
           sampling_percentage: ${env:TAIL_SAMPLING_PERCENTAGE}
 
+  # Consumer lag counts records; the receiver says its unit is "1", which Prometheus' translation turns into a
+  # "_ratio" suffix. "{record}" is the semantic-conventions annotation, which the translation drops.
+  transform/kafka_units:
+    metric_statements:
+      - context: metric
+        statements:
+          - set(metric.unit, "{record}") where IsMatch(metric.name, "^kafka\\.consumer_group\\.lag")
+
   batch:
     timeout: 1s
     send_batch_size: 1024
@@ -173,5 +181,5 @@ service:
       exporters: [otlphttp/loki]
     metrics:
       receivers: [postgresql/banking, postgresql/logistics, postgresql/notification, kafka_metrics, redis, docker_stats]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, transform/kafka_units, batch]
       exporters: [prometheus_remote_write]
