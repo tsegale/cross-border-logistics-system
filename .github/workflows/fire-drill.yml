@@ -41,7 +41,7 @@ jobs:
           ./scripts/seed_demo.sh
           python3 scripts/trace_booking.py --json drill/trace.json
           pip install --quiet playwright==1.65.2 && python3 -m playwright install --with-deps chromium > /dev/null
-          python3 scripts/grafana_screenshots.py --trace-json drill/trace.json --out drill/images
+          python3 scripts/grafana_screenshots.py --trace-json drill/trace.json --out drill/images || echo "::warning::screenshots failed"
       - name: Fire drill
         run: |
           set -o pipefail

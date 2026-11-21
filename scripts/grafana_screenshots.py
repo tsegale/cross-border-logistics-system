@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -42,6 +44,18 @@ def main() -> None:
         shots.append(("observability-fired-alerts.png", f"{PROMETHEUS}/alerts?state=firing", 5000))
         # Alertmanager's emails to the on-call address, in Mailpit (benchmarks/compose.bench.yml publishes it).
         shots.append(("observability-alert-email.png", "http://127.0.0.1:8025/search?q=to%3Aon-call%40freightflow.dev", 5000))
+
+    # Grafana has no healthcheck in compose, so --wait does not wait for it.
+    deadline = time.monotonic() + 120
+    while True:
+        try:
+            with urllib.request.urlopen(f"{GRAFANA}/api/health", timeout=5) as response:
+                if response.status == 200:
+                    break
+        except OSError:
+            if time.monotonic() > deadline:
+                raise SystemExit("grafana_screenshots: Grafana did not answer within 120 s")
+        time.sleep(3)
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
