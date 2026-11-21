@@ -187,9 +187,10 @@ services:
       start_period: 420s
       start_interval: 3s
 
-  # Token buckets for the gateway's rate limits on money-moving routes (ADR 0017). Not published.
+  # Token buckets for the gateway's rate limits on money-moving routes (ADR 0017). Not published. The gateway's tests
+  # run on this same image: TestIssuer reads it from this file. Redis 8 is used under the AGPLv3 (ADR 0017).
   redis:
-    image: redis:8.0-alpine
+    image: redis:8.10-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

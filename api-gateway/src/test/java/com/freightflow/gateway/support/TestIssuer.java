@@ -16,6 +16,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
@@ -41,7 +45,7 @@ public final class TestIssuer {
     public static final WireMockServer JWKS = new WireMockServer(wireMockConfig().dynamicPort());
     @SuppressWarnings("resource") // one Redis for the whole test JVM, stopped by Testcontainers' reaper
     public static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine")).withExposedPorts(6379);
+            new GenericContainer<>(DockerImageName.parse(composeImage("redis"))).withExposedPorts(6379);
 
     static {
         JWKS.start();
@@ -50,6 +54,30 @@ public final class TestIssuer {
     }
 
     private TestIssuer() {
+    }
+
+    /**
+     * The image a service of docker-compose.yml runs, so the tests run the rate-limit script on the Redis the stack
+     * runs; a version bump there moves the tests with it.
+     */
+    static String composeImage(String service) {
+        Path compose = Path.of("..", "docker-compose.yml");
+        try {
+            List<String> lines = Files.readAllLines(compose);
+            for (int i = 0; i < lines.size(); i++) {
+                if (lines.get(i).equals("  " + service + ":")) {
+                    for (int j = i + 1; j < lines.size() && lines.get(j).startsWith("    "); j++) {
+                        String line = lines.get(j).trim();
+                        if (line.startsWith("image: ")) {
+                            return line.substring("image: ".length()).trim();
+                        }
+                    }
+                }
+            }
+        } catch (IOException ex) {
+            throw new UncheckedIOException("cannot read " + compose.toAbsolutePath(), ex);
+        }
+        throw new IllegalStateException("no image for " + service + " in " + compose.toAbsolutePath());
     }
 
     public static void serveKeys(RSAKey... keys) {

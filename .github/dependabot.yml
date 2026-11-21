@@ -24,9 +24,12 @@ updates:
     directory: "/"
     schedule: { interval: weekly }
     # A Postgres major can't open the previous major's data directory, and the tests pin their own image.
-    # Upgrading is a deliberate change with a migration plan, not a bot PR.
+    # Upgrading is a deliberate change with a migration plan, not a bot PR. A Redis major can change its licence
+    # (7.4 to 8 did, ADR 0017) and the rate-limit script's behaviour: also a deliberate change.
     ignore:
       - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "redis"
         update-types: ["version-update:semver-major"]
     groups:
       compose: { patterns: ["*"] }

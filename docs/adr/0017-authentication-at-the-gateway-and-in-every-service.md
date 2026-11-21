@@ -47,6 +47,14 @@ Option 2.
   (`503 rate-limiter-unavailable`) when Redis is down; nothing else is rate limited. A refusal is `429 rate-limited`
   with `Retry-After` and the IETF `RateLimit-Policy` / `RateLimit` fields of draft-ietf-httpapi-ratelimit-headers-11:
   `"<route>";q=<burst>;w=<seconds to refill>` and `"<route>";r=<tokens left>;t=<seconds until full>`.
+- **Redis 8** (from 7.4, Dependabot #6, 2026-11-21): `redis:8.10-alpine`, the newest stable line then. Redis 8 is
+  offered under a choice of RSALv2, SSPLv1 or AGPLv3 (<https://redis.io/legal/licenses/>); 7.4 was RSALv2 or SSPLv1
+  only. FreightFlow uses it under the **AGPLv3**, the one OSI open-source licence of the three: Redis runs unmodified
+  as a separate process, so the AGPL's source-offer duty (for a modified Redis served over a network) does not reach
+  the gateway's code. A fork with changes, or an offering of Redis itself as a service, would need a fresh look. The
+  rate-limit script (Spring Cloud Gateway's `request_rate_limiter.lua`) runs unchanged on 8.10: the gateway's
+  `RateLimitTest` passes against the image, which its tests read from `docker-compose.yml`. Valkey (BSD) is the
+  fallback if the licence ever stops fitting.
 - **Security events** go to the `freightflow.security` logger as structured ECS fields: action
   (`authentication-failed`, `access-denied`, `rate-limited`, `issuer-unavailable`), request id, client id, subject,
   method, path, status. Never the token.
