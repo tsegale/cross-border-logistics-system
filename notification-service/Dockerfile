@@ -26,4 +26,7 @@ COPY --from=build /src/target/extracted/snapshot-dependencies/ ./
 COPY --from=build /src/target/extracted/application/ ./
 USER app
 EXPOSE 8083
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "org.springframework.boot.loader.launch.JarLauncher"]
+# JVM sizing comes from the container's memory limit and is set in docker-compose.yml (ADR 0029); JAVA_OPTS replaces
+# this default as a whole. exec: the JVM is PID 1 and gets compose's SIGTERM for a graceful shutdown.
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS org.springframework.boot.loader.launch.JarLauncher"]

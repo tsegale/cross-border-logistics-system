@@ -50,6 +50,9 @@ def service_of(container: str) -> str:
     return re.sub(r"-\d+$", "", name)
 
 
+LIMITS: dict[str, float] = {}
+
+
 def containers() -> dict[str, float]:
     out = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.MemUsage}}"],
                          capture_output=True, text=True, check=True).stdout
@@ -57,7 +60,10 @@ def containers() -> dict[str, float]:
     for line in out.splitlines():
         name, _, mem = line.partition("\t")
         if name and mem:
-            usage[service_of(name)] = mib(mem.split("/")[0])
+            used, _, limit = mem.partition("/")
+            usage[service_of(name)] = mib(used)
+            # The container's limit, or the host's memory when it has none.
+            LIMITS[service_of(name)] = mib(limit)
     return usage
 
 
@@ -143,6 +149,7 @@ def main() -> None:
         "seconds": round(time.monotonic() - started, 1),
         "samples": samples,
         "containers_mib": {k: round(v, 1) for k, v in sorted(peaks.items())},
+        "limits_mib": {k: round(v, 1) for k, v in sorted(LIMITS.items())},
         "total_mib": round(sum(peaks.values()), 1),
         "jvm_peaks": {s: {k: round(v, 1) for k, v in p.items()} for s, p in sorted(jvm_peaks.items())},
         "jvm_at_end": {s: {k: round(v, 1) for k, v in p.items()} for s, p in sorted(last_jvm.items())},
@@ -152,11 +159,13 @@ def main() -> None:
     Path(args.json).write_text(json.dumps(result, indent=2) + "\n")
 
     print(f"{samples} samples over {result['seconds']} s\n")
-    print("| Container | Peak MiB |")
-    print("| --- | ---: |")
+    print("| Container | Peak MiB | Limit MiB | Peak of limit |")
+    print("| --- | ---: | ---: | ---: |")
     for service, used in sorted(peaks.items(), key=lambda item: -item[1]):
-        print(f"| {service} | {used:.0f} |")
-    print(f"| **sum of peaks** | **{result['total_mib']:.0f}** |\n")
+        limit = LIMITS.get(service, 0)
+        share = f"{100 * used / limit:.0f} %" if limit else ""
+        print(f"| {service} | {used:.0f} | {limit:.0f} | {share} |")
+    print(f"| **sum of peaks** | **{result['total_mib']:.0f}** | | |\n")
     print("| JVM | GC | Heap used peak | Heap committed peak | Non-heap peak | Metaspace peak | Threads peak |"
           " GC pauses | GC total s | Longest pause ms |")
     print("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")

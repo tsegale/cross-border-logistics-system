@@ -6,11 +6,15 @@
 # Kafka (KRaft, ADR 0003) is in the default stack, with a SCRAM credential per service and ACLs (ADR 0022).
 # By default only the gateway (8080, management 8085) and Keycloak (8180, for logins) publish a port, on 127.0.0.1.
 # Every secret is a file in secrets/ mounted as a compose secret; none is in this file or an image (ADR 0019).
+# Every container has a memory limit sized from measured peaks (ADR 0029): the default stack fits a 3.7 GiB Docker VM.
+# Each JVM sizes its heap from its own limit (MaxRAMPercentage) with Serial GC; JAVA_GC switches every service's
+# collector at once (the benchmark compares them).
 name: freightflow
 
 services:
   # ---------------- Databases: one per service ----------------
   banking-db:
+    mem_limit: 320m
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: banking
@@ -26,6 +30,7 @@ services:
       retries: 12
 
   logistics-db:
+    mem_limit: 192m
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: logistics
@@ -41,6 +46,7 @@ services:
       retries: 12
 
   notification-db:
+    mem_limit: 128m
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: notification
@@ -60,6 +66,7 @@ services:
   # is left alone, so a change to the file needs: docker compose down keycloak keycloak-db && docker volume rm
   # freightflow_keycloak-db-data
   keycloak-db:
+    mem_limit: 128m
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: keycloak
@@ -75,6 +82,7 @@ services:
       retries: 12
 
   keycloak:
+    mem_limit: 640m
     build: ./infra/keycloak
     image: freightflow-keycloak
     command: ["start", "--optimized", "--import-realm"]
@@ -93,6 +101,9 @@ services:
       # Services fetch keys from keycloak:8080 on the compose network; the tokens still say the public issuer.
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_HTTP_ENABLED: "true"
+      # kc.sh's default is 70% of the limit for the heap (MaxRAMPercentage=70); half leaves its metaspace (up to
+      # 256m in kc.sh) and native memory room inside the limit (ADR 0029). kc.sh keeps its G1.
+      JAVA_OPTS_KC_HEAP: -XX:MaxRAMPercentage=50 -XX:InitialRAMPercentage=25 -XX:MaxHeapFreeRatio=30
       KEYCLOAK_WEB_ORIGIN: ${KEYCLOAK_WEB_ORIGIN:-http://127.0.0.1:3000}
     volumes:
       - ./infra/keycloak/realm:/opt/keycloak/data/import:ro
@@ -117,8 +128,13 @@ services:
 
   # ---------------- Services ----------------
   banking-service:
+    mem_limit: 512m
     build: ./banking-service
     environment:
+      # Heap 45% of the 512m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
+      JAVA_OPTS: >-
+        -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
+        -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
       BANKING_DB_URL: jdbc:postgresql://banking-db:5432/banking
       BANKING_DB_USER: ${BANKING_DB_USER:?set in .env}
       # The password is the secret file banking_db_password, read through Spring's config tree.
@@ -152,8 +168,13 @@ services:
       start_interval: 3s
 
   logistics-service:
+    mem_limit: 512m
     build: ./logistics-service
     environment:
+      # Heap 50% of the 512m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
+      JAVA_OPTS: >-
+        -XX:MaxRAMPercentage=50 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
+        -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
       LOGISTICS_DB_URL: jdbc:postgresql://logistics-db:5432/logistics
       LOGISTICS_DB_USER: ${LOGISTICS_DB_USER:?set in .env}
       # Its database password and its client secret for Keycloak are secret files (ADR 0019).
@@ -189,6 +210,7 @@ services:
 
   # Token buckets for the gateway's rate limits on money-moving routes (ADR 0017). Not published.
   redis:
+    mem_limit: 32m
     image: redis:7.4-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
@@ -198,8 +220,13 @@ services:
       retries: 12
 
   api-gateway:
+    mem_limit: 320m
     build: ./api-gateway
     environment:
+      # Heap 45% of the 320m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
+      JAVA_OPTS: >-
+        -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
+        -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
       BANKING_SERVICE_URI: http://banking-service:8081
       LOGISTICS_SERVICE_URI: http://logistics-service:8082
       NOTIFICATION_SERVICE_URI: http://notification-service:8083
@@ -263,12 +290,14 @@ services:
   # ---------------- Events ----------------
   # Single-node Kafka 4 in KRaft mode (ADR 0003): SCRAM-SHA-512 per service, ACLs, nothing published (ADR 0022).
   kafka:
+    mem_limit: 448m
     image: apache/kafka:4.3.1
     entrypoint: ["bash", "/etc/freightflow/kafka/start.sh"]
     environment:
       # Fixed for this one-node cluster; the storage is formatted with it once.
       CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
-      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+      # Inside its 448m limit with page cache and metadata log buffers beside it (ADR 0029).
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx256m
     secrets: [kafka_admin_password]
     volumes:
       - ./infra/kafka:/etc/freightflow/kafka:ro
@@ -283,8 +312,12 @@ services:
 
   # Service users and ACLs from infra/kafka/acls.conf, applied on every start, before any service connects.
   kafka-init:
+    mem_limit: 256m
     image: apache/kafka:4.3.1
     entrypoint: ["bash", "/etc/freightflow/kafka/init.sh"]
+    environment:
+      # The CLI tools (kafka-configs, kafka-acls) need little heap.
+      KAFKA_HEAP_OPTS: -Xmx128m
     secrets: [kafka_admin_password, kafka_banking_password, kafka_logistics_password, kafka_notification_password]
     volumes:
       - ./infra/kafka:/etc/freightflow/kafka:ro
@@ -297,6 +330,7 @@ services:
   # An SMTP server that keeps what it receives and shows it (web UI and API on 8025, published by --profile debug).
   # SMTP needs a login, the password from secrets/smtp_password, as a real relay would.
   mailpit:
+    mem_limit: 48m
     image: axllent/mailpit:v1.33.0
     entrypoint: ["/bin/sh", "-c", "MP_SMTP_AUTH=\"freightflow:$$(cat /run/secrets/smtp_password)\" exec /mailpit"]
     environment:
@@ -311,8 +345,13 @@ services:
       retries: 12
 
   notification-service:
+    mem_limit: 352m
     build: ./notification-service
     environment:
+      # Heap 45% of the 352m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
+      JAVA_OPTS: >-
+        -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
+        -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
       NOTIFICATION_DB_URL: jdbc:postgresql://notification-db:5432/notification
       NOTIFICATION_DB_USER: ${NOTIFICATION_DB_USER:?set in .env}
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
