@@ -93,9 +93,13 @@ class BookingTraceIntegrationTest extends IntegrationTest {
         // The payment relay calls banking in it.
         BankingStub.SERVER.stubFor(BankingStubs.holdFor(shipment)
                 .willReturn(BankingStubs.respond(BankingStubs.HOLD_CREATED)));
-        payments.relayOnce();
-        List<LoggedRequest> holds = BankingStub.SERVER.findAll(postRequestedFor(urlPathEqualTo("/api/v1/holds")));
-        assertThat(holds).filteredOn(request -> request.getHeader("Idempotency-Key").contains(shipment.toString()))
+        // Test classes share this database, and another may have left commands due: one batch need not hold this
+        // booking's, so the relay runs until it is sent or nothing is left to claim.
+        List<LoggedRequest> holds = holdRequestsFor(shipment);
+        for (int round = 0; holds.isEmpty() && round < 100 && payments.relayOnce() > 0; round++) {
+            holds = holdRequestsFor(shipment);
+        }
+        assertThat(holds)
                 .singleElement()
                 .satisfies(request -> assertThat(request.getHeader("traceparent")).contains(traceId));
 
@@ -151,5 +155,11 @@ class BookingTraceIntegrationTest extends IntegrationTest {
         byte[] random = new byte[bytes];
         ThreadLocalRandom.current().nextBytes(random);
         return HexFormat.of().formatHex(random);
+    }
+
+    private static List<LoggedRequest> holdRequestsFor(UUID shipment) {
+        return BankingStub.SERVER.findAll(postRequestedFor(urlPathEqualTo("/api/v1/holds"))).stream()
+                .filter(request -> request.getHeader("Idempotency-Key").contains(shipment.toString()))
+                .toList();
     }
 }
