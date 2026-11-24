@@ -81,7 +81,8 @@ spring:
               predicates:
                 # Payment commands: operators retry parked ones (ADR 0012), auditors read them (ADR 0018).
                 # Its consumers' dead letters (ADR 0026): /api/v1/dead-letters is notification-service's.
-                - Path=/api/v1/quotes/**,/api/v1/shipments/**,/api/v1/payment-commands/**,/api/v1/logistics/dead-letters,/api/v1/logistics/dead-letters/**,/docs/logistics/**
+                # Carriers' DCSA Track and Trace notifications (ADR 0037), signed rather than authenticated by token.
+                - Path=/api/v1/quotes/**,/api/v1/shipments/**,/api/v1/payment-commands/**,/api/v1/logistics/dead-letters,/api/v1/logistics/dead-letters/**,/api/v1/dcsa/notifications/*,/docs/logistics/**
               filters:
                 - PreserveHostHeader
             # Emails (ADR 0027): an organisation's settings and history, operators' resends and dead letters.

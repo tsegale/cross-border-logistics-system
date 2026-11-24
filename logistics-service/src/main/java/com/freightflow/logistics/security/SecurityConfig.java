@@ -56,6 +56,9 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/prometheus").permitAll()
                         // The public tracking view: no customer data (ADR 0009).
                         .requestMatchers(HttpMethod.GET, "/api/v1/shipments/track/**").permitAll()
+                        // Carriers push DCSA notifications signed with their subscription's secret, not a token: the
+                        // controller checks the Notification-Signature before anything is stored (ADR 0037).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/dcsa/notifications/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/shipments/*/tracking-events")
                                 .hasAnyRole(Caller.CARRIER, Caller.OPERATOR)
                         .requestMatchers(HttpMethod.PUT, "/api/v1/shipments/*/carrier").hasRole(Caller.OPERATOR)

@@ -244,9 +244,19 @@ public class ShipmentService {
     /** Operators assign the carrier whose integration reports the shipment's tracking events (ADR 0018). */
     @Transactional
     public ShipmentResponse assignCarrier(Caller caller, UUID id, String carrierId, String ifMatchHeader) {
+        return assignCarrier(caller, id, carrierId, null, ifMatchHeader);
+    }
+
+    /** With the container, ISO 6346 checked: DCSA events find the shipment by it (ADR 0037). */
+    @Transactional
+    public ShipmentResponse assignCarrier(Caller caller, UUID id, String carrierId, String containerNumber,
+                                          String ifMatchHeader) {
         Shipment shipment = visible(caller, id);
         ETags.assertMatches(ifMatchHeader, shipment.getVersion());
         shipment.assignCarrier(carrierId, clock.instant());
+        if (containerNumber != null && !containerNumber.isBlank()) {
+            shipment.assignContainer(com.freightflow.logistics.dcsa.ContainerNumber.validate(containerNumber));
+        }
         Shipment saved = shipments.saveAndFlush(shipment);
         log.info("Assigned carrier {} to shipment {}", carrierId, id);
         return ShipmentResponse.from(saved, caller);

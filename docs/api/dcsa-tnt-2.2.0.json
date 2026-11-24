@@ -1,0 +1,3291 @@
+{
+  "components": {
+    "headers": {
+      "API-Version": {
+        "description": "SemVer used to indicate the version of the contract (API version) returned.",
+        "schema": {
+          "example": "1.0.0",
+          "type": "string"
+        }
+      },
+      "Current-Page": {
+        "description": "A link to the current page.",
+        "required": true,
+        "schema": {
+          "example": "fE9mZnNldHw9MCZsaW1pdD01",
+          "type": "string"
+        }
+      },
+      "First-Page": {
+        "description": "A link to thefirst page. First-Page header link MAY be omitted if current page is the first page.",
+        "required": false,
+        "schema": {
+          "example": "fE9mZnNldHw9NjAmbGltaXQ9NQ==",
+          "type": "string"
+        }
+      },
+      "Last-Page": {
+        "description": "A link to the last page. Last-Page header link MAY be omitted if the current page is the last page.",
+        "required": false,
+        "schema": {
+          "example": "fE9mZnNldHw9NTkmbGltaXQ9NQ==",
+          "type": "string"
+        }
+      },
+      "Next-Page": {
+        "description": "A link to the next page. Next-Page header link MAY be omitted if the current page is the last page.",
+        "required": false,
+        "schema": {
+          "example": "fE9mZnNldHw9NSZsaW1pdD01",
+          "type": "string"
+        }
+      },
+      "Prev-Page": {
+        "description": "A link to the previous page. Previous-Page header link MAY be omitted if the current page is the first page.",
+        "required": false,
+        "schema": {
+          "example": "fE9mZnNldHw9MCZsaW1pdD01",
+          "type": "string"
+        }
+      }
+    },
+    "parameters": {
+      "Api-Version-Major": {
+        "description": "An API-Version header MAY be added to the request (optional); if added it MUST only contain MAJOR version. API-Version header MUST be aligned with the URI version.\n",
+        "in": "header",
+        "name": "API-Version",
+        "required": false,
+        "schema": {
+          "example": "1",
+          "type": "string"
+        }
+      },
+      "UNLocationCode": {
+        "description": "The UN Location code specifying where the place is located.\n\nSpecifying this filter will only return events related to this particular UN Location code.\n",
+        "in": "query",
+        "name": "UNLocationCode",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/UNLocationCode"
+        }
+      },
+      "apiVersion": {
+        "description": "SemVer used to indicate the version of the contract (API version) returned.\n",
+        "in": "header",
+        "name": "API-Version",
+        "required": true,
+        "schema": {
+          "example": "1.0.0",
+          "type": "string"
+        }
+      },
+      "bookingReference": {
+        "deprecated": true,
+        "description": "Deprecated - use carrierBookingReference instead.",
+        "in": "query",
+        "name": "bookingReference",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "carrierBookingReference": {
+        "description": "A set of unique characters provided by carrier to identify a booking.\n\nSpecifying this filter will only return events related to this particular carrierBookingReference.\n",
+        "in": "query",
+        "name": "carrierBookingReference",
+        "schema": {
+          "$ref": "#/components/schemas/carrierBookingReference"
+        }
+      },
+      "carrierServiceCode": {
+        "description": "Filter on the carrier specific identifier of the service.\n\nSpecifying this filter will only return events related to this particular carrierServiceCode.\n",
+        "in": "query",
+        "name": "carrierServiceCode",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/carrierServiceCode"
+        }
+      },
+      "carrierVoyageNumber": {
+        "deprecated": true,
+        "description": "Filter on the vessel operator-specific identifier of the Voyage.\n\nSpecifying this filter will only return events related to this particular carrierVoyageNumber.\n\n<b>Deprecated:</b> Use exportVoyageNumber instead\n",
+        "in": "query",
+        "name": "carrierVoyageNumber",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/carrierVoyageNumber"
+        }
+      },
+      "cursor": {
+        "description": "A server generated value to specify a specific point in a collection result, used for pagination.",
+        "example": "fE9mZnNldHw9MTAmbGltaXQ9MTA=",
+        "in": "query",
+        "name": "cursor",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "documentTypeCode": {
+        "description": "The documentTypeCode to filter by. Possible values are\n- CBR (Carrier Booking Request Reference)\n- BKG (Booking)\n- SHI (Shipping Instruction)\n- SRM (Shipment Release Message)\n- TRD (Transport Document)\n- ARN (Arrival Notice)\n- VGM (Verified Gross Mass)\n- CAS (Cargo Survey)\n- CUS (Customs Inspection)\n- DGD (Dangerous Goods Declaration)\n- OOG (Out of Gauge)\n\nIt is possible to select multiple values by comma (,) separating them. For multiple values the OR-operator is used. For example <i>documentTypeCode=SHI,TRD</i> Matches <b>both</b> ShippingInstruction (SHI) and TransportDocument (TRD) shipment events.\n\nDefault is all documentTypeCodes.\n\nThis filter is only relevant when filtering on ShipmentEvents\n",
+        "example": "SHI,TRD",
+        "explode": false,
+        "in": "query",
+        "name": "documentTypeCode",
+        "schema": {
+          "default": "CBR,BKG,SHI,SRM,TRD,ARN,VGM,CAS,CUS,DGD,OOG",
+          "items": {
+            "$ref": "#/components/schemas/documentTypeCode"
+          },
+          "type": "array"
+        },
+        "style": "form"
+      },
+      "equipmentEventTypeCode": {
+        "description": "Unique identifier for equipmentEventTypeCode.\n- LOAD (Loaded)\n- DISC (Discharged)\n- GTIN (Gated in)\n- GTOT (Gated out)\n- STUF (Stuffed)\n- STRP (Stripped)\n- PICK (Pick-up)\n- DROP (Drop-off)\n- INSP (Inspected)\n- RSEA (Resealed)\n- RMVD (Removed)\n\nIt is possible to select multiple values by comma (,) separating them. For multiple values the OR-operator is used. For example <i>equipmentEventTypeCode=GTIN,GTOT</i> matches <b>both</b> Gated in (GTIN) and Gated out (GTOT) equipment events.\n\nDefault is all equipmentEventTypeCodes.\n\nThis filter is only relevant when filtering on EquipmentEvents\n",
+        "example": "GTIN,GTOT",
+        "explode": false,
+        "in": "query",
+        "name": "equipmentEventTypeCode",
+        "schema": {
+          "default": "LOAD,DISC,GTIN,GTOT,STUF,STRP,PICK,DROP,INSP,RSEA,RMVD",
+          "items": {
+            "$ref": "#/components/schemas/equipmentEventTypeCode"
+          },
+          "type": "array"
+        },
+        "style": "form"
+      },
+      "equipmentReference": {
+        "description": "Will filter by the unique identifier for the equipment, which should follow the BIC ISO Container Identification Number where possible.\n\nSpecifying this filter will only return events related to this particular equipmentReference\n",
+        "in": "query",
+        "name": "equipmentReference",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/equipmentReference"
+        }
+      },
+      "eventCreatedDateTime": {
+        "description": "Limit the result based on the creating date of the event. It is possible to use operators on this query parameter. This is done by adding a colon followed by an operator at the end of the queryParameterName (before the =)\n\n<i>eventCreatedDateTime<b>&#58;gte</b>=2021-04-01T14&#58;12&#58;56+01&#58;00</i>\n\nwould result in all events created &#8805; 2021-04-01T14&#58;12&#58;56+01&#58;00\n\nThe following operators are supported\n- &#58;gte (&#8805; Greater than or equal)\n- &#58;gt (&#62; Greater than)\n- &#58;lte (&#8804; Less than or equal)\n- &#58;lt (&#60; Less than)\n- &#58;eq (&#61; Equal to)\n\nIf no operator is provided, a <b>strictly equal</b> is used (this is equivalent to <b>&#58;eq</b> operator).\n",
+        "example": "2021-04-01T14:12:56+01:00",
+        "in": "query",
+        "name": "eventCreatedDateTime",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/eventCreatedDateTime"
+        }
+      },
+      "eventID": {
+        "deprecated": true,
+        "description": "The ID of the event to receive",
+        "example": "123e4567-e89b-12d3-a456-426614174000",
+        "in": "path",
+        "name": "eventID",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/eventID"
+        }
+      },
+      "exportVoyageNumber": {
+        "description": "Filter on the vessel operator-specific identifier of the export Voyage.\n\nSpecifying this filter will only return events related to this particular exportVoyageNumber.\n",
+        "in": "query",
+        "name": "exportVoyageNumber",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/exportVoyageNumber"
+        }
+      },
+      "limit": {
+        "description": "Maximum number of items to return.",
+        "example": 100,
+        "in": "query",
+        "name": "limit",
+        "required": false,
+        "schema": {
+          "default": 100,
+          "format": "int32",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "notificationSignature": {
+        "description": "the Notification-Signature is used to sign the notification. The header has the following format: \n\n<i>Notification-Signature&#58; &lt;signature-type&gt;=&lt;signature&gt;</i>\n\nThe <i>&lt;signature-type&gt;</i> part is a keyword that determines which algorithm was used to compute the signature.\n\nThe signature <b>MUST</b> cover the entire request body of the request including whitespace and newlines. The content <b>MUST</b> decoded into bytes using the UTF-8 encoding before computing the signature. None of the HTTP headers nor the request URL is covered by the signature.\n\nSupported signature typies are&#58;\n- sha256\n\nExample&#58; sha256=ae688919f5e31f4c210ca6af362ce4d9ed87acfb51c1721a8507ee395de5e2de\n",
+        "in": "header",
+        "name": "Notification-Signature",
+        "required": true,
+        "schema": {
+          "example": "sha256=ae688919f5e31f4c210ca6af362ce4d9ed87acfb51c1721a8507ee395de5e2de",
+          "pattern": "\\s*([a-zA-Z0-9-_+]+=[0-9a-fA-F]+)\\s*",
+          "type": "string"
+        }
+      },
+      "scheduleID": {
+        "deprecated": true,
+        "description": "ID uniquely identifying a schedule, to filter events by.\n\nThis filter was added by mistake and is thus deprecated.\n",
+        "in": "query",
+        "name": "scheduleID",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/scheduleID"
+        }
+      },
+      "shipmentEventTypeCode": {
+        "description": "The status of the document in the process to filter by. Possible values are\n- RECE (Received)\n- DRFT (Drafted)\n- PENA (Pending Approval)\n- PENU (Pending Update)\n- REJE (Rejected)\n- APPR (Approved)\n- ISSU (Issued)\n- SURR (Surrendered)\n- SUBM (Submitted)\n- VOID (Void)\n- CONF (Confirmed)\n- REQS (Requested)\n- CMPL (Completed)\n- HOLD (On Hold)\n- RELS (Released)\n\nIt is possible to select multiple values by comma (,) separating them. For multiple values the OR-operator is used. For example <i>shipmentEventTypeCode=RECE,DRFT</i>  Matches <b>both</b> Received (RECE) and Drafted (DRFT) shipment events.\n\nDefault is all shipmentEventTypeCodes.\n\nThis filter is only relevant when filtering on ShipmentEvents\n",
+        "example": "RECE,DRFT",
+        "explode": false,
+        "in": "query",
+        "name": "shipmentEventTypeCode",
+        "schema": {
+          "default": "RECE,DRFT,PENA,PENU,REJE,APPR,ISSU,SURR,SUBM,VOID,CONF,REQS,CMPL,HOLD,RELS",
+          "items": {
+            "$ref": "#/components/schemas/shipmentEventTypeCode"
+          },
+          "type": "array"
+        },
+        "style": "form"
+      },
+      "signatureHeader": {
+        "deprecated": true,
+        "description": "The signature certifying the request originates from the carrier.\n",
+        "in": "header",
+        "name": "Signature",
+        "required": true,
+        "schema": {
+          "properties": {
+            "created": {
+              "example": 1591960384,
+              "type": "integer"
+            },
+            "headers": {
+              "example": "(request-target) (created) date host",
+              "type": "string"
+            },
+            "keyId": {
+              "example": "4fb682bc-3cd1-43a9-a23a-618a61bd87ca",
+              "format": "uuid",
+              "type": "string"
+            },
+            "signature": {
+              "example": "aGkgZnJvbSBkZW5tYXJr",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "sort": {
+        "description": "A comma-separated list of field names to define the sort order. Field names should be suffixed by a (:) followed by either the keyword ASC (for ascending order) or DESC (for descening order) to specify direction. <b>:ASC</b> may be omitted, in which case ascending order will be used.\n",
+        "example": "carrierBookingReference:DESC",
+        "in": "query",
+        "name": "sort",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "subscriptionID": {
+        "description": "The universal unique ID of the subscription.",
+        "example": "123e4567-e89b-12d3-a456-426614174000",
+        "in": "path",
+        "name": "subscriptionID",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/subscriptionID"
+        }
+      },
+      "subscriptionIDHeader": {
+        "description": "The ID of the subscription triggering the event being sent.",
+        "in": "header",
+        "name": "Subscription-ID",
+        "required": true,
+        "schema": {
+          "example": "b80d923d-e8ac-4c34-9506-55d3de347034",
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "transportCallID": {
+        "description": "ID uniquely identifying a transport call, to filter events by.\n\nSpecifying this filter will only return events related to this particular transportCallID\n",
+        "in": "query",
+        "name": "transportCallID",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/transportCallID"
+        }
+      },
+      "transportDocumentID": {
+        "deprecated": true,
+        "description": "A unique id to identify a transport document.\n\nDeprecated - use transportDocumentReference instead transportDocumentReference\n",
+        "in": "query",
+        "name": "transportDocumentID",
+        "schema": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "transportDocumentReference": {
+        "description": "A unique number reference allocated by the shipping line to the transport document and the main number used for the tracking of the status of the shipment.\n\nSpecifying this filter will only return events related to this particular transportDocumentReference\n",
+        "in": "query",
+        "name": "transportDocumentReference",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/transportDocumentReference"
+        }
+      },
+      "transportEventTypeCode": {
+        "description": "Identifier for type of Transport event to filter by\n- ARRI (Arrived)\n- DEPA (Departed)\n\nIt is possible to select multiple values by comma (,) separating them. For multiple values the OR-operator is used. For example <i>transportEventTypeCode=ARRI,DEPA</i> matches <b>both</b> Arrived (ARRI) and Departed (DEPA) transport events.\n\nDefault is all transportEventTypeCodes.\n\nThis filter is only relevant when filtering on TransportEvents\n",
+        "example": "ARRI,DEPA",
+        "explode": false,
+        "in": "query",
+        "name": "transportEventTypeCode",
+        "schema": {
+          "default": "ARRI,DEPA",
+          "items": {
+            "$ref": "#/components/schemas/transportEventTypeCode"
+          },
+          "type": "array"
+        },
+        "style": "form"
+      },
+      "vesselIMONumber": {
+        "description": "The identifier of vessel for which schedule details are published. Depending on schedule type, this may not be available yet.\n\nSpecifying this filter will only return events related to this particular vesselIMONumber.\n",
+        "in": "query",
+        "name": "vesselIMONumber",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/vesselIMONumber"
+        }
+      }
+    },
+    "schemas": {
+      "ISOEquipmentCode": {
+        "description": "Unique code for the different equipment size/type used for transporting commodities. The code is a concatenation of ISO Equipment Size Code and ISO Equipment Type Code A and follows the ISO 6346 standard.",
+        "example": "22GP",
+        "maxLength": 4,
+        "type": "string"
+      },
+      "UNLocationCode": {
+        "description": "The UN Location code specifying where the place is located.",
+        "example": "FRPAR",
+        "maxLength": 5,
+        "type": "string"
+      },
+      "address": {
+        "allOf": [
+          {
+            "properties": {
+              "name": {
+                "$ref": "#/components/schemas/addressName"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "street": {
+                "$ref": "#/components/schemas/streetName"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "streetNumber": {
+                "$ref": "#/components/schemas/streetNumber"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "floor": {
+                "$ref": "#/components/schemas/floor"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "postCode": {
+                "$ref": "#/components/schemas/postCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "city": {
+                "$ref": "#/components/schemas/cityName"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "stateRegion": {
+                "$ref": "#/components/schemas/stateRegion"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "country": {
+                "$ref": "#/components/schemas/country"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "An object for storing address related information",
+        "type": "object"
+      },
+      "addressName": {
+        "description": "Name of the address",
+        "example": "Henrik",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "baseEquipmentEvent": {
+        "allOf": [
+          {
+            "properties": {
+              "eventType": {
+                "enum": [
+                  "EQUIPMENT"
+                ],
+                "example": "EQUIPMENT",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventClassifierCode": {
+                "description": "Code for the event classifier can be\n- PLN (Planned)\n- ACT (Actual)\n- EST (Estimated)\n",
+                "enum": [
+                  "PLN",
+                  "ACT",
+                  "EST"
+                ],
+                "example": "EST",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "equipmentEventTypeCode": {
+                "$ref": "#/components/schemas/equipmentEventTypeCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "equipmentReference": {
+                "$ref": "#/components/schemas/equipmentReference"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "ISOEquipmentCode": {
+                "$ref": "#/components/schemas/ISOEquipmentCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "emptyIndicatorCode": {
+                "$ref": "#/components/schemas/emptyIndicatorCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventLocation": {
+                "$ref": "#/components/schemas/location"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transportCallID": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/transportCallID"
+                  },
+                  {
+                    "deprecated": true
+                  },
+                  {
+                    "description": "The unique identifier for a transport call<br><br>Deprecated - not needed as the TransportCall object is included"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transportCall": {
+                "$ref": "#/components/schemas/transportCall"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "documentReferences": {
+                "$ref": "#/components/schemas/documentReferences"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/references"
+          },
+          {
+            "$ref": "#/components/schemas/seals"
+          },
+          {
+            "properties": {
+              "eventTypeCode": {
+                "$ref": "#/components/schemas/eventTypeCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventTypeCode": {
+                "deprecated": true,
+                "description": "Unique identifier for Event Type Code, for transport events this is either\n- LOAD (Loaded)\n- DISC (Discharged)\n- GTIN (Gated in)\n- GTOT (Gated out)\n- STUF (Stuffed)\n- STRP (Stripped)\n\nDeprecated - use equipmentEventTypeCode instead\n",
+                "enum": [
+                  "LOAD",
+                  "DISC",
+                  "GTIN",
+                  "GTOT",
+                  "STUF",
+                  "STRP"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "The equipment event entity is a specialization of the event entity to support specification of data that only applies to an equipment event.\n",
+        "required": [
+          "emptyIndicatorCode",
+          "equipmentEventTypeCode"
+        ],
+        "type": "object"
+      },
+      "baseEvent": {
+        "allOf": [
+          {
+            "properties": {
+              "eventID": {
+                "$ref": "#/components/schemas/eventID"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventCreatedDateTime": {
+                "$ref": "#/components/schemas/eventCreatedDateTime"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/baseEventBody"
+          }
+        ],
+        "required": [
+          "eventCreatedDateTime"
+        ],
+        "type": "object"
+      },
+      "baseEventBody": {
+        "allOf": [
+          {
+            "properties": {
+              "eventType": {
+                "$ref": "#/components/schemas/eventType"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventClassifierCode": {
+                "$ref": "#/components/schemas/eventClassifierCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventDateTime": {
+                "$ref": "#/components/schemas/eventDateTime"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "The Event entity is described as a generalization of all the specific event categories. An event always takes place in relation to a shipment and can additionally be linked to a transport or an equipment\n",
+        "required": [
+          "eventClassifierCode",
+          "eventDateTime",
+          "eventType"
+        ],
+        "type": "object"
+      },
+      "baseShipmentEvent": {
+        "allOf": [
+          {
+            "properties": {
+              "eventType": {
+                "enum": [
+                  "SHIPMENT"
+                ],
+                "example": "SHIPMENT",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventDateTime": {
+                "description": "Value for eventDateTime must be the same value as eventCreatedDateTime\n"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventClassifierCode": {
+                "description": "Code for the event classifier can be\n- ACT (Actual)\n- PLN (Planned)\n- EST (Estimated)\n",
+                "enum": [
+                  "ACT",
+                  "PLN",
+                  "EST"
+                ],
+                "example": "ACT",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "shipmentEventTypeCode": {
+                "$ref": "#/components/schemas/shipmentEventTypeCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "documentID": {
+                "$ref": "#/components/schemas/documentID"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "documentTypeCode": {
+                "$ref": "#/components/schemas/documentTypeCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "shipmentInformationTypeCode": {
+                "$ref": "#/components/schemas/shipmentInformationType"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "reason": {
+                "$ref": "#/components/schemas/reason"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventTypeCode": {
+                "$ref": "#/components/schemas/eventTypeCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventTypeCode": {
+                "deprecated": true,
+                "description": "Unique identifier for Event Type Code. For shipment events this can be\n- RECE (Received)\n- CONF (Confirmed)\n- ISSU (Issued)\n- APPR (Approved)\n- SUBM (Submitted)\n- SURR (Surrendered)\n- REJE (Rejected)\n- PENA (Pending approval)\n\nDeprecated - use shipmentEventTypeCode instead\n",
+                "enum": [
+                  "RECE",
+                  "CONF",
+                  "ISSU",
+                  "APPR",
+                  "SUBM",
+                  "SURR",
+                  "REJE",
+                  "PENA"
+                ],
+                "example": "RECE",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "shipmentID": {
+                "$ref": "#/components/schemas/shipmentID"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "shipmentID": {
+                "deprecated": true,
+                "description": "ID uniquely identifying a shipment.\n\nDeprecated - this is replaced by documentID which can contain different values depending on the value of the documentTypeCode field\n"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/references"
+          }
+        ],
+        "description": "The shipment event entity is a specialization of the event entity to support specification of data that only applies to a shipment event.\n",
+        "required": [
+          "documentID",
+          "documentTypeCode",
+          "shipmentEventTypeCode"
+        ],
+        "type": "object"
+      },
+      "baseTransportEvent": {
+        "allOf": [
+          {
+            "properties": {
+              "eventType": {
+                "enum": [
+                  "TRANSPORT"
+                ],
+                "example": "TRANSPORT",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventClassifierCode": {
+                "description": "Code for the event classifier can be\n- ACT (Actual)\n- PLN (Planned)\n- EST (Estimated)\n",
+                "enum": [
+                  "ACT",
+                  "PLN",
+                  "EST"
+                ],
+                "example": "ACT",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transportEventTypeCode": {
+                "$ref": "#/components/schemas/transportEventTypeCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "delayReasonCode": {
+                "$ref": "#/components/schemas/delayReasonCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "vesselScheduleChangeRemark": {
+                "$ref": "#/components/schemas/vesselScheduleChangeRemark"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "changeRemark": {
+                "$ref": "#/components/schemas/changeRemark"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transportCallID": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/transportCallID"
+                  },
+                  {
+                    "deprecated": true
+                  },
+                  {
+                    "description": "The unique identifier for a transport call<br><br>Deprecated - not needed as the TransportCall object is included"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transportCall": {
+                "$ref": "#/components/schemas/transportCall"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventTypeCode": {
+                "$ref": "#/components/schemas/eventTypeCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventTypeCode": {
+                "deprecated": true,
+                "description": "Unique identifier for Event Type Code, for transport events this is either\n- ARRI (Arrival)\n- DEPA (Departure)\n\nDeprecated - use transportEventTypeCode instead\n",
+                "enum": [
+                  "ARRI",
+                  "DEPA"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "The transport event entity is a specialization of the event entity to support specification of data that only applies to a transport event.\n",
+        "required": [
+          "transportCall",
+          "transportEventTypeCode"
+        ],
+        "type": "object"
+      },
+      "callbackUrl": {
+        "description": "The endPoint where a Carrier whould send back events to the Shipper. The callback can contain query parameters uniquely identifying the originator of the events.\n",
+        "example": "https://myserver.com/send/callback/here?shipperRef=<shipper defined unique id>",
+        "format": "uri",
+        "type": "string"
+      },
+      "carrierBookingReference": {
+        "description": "A set of unique characters provided by carrier to identify a booking.",
+        "example": "ABC709951",
+        "maxLength": 35,
+        "type": "string"
+      },
+      "carrierServiceCode": {
+        "description": "The code of the service for which the schedule details are published.\n",
+        "example": "FE1",
+        "maxLength": 5,
+        "type": "string"
+      },
+      "carrierVoyageNumber": {
+        "description": "The vessel operator-specific identifier of the Voyage.",
+        "example": "2103S",
+        "maxLength": 50,
+        "type": "string"
+      },
+      "changeRemark": {
+        "description": "Free text information provided by the vessel operator regarding the reasons for the change in schedule and/or plans to mitigate schedule slippage.",
+        "example": "Bad weather",
+        "maxLength": 250,
+        "type": "string"
+      },
+      "cityName": {
+        "description": "The city name of the party’s address.",
+        "example": "København",
+        "maxLength": 65,
+        "type": "string"
+      },
+      "country": {
+        "description": "The country of the party’s address.",
+        "example": "Denmark",
+        "maxLength": 75,
+        "type": "string"
+      },
+      "delayReasonCode": {
+        "description": "Reason code for the delay. The SMDG-Delay-Reason-Codes are used for this attribute. The code list can be found at http://www.smdg.org/smdg-code-lists/",
+        "example": "WEA",
+        "maxLength": 3,
+        "type": "string"
+      },
+      "documentID": {
+        "description": "The id of the object defined by the documentTypeCode.\n",
+        "example": "the-id-of-the-documentTypeCode",
+        "type": "string"
+      },
+      "documentReferences": {
+        "description": "An optional list of key-value (documentReferenceType-documentReferenceValue) pairs representing links to objects relevant to the event. The <b>documentReferenceType</b>-field is used to describe where the <b>documentReferenceValue</b>-field is pointing to.",
+        "example": [
+          {
+            "documentReferenceType": "BKG",
+            "documentReferenceValue": "ABC123123123"
+          },
+          {
+            "documentReferenceType": "TRD",
+            "documentReferenceValue": "85943567-eedb-98d3-f4ed-aed697474ed4"
+          }
+        ],
+        "items": {
+          "properties": {
+            "documentReferenceType": {
+              "description": "Describes where the documentReferenceValue is pointing to",
+              "enum": [
+                "BKG (Booking)",
+                "TRD (Transport Document)"
+              ],
+              "example": "BKG",
+              "type": "string"
+            },
+            "documentReferenceValue": {
+              "description": "The value of the identifier the documentReferenceType is describing",
+              "example": "123e4567-e89b-12d3-a456-426614174000",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "documentTypeCode": {
+        "description": "The code to identify the type of information documentID points to. Can be one of the following values\n- CBR (Carrier Booking Request Reference)\n- BKG (Booking)\n- SHI (Shipping Instruction)\n- SRM (Shipment Release Message)\n- TRD (Transport Document)\n- ARN (Arrival Notice)\n- VGM (Verified Gross Mass)\n- CAS (Cargo Survey)\n- CUS (Customs Inspection)\n- DGD (Dangerous Goods Declaration)\n- OOG (Out of Gauge)\n\nMore details can be found on <a href=\"https://github.com/dcsaorg/DCSA-Information-Model/blob/master/datamodel/referencedata.d/documenttypecodes.csv\">GitHub</a>\n",
+        "enum": [
+          "CBR",
+          "BKG",
+          "SHI",
+          "SRM",
+          "TRD",
+          "ARN",
+          "VGM",
+          "CAS",
+          "CUS",
+          "DGD",
+          "OOG"
+        ],
+        "example": "SHI",
+        "maxLength": 3,
+        "type": "string"
+      },
+      "documentTypeCodes": {
+        "description": "List of documentTypeCode to filter by. If multiple values are selected - the OR-operator will be used.\n\nDefault is none as it will not filter on documentTypeCode if not specified.\n",
+        "example": [
+          "SHI",
+          "TRD"
+        ],
+        "items": {
+          "$ref": "#/components/schemas/documentTypeCode"
+        },
+        "type": "array"
+      },
+      "emptyIndicatorCode": {
+        "description": "Code to denote whether the equipment is empty or laden.",
+        "enum": [
+          "EMPTY",
+          "LADEN"
+        ],
+        "example": "EMPTY",
+        "type": "string"
+      },
+      "equipmentEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/baseEvent"
+          },
+          {
+            "$ref": "#/components/schemas/baseEquipmentEvent"
+          }
+        ],
+        "type": "object"
+      },
+      "equipmentEventTypeCode": {
+        "description": "Unique identifier for equipmentEventTypeCode.\n- LOAD (Loaded)\n- DISC (Discharged)\n- GTIN (Gated in)\n- GTOT (Gated out)\n- STUF (Stuffed)\n- STRP (Stripped)\n- PICK (Pick-up)\n- DROP (Drop-off)\n- INSP (Inspected)\n- RSEA (Resealed)\n- RMVD (Removed)\n\nMore details can be found on <a href=\"https://github.com/dcsaorg/DCSA-Information-Model/blob/master/datamodel/referencedata.d/equipmenteventtypecodes.csv\">GitHub</a>\n",
+        "enum": [
+          "LOAD",
+          "DISC",
+          "GTIN",
+          "GTOT",
+          "STUF",
+          "STRP",
+          "PICK",
+          "DROP",
+          "INSP",
+          "RSEA",
+          "RMVD"
+        ],
+        "example": "LOAD",
+        "type": "string"
+      },
+      "equipmentEventTypeCodes": {
+        "description": "List of equipmentEventTypeCode to filter by. If multiple values are selected - the OR-operator will be used.\n\nDefault is none as it will not filter on equipmentEventTypeCode if not specified.\n",
+        "example": [
+          "GTIN",
+          "GTOT"
+        ],
+        "items": {
+          "$ref": "#/components/schemas/equipmentEventTypeCode"
+        },
+        "type": "array"
+      },
+      "equipmentReference": {
+        "description": "The unique identifier for the equipment, which should follow the BIC ISO Container Identification Number where possible.\nAccording to ISO 6346, a container identification code consists of a 4-letter prefix and a 7-digit number (composed of a 3-letter owner code, a category identifier, a serial number, and a check-digit). If a container does not comply with ISO 6346, it is suggested to follow Recommendation #2 “Container with non-ISO identification” from SMDG.\n",
+        "example": "APZU4812090",
+        "maxLength": 15,
+        "type": "string"
+      },
+      "equipmentSubscriptionBody": {
+        "allOf": [
+          {
+            "properties": {
+              "equipmentEventTypeCode": {
+                "$ref": "#/components/schemas/equipmentEventTypeCodes"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "equipmentReference": {
+                "$ref": "#/components/schemas/equipmentReference"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "UNLocationCode": {
+                "$ref": "#/components/schemas/UNLocationCode"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "type": "object"
+      },
+      "error": {
+        "properties": {
+          "errorDateTime": {
+            "description": "The date and time (in ISO 8601 format) the error occurred.",
+            "example": "2019-11-12T07:41:00+08:30",
+            "format": "$date-time",
+            "type": "string"
+          },
+          "errors": {
+            "$ref": "#/components/schemas/subErrors"
+          },
+          "httpMethod": {
+            "description": "The HTTP request method type",
+            "example": "POST",
+            "type": "string"
+          },
+          "requestUri": {
+            "description": "The request URI.",
+            "example": "https://dcsa.org/dcsa/tnt/v1/events",
+            "type": "string"
+          },
+          "statusCode": {
+            "description": "The HTTP status code",
+            "example": 400,
+            "type": "integer"
+          },
+          "statusCodeText": {
+            "description": "The textual representation of the response status.",
+            "example": "Bad Request",
+            "type": "string"
+          }
+        },
+        "required": [
+          "errorDateTime",
+          "errors",
+          "httpMethod",
+          "requestUri",
+          "statusCode",
+          "statusCodeText"
+        ],
+        "type": "object"
+      },
+      "eventClassifierCode": {
+        "description": "Code for the event classifier. Values can vary depending on eventType\n",
+        "type": "string"
+      },
+      "eventCreatedDateTime": {
+        "description": "The timestamp of when the event was created.\n\n<b>NB</b>&#58; This field should be considered Metadata\n",
+        "example": "2021-01-09T14:12:56+01:00",
+        "format": "date-time",
+        "type": "string"
+      },
+      "eventDateTime": {
+        "description": "The local date and time, where the event took place or when the event will take place, in ISO 8601 format.",
+        "example": "2019-11-12T07:41:00+08:30",
+        "format": "date-time",
+        "type": "string"
+      },
+      "eventID": {
+        "description": "The unique identifier for the event (the message - not the source).\n\n<b>NB</b>&#58; This field should be considered Metadata\n",
+        "example": "3cecb101-7a1a-43a4-9d62-e88a131651e2",
+        "format": "uuid",
+        "type": "string"
+      },
+      "eventType": {
+        "description": "The Event Type of the object - to be used as a discriminator.\n\n<b>NB</b>&#58; This field should be considered Metadata\n",
+        "type": "string"
+      },
+      "eventTypeCode": {
+        "deprecated": true,
+        "description": "Deprecated - Unique identifier for Event Type Code. This has been replaced by Specialized eventTypeCodes: shipmentEventTypeCode, transportEventTypeCode, equipmentEventTypeCode and opertaionsEventType\n",
+        "example": "ARRI",
+        "maxLength": 4,
+        "type": "string"
+      },
+      "eventTypes": {
+        "description": "List of eventType to filter by. If multiple values are selected - the OR-operator will be used.\n\nPossible values are\n- SHIPMENT (Shipment events)\n- TRANSPORT (Transport events)\n- EQUIPMENT (Equipment events)\n\nDefault is none as it will not filter on eventType if not specified.\n",
+        "example": [
+          "TRANSPORT",
+          "EQUIPMENT"
+        ],
+        "items": {
+          "enum": [
+            "SHIPMENT",
+            "TRANSPORT",
+            "EQUIPMENT"
+          ],
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "exportVoyageNumber": {
+        "description": "The vessel operator-specific identifier of the export Voyage.",
+        "example": "2103S",
+        "maxLength": 50,
+        "type": "string"
+      },
+      "facilityCode": {
+        "description": "The code used for identifying the specific facility. This code does <b>not</b> include the UN Location Code.\n",
+        "example": "ADT",
+        "maxLength": 6,
+        "nullable": false,
+        "type": "string"
+      },
+      "facilityCodeListProvider": {
+        "description": "The provider used for identifying the facility Code\n",
+        "enum": [
+          "BIC",
+          "SMDG"
+        ],
+        "example": "SMDG",
+        "type": "string"
+      },
+      "facilityTypeCodeTRN": {
+        "description": "A specialized version of the facilityCode to be used in TransportCalls. The code to identify the specific type of facility.\n- BOCR (Border crossing)\n- CLOC (Customer location)\n- COFS (Container freight station)\n- COYA (Deprecated - use OFFD intead)\n- OFFD (Off dock storage)\n- DEPO (Depot)\n- INTE (Inland terminal)\n- POTE (Port terminal)\n- RAMP (Ramp)\n",
+        "enum": [
+          "BOCR",
+          "CLOC",
+          "COFS",
+          "COYA",
+          "OFFD",
+          "DEPO",
+          "INTE",
+          "POTE",
+          "RAMP"
+        ],
+        "example": "POTE",
+        "type": "string"
+      },
+      "floor": {
+        "description": "The floor of the party’s street number.",
+        "example": "5. sal",
+        "maxLength": 50,
+        "type": "string"
+      },
+      "importVoyageNumber": {
+        "description": "The vessel operator-specific identifier of the import Voyage.",
+        "example": "2103N",
+        "maxLength": 50,
+        "type": "string"
+      },
+      "latitude": {
+        "description": "Geographic coordinate that specifies the north–south position of a point on the Earth&apos;s surface.",
+        "example": "48.8585500",
+        "maxLength": 10,
+        "type": "string"
+      },
+      "location": {
+        "allOf": [
+          {
+            "properties": {
+              "locationName": {
+                "$ref": "#/components/schemas/locationName"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "latitude": {
+                "$ref": "#/components/schemas/latitude"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "longitude": {
+                "$ref": "#/components/schemas/longitude"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "UNLocationCode": {
+                "$ref": "#/components/schemas/UNLocationCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "facilityCode": {
+                "$ref": "#/components/schemas/facilityCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "facilityCodeListProvider": {
+                "$ref": "#/components/schemas/facilityCodeListProvider"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "address": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/address"
+                  }
+                ],
+                "description": "Address related information"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "generally used to capture location-related data, also for locations without UN Location Codes.\n",
+        "type": "object"
+      },
+      "locationName": {
+        "description": "The name of the location.",
+        "example": "Eiffel Tower",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "longitude": {
+        "description": "Geographic coordinate that specifies the east–west position of a point on the Earth&apos;s surface.",
+        "example": "2.294492036",
+        "maxLength": 11,
+        "type": "string"
+      },
+      "modeOfTransport": {
+        "description": "The mode of transport as defined by DCSA.\n",
+        "enum": [
+          "VESSEL",
+          "RAIL",
+          "TRUCK",
+          "BARGE"
+        ],
+        "type": "string"
+      },
+      "operationsTransportEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/baseEvent"
+          },
+          {
+            "$ref": "#/components/schemas/baseTransportEvent"
+          }
+        ],
+        "type": "object"
+      },
+      "otherFacility": {
+        "description": "An alternative way to capture the facility when no standardized DCSA facility code can be found.",
+        "example": "Depot location or address",
+        "maxLength": 50,
+        "type": "string"
+      },
+      "postCode": {
+        "description": "The post code of the party’s address.",
+        "example": "1306",
+        "maxLength": 10,
+        "type": "string"
+      },
+      "reason": {
+        "description": "Reason field in a Shipment event. This field can be used to explain why a specific event has been sent.",
+        "example": "The following attributes are missing...",
+        "type": "string"
+      },
+      "reference": {
+        "allOf": [
+          {
+            "properties": {
+              "referenceType": {
+                "$ref": "#/components/schemas/referenceType"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "referenceValue": {
+                "$ref": "#/components/schemas/referenceValue"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "references provided by the shipper or freight forwarder at the time of booking or at the time of providing shipping instruction. Carriers share it back when providing track and trace event updates, some are also printed on the B/L. Customers can use these references to track shipments in their internal systems.\n",
+        "required": [
+          "referenceType",
+          "referenceValue"
+        ],
+        "type": "object"
+      },
+      "referenceType": {
+        "description": "The reference type codes defined by DCSA.\n- FF (Freight Forwarder’s Reference)\n- SI (Shipper’s Reference)\n- PO (Purchase Order Reference)\n- CR (Customer’s Reference)\n- AAO (Consignee’s Reference)\n- EQ (Equipment Reference)\n",
+        "enum": [
+          "FF",
+          "SI",
+          "PO",
+          "CR",
+          "AAO",
+          "EQ"
+        ],
+        "example": "FF",
+        "type": "string"
+      },
+      "referenceValue": {
+        "description": "The actual value of the reference.",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "references": {
+        "properties": {
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/reference"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "scheduleID": {
+        "description": "ID uniquely identifying a schedule",
+        "example": "9679a405-3316-42a5-8533-aba000f5689c",
+        "format": "uuid",
+        "type": "string"
+      },
+      "seal": {
+        "allOf": [
+          {
+            "properties": {
+              "sealNumber": {
+                "$ref": "#/components/schemas/sealNumber"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sealSource": {
+                "$ref": "#/components/schemas/sealSource"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sealType": {
+                "$ref": "#/components/schemas/sealType"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "addresses the seal-related information associated with the shipment equipment. A seal is put on a shipment equipment once it is loaded. This seal is meant to stay on until the shipment equipment reaches its final destination.",
+        "required": [
+          "sealNumber",
+          "sealType"
+        ],
+        "type": "object"
+      },
+      "sealNumber": {
+        "description": "Identifies a seal affixed to the container.",
+        "maxLength": 15,
+        "type": "string"
+      },
+      "sealSource": {
+        "description": "The source of the seal, namely who has affixed the seal. This attribute links to the Seal Source ID defined in the Seal Source reference data entity.\n- CAR (Carrier)\n- SHI (Shipper)\n- PHY (Phytosanitary)\n- VET (Veterinary)\n- CUS (Customs)\n",
+        "enum": [
+          "CAR",
+          "SHI",
+          "PHY",
+          "VET",
+          "CUS"
+        ],
+        "example": "CUS",
+        "type": "string"
+      },
+      "sealType": {
+        "description": "The type of seal. This attribute links to the Seal Type ID defined in the Seal Type reference data entity.\n- KLP (Keyless padlock)\n- BLT (Bolt)\n- WIR (Wire)\n",
+        "enum": [
+          "KLP",
+          "BLT",
+          "WIR"
+        ],
+        "example": "WIR",
+        "type": "string"
+      },
+      "seals": {
+        "properties": {
+          "seals": {
+            "items": {
+              "$ref": "#/components/schemas/seal"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "secret": {
+        "description": "A Base64 encoded secret shared between the Publisher and the Subscriber.\nIt is used to compute the contents of the Notification-Signature header.\n",
+        "example": "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDM2NTc4NjIzODk3NDY5MDgyNzM0OTg3MTIzNzg2NA==",
+        "format": "byte",
+        "type": "string"
+      },
+      "shipmentEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/baseEvent"
+          },
+          {
+            "$ref": "#/components/schemas/baseShipmentEvent"
+          }
+        ],
+        "type": "object"
+      },
+      "shipmentEventTypeCode": {
+        "description": "The status of the document in the process. Possible values are\n- RECE (Received)\n- DRFT (Drafted)\n- PENA (Pending Approval)\n- PENU (Pending Update)\n- REJE (Rejected)\n- APPR (Approved)\n- ISSU (Issued)\n- SURR (Surrendered)\n- SUBM (Submitted)\n- VOID (Void)\n- CONF (Confirmed)\n- REQS (Requested)\n- CMPL (Completed)\n- HOLD (On Hold)\n- RELS (Released)\n\nMore details can be found on <a href=\"https://github.com/dcsaorg/DCSA-Information-Model/blob/master/datamodel/referencedata.d/shipmenteventtypecodes.csv\">GitHub</a>\n",
+        "enum": [
+          "RECE",
+          "DRFT",
+          "PENA",
+          "PENU",
+          "REJE",
+          "APPR",
+          "ISSU",
+          "SURR",
+          "SUBM",
+          "VOID",
+          "CONF",
+          "REQS",
+          "CMPL",
+          "HOLD",
+          "RELS"
+        ],
+        "example": "DRFT",
+        "type": "string"
+      },
+      "shipmentEventTypeCodes": {
+        "description": "List of shipmentEventTypeCode to filter by. If multiple values are selected - the OR-operator will be used.\n\nDefault is none as it will not filter on shipmentEventTypeCode if not specified.\n",
+        "example": [
+          "RECE",
+          "DRFT"
+        ],
+        "items": {
+          "$ref": "#/components/schemas/shipmentEventTypeCode"
+        },
+        "type": "array"
+      },
+      "shipmentID": {
+        "description": "The identifier for a shipment",
+        "example": "c32d56f3-a4a5-4964-bb49-abd168b06160",
+        "format": "uuid",
+        "type": "string"
+      },
+      "shipmentInformationType": {
+        "deprecated": true,
+        "description": "The code to identify the type of information documentID points to. Can be one of the following values\n- BOK (Booking - deprecated use BKG instead)\n- BKG (Booking)\n- SHI (Shipping Instruction)\n- VGM (Verified Gross Mass)\n- SRM (Shipment Release Message)\n- TRD (Transport Document)\n- ARN (Arrival Notice)\n\n<b>Deprecated</b> - use documentTypeCode instead\n",
+        "enum": [
+          "BOK",
+          "BKG",
+          "SHI",
+          "VGM",
+          "SRM",
+          "TRD",
+          "ARN"
+        ],
+        "example": "SHI",
+        "maxLength": 3,
+        "type": "string"
+      },
+      "shipmentSubscriptionBody": {
+        "allOf": [
+          {
+            "properties": {
+              "shipmentEventTypeCode": {
+                "$ref": "#/components/schemas/shipmentEventTypeCodes"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "documentTypeCode": {
+                "$ref": "#/components/schemas/documentTypeCodes"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "carrierBookingReference": {
+                "$ref": "#/components/schemas/carrierBookingReference"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "bookingReference": {
+                "deprecated": true,
+                "description": "The identifier for a shipment, which is issued by and unique within each of the carriers.\n\nDeprecated - use carrierBookingReference instead\n",
+                "example": "ABC709951",
+                "maxLength": 35,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transportDocumentID": {
+                "deprecated": true,
+                "description": "Uniquely identify a transport document.\n\nDeprecated - use transportDocumentReference instead\n",
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transportDocumentReference": {
+                "$ref": "#/components/schemas/transportDocumentReference"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transportDocumentTypeCode": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/transportDocumentTypeCodes"
+                  },
+                  {
+                    "deprecated": true
+                  },
+                  {
+                    "description": "List of transportDocumentType to filter by. If multiple values are selected - the OR-operator will be used.\n\nDefault is none as it will not filter on transportDocumentType if not specified.\n\n<b>Deprecated:</b> Not to be used any more\n"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "type": "object"
+      },
+      "stateRegion": {
+        "description": "The state/region of the party’s address.",
+        "example": "N/A",
+        "maxLength": 65,
+        "type": "string"
+      },
+      "streetName": {
+        "description": "The name of the street of the party’s address.",
+        "example": "Kronprincessegade",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "streetNumber": {
+        "description": "The number of the street of the party’s address.",
+        "example": "54",
+        "maxLength": 50,
+        "type": "string"
+      },
+      "subErrors": {
+        "items": {
+          "properties": {
+            "message": {
+              "description": "Detailed error message.",
+              "example": "The request did not contain one of the three required query parameters.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "High level error message.",
+              "example": "invalidQuery",
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "subscription": {
+        "allOf": [
+          {
+            "properties": {
+              "subscriptionID": {
+                "$ref": "#/components/schemas/subscriptionID"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/subscriptionBody"
+          }
+        ],
+        "type": "object"
+      },
+      "subscriptionBody": {
+        "allOf": [
+          {
+            "properties": {
+              "callbackUrl": {
+                "$ref": "#/components/schemas/callbackUrl"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "eventType": {
+                "$ref": "#/components/schemas/eventTypes"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/shipmentSubscriptionBody"
+          },
+          {
+            "$ref": "#/components/schemas/transportSubscriptionBody"
+          },
+          {
+            "$ref": "#/components/schemas/equipmentSubscriptionBody"
+          }
+        ],
+        "required": [
+          "callbackUrl"
+        ],
+        "type": "object"
+      },
+      "subscriptionBodyWithSecret": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/subscriptionBody"
+          },
+          {
+            "properties": {
+              "secret": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/secret"
+                  },
+                  {
+                    "description": "A shared secret shared between the Publisher and the Subscriber. It is used to compute the contents of the Notification-Signature header. <b>Only</b> valid in POST calls - anywhere else must be omitted!"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "required": [
+          "secret"
+        ],
+        "type": "object"
+      },
+      "subscriptionID": {
+        "description": "The carrier issues a unique ID to the shipper or consignee for that subscription",
+        "example": "8fbdc2d8-57c8-48b9-a04b-18fd8ec1d809",
+        "format": "uuid",
+        "type": "string"
+      },
+      "transportCall": {
+        "allOf": [
+          {
+            "properties": {
+              "transportCallID": {
+                "$ref": "#/components/schemas/transportCallID"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "carrierServiceCode": {
+                "$ref": "#/components/schemas/carrierServiceCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "carrierVoyageNumber": {
+                "$ref": "#/components/schemas/carrierVoyageNumber"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "carrierVoyageNumber": {
+                "deprecated": true,
+                "description": "The vessel operator-specific identifier of the Voyage.\n\nIn case there are multiple voyages the export voyage is chosen.\n"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "exportVoyageNumber": {
+                "$ref": "#/components/schemas/exportVoyageNumber"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "importVoyageNumber": {
+                "$ref": "#/components/schemas/importVoyageNumber"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transportCallSequenceNumber": {
+                "$ref": "#/components/schemas/transportCallSequenceNumber"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "UNLocationCode": {
+                "$ref": "#/components/schemas/UNLocationCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "facilityCode": {
+                "$ref": "#/components/schemas/facilityCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "facilityCodeListProvider": {
+                "$ref": "#/components/schemas/facilityCodeListProvider"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "facilityTypeCode": {
+                "$ref": "#/components/schemas/facilityTypeCodeTRN"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "otherFacility": {
+                "$ref": "#/components/schemas/otherFacility"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "modeOfTransport": {
+                "$ref": "#/components/schemas/modeOfTransport"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "location": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/location"
+                  },
+                  {
+                    "description": "Location of the facility. Can often be omitted when it is just repeating the contents of the UNLocationCode field.",
+                    "example": null,
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "vessel": {
+                "$ref": "#/components/schemas/vessel"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "required": [
+          "modeOfTransport",
+          "transportCallID"
+        ],
+        "type": "object"
+      },
+      "transportCallID": {
+        "description": "The unique identifier for a transport call",
+        "example": "123e4567-e89b-12d3-a456-426614174000",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "transportCallSequenceNumber": {
+        "description": "Transport operator&apos;s key that uniquely identifies each individual call. This key is essential to distinguish between two separate calls at the same location within one voyage.",
+        "example": 2,
+        "type": "integer"
+      },
+      "transportDocumentReference": {
+        "description": "A unique number allocated by the shipping line to the transport document and the main number used for the tracking of the status of the shipment.\n",
+        "maxLength": 20,
+        "type": "string"
+      },
+      "transportDocumentType": {
+        "description": "Specifies the type of the transport document (a Bill of Lading (BOL) or a Sea Waybill (SWB)).",
+        "enum": [
+          "BOL",
+          "SWB"
+        ],
+        "example": "SWB",
+        "type": "string"
+      },
+      "transportDocumentTypeCodes": {
+        "description": "List of transportDocumentType to filter by. If multiple values are selected - the OR-operator will be used.\n\nDefault is none as it will not filter on transportDocumentType if not specified.\n",
+        "example": [
+          "BOL"
+        ],
+        "items": {
+          "$ref": "#/components/schemas/transportDocumentType"
+        },
+        "type": "array"
+      },
+      "transportEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/operationsTransportEvent"
+          },
+          {
+            "properties": {
+              "documentReferences": {
+                "$ref": "#/components/schemas/documentReferences"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/references"
+          }
+        ],
+        "type": "object"
+      },
+      "transportEventTypeCode": {
+        "description": "Identifier for type of Transport event\n- ARRI (Arrived)\n- DEPA (Departed)\n\nMore details can be found on <a href=\"https://github.com/dcsaorg/DCSA-Information-Model/blob/master/datamodel/referencedata.d/transporteventtypecodes.csv\">GitHub</a>\n",
+        "enum": [
+          "ARRI",
+          "DEPA"
+        ],
+        "example": "ARRI",
+        "type": "string"
+      },
+      "transportEventTypeCodes": {
+        "description": "List of transportEventTypeCode to filter by. If multiple values are selected - the OR-operator will be used.\n\nDefault is none as it will not filter on transportEventTypeCode if not specified.\n",
+        "example": [
+          "ARRI",
+          "DEPA"
+        ],
+        "items": {
+          "$ref": "#/components/schemas/transportEventTypeCode"
+        },
+        "type": "array"
+      },
+      "transportSubscriptionBody": {
+        "allOf": [
+          {
+            "properties": {
+              "transportEventTypeCode": {
+                "$ref": "#/components/schemas/transportEventTypeCodes"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "scheduleID": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/scheduleID"
+                  },
+                  {
+                    "deprecated": true
+                  },
+                  {
+                    "description": "ID uniquely identifying a schedul.<br>Deprecated as this was added by mistake"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transportCallID": {
+                "$ref": "#/components/schemas/transportCallID"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "vesselIMONumber": {
+                "$ref": "#/components/schemas/vesselIMONumber"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "carrierVoyageNumber": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/carrierVoyageNumber"
+                  },
+                  {
+                    "deprecated": true
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "exportVoyageNumber": {
+                "$ref": "#/components/schemas/exportVoyageNumber"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "carrierServiceCode": {
+                "$ref": "#/components/schemas/carrierServiceCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "UNLocationCode": {
+                "$ref": "#/components/schemas/UNLocationCode"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "type": "object"
+      },
+      "vessel": {
+        "allOf": [
+          {
+            "properties": {
+              "vesselIMONumber": {
+                "$ref": "#/components/schemas/vesselIMONumber"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "vesselName": {
+                "$ref": "#/components/schemas/vesselName"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "vesselFlag": {
+                "$ref": "#/components/schemas/vesselFlag"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "vesselCallSignNumber": {
+                "$ref": "#/components/schemas/vesselCallSignNumber"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "vesselOperatorCarrierCode": {
+                "$ref": "#/components/schemas/vesselOperatorCarrierCode"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "vesselOperatorCarrierCodeListProvider": {
+                "$ref": "#/components/schemas/vesselOperatorCarrierCodeListProvider"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "describes a floating, sea going structure (mother vessels and feeder vessels) with either an internal or external mode of propulsion designed for the transport of cargo and/or passengers. Ocean vessels are uniquely identified by an IMO number consisting of 7 digits, or alternatively by their AIS signal with an MMSI number. \n",
+        "required": [
+          "vesselIMONumber"
+        ],
+        "type": "object"
+      },
+      "vesselCallSignNumber": {
+        "description": "A unique alphanumeric identity that belongs to the vessel and is assigned by the International Telecommunication Union (ITU). It consists of a threeletter alphanumeric prefix that indicates nationality, followed by one to four characters to identify the individual vessel. For instance, vessels registered under Denmark are assigned the prefix ranges 5PA-5QZ, OUAOZZ, and XPA-XPZ. The Call Sign changes whenever a vessel changes its flag.\n",
+        "example": "NCVV",
+        "maxLength": 10,
+        "type": "string"
+      },
+      "vesselFlag": {
+        "description": "The flag of the nation whose laws the vessel is registered under. This is the ISO 3166 two-letter country code\n",
+        "example": "DE",
+        "maxLength": 2,
+        "type": "string"
+      },
+      "vesselIMONumber": {
+        "description": "The unique reference for a registered Vessel. The reference is the International Maritime Organisation (IMO) number, also sometimes known as the Lloyd&apos;s register code, which does not change during the lifetime of the vessel\n",
+        "example": "9321483",
+        "maxLength": 7,
+        "type": "string"
+      },
+      "vesselName": {
+        "description": "The name of the Vessel given by the Vessel Operator and registered with IMO.\n",
+        "example": "King of the Seas",
+        "maxLength": 35,
+        "type": "string"
+      },
+      "vesselOperatorCarrierCode": {
+        "description": "The carrier who is in charge of the vessel operation based on either the SMDG or SCAC code lists\n",
+        "example": "MAEU",
+        "maxLength": 10,
+        "nullable": false,
+        "type": "string"
+      },
+      "vesselOperatorCarrierCodeListProvider": {
+        "description": "Identifies the code list provider used for the operator and partner carriercodes.",
+        "enum": [
+          "SMDG",
+          "NMFTA"
+        ],
+        "example": "NMFTA",
+        "nullable": false,
+        "type": "string"
+      },
+      "vesselScheduleChangeRemark": {
+        "deprecated": true,
+        "description": "Free text information provided by the vessel operator regarding the reasons for the change in schedule and/or plans to mitigate schedule slippage.\n\nDeprecated - use changeRemark instead\n",
+        "example": "Bad weather",
+        "maxLength": 250,
+        "type": "string"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "email": "info@dcsa.org",
+      "name": "Digital Container Shipping Association (DCSA)",
+      "url": "https://dcsa.org"
+    },
+    "description": "Managing and sending Shipment-, Transport- and Equipment-events and subscriptions for Track &amp; Trace (T&amp;T). API specification issued by DCSA.org.\n\nFor explanation to specific values or objects please refer to the <a href='https://dcsa.org/wp-content/uploads/2021/10/202108_DCSA_P1_Information-Model-v3.3_TNT22_Final.pdf'>Information Model v3.3</a>\n\nPolling can be done on the <b>GET /v2/events</b> endPoint. It is also possible to setup a subscription on the <b>/v2/event-subscriptions</b> endPoints in order to use the push model. Here events are pushed as they occur.\n\nFor a changelog please click <a href=\"https://github.com/dcsaorg/DCSA-OpenAPI/blob/master/tnt/v2#v220\">here</a>\n",
+    "license": {
+      "name": "Apache 2.0",
+      "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+    },
+    "title": "DCSA OpenAPI specification for Track & Trace",
+    "version": "2.2.0"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/v2/event-subscriptions": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Maximum number of items to return.",
+            "example": 100,
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "format": "int32",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "A server generated value to specify a specific point in a collection result, used for pagination.",
+            "example": "fE9mZnNldHw9MTAmbGltaXQ9MTA=",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A comma-separated list of field names to define the sort order. Field names should be suffixed by a (:) followed by either the keyword ASC (for ascending order) or DESC (for descening order) to specify direction. <b>:ASC</b> may be omitted, in which case ascending order will be used.\n",
+            "example": "carrierBookingReference:DESC",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "An API-Version header MAY be added to the request (optional); if added it MUST only contain MAJOR version. API-Version header MUST be aligned with the URI version.\n",
+            "in": "header",
+            "name": "API-Version",
+            "required": false,
+            "schema": {
+              "example": "1",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/subscription"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Returns a list of subscriptions",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              },
+              "Current-Page": {
+                "$ref": "#/components/headers/Current-Page"
+              },
+              "First-Page": {
+                "$ref": "#/components/headers/First-Page"
+              },
+              "Last-Page": {
+                "$ref": "#/components/headers/Last-Page"
+              },
+              "Next-Page": {
+                "$ref": "#/components/headers/Next-Page"
+              },
+              "Prev-Page": {
+                "$ref": "#/components/headers/Prev-Page"
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/error"
+                    },
+                    {
+                      "properties": {
+                        "httpMethod": {
+                          "example": "GET"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "requestUri": {
+                          "example": "https://dcsa.org/dcsa/tnt/v2/event-subscriptions"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Unexpected error",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          }
+        },
+        "summary": "Receive a list of your active subscriptions",
+        "tags": [
+          "Subscriptions"
+        ]
+      },
+      "post": {
+        "callbacks": {
+          "event": {
+            "{$request.body.callbackUrl}": {
+              "post": {
+                "parameters": [
+                  {
+                    "deprecated": true,
+                    "description": "The signature certifying the request originates from the carrier.\n",
+                    "in": "header",
+                    "name": "Signature",
+                    "required": true,
+                    "schema": {
+                      "properties": {
+                        "created": {
+                          "example": 1591960384,
+                          "type": "integer"
+                        },
+                        "headers": {
+                          "example": "(request-target) (created) date host",
+                          "type": "string"
+                        },
+                        "keyId": {
+                          "example": "4fb682bc-3cd1-43a9-a23a-618a61bd87ca",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "signature": {
+                          "example": "aGkgZnJvbSBkZW5tYXJr",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  {
+                    "description": "The ID of the subscription triggering the event being sent.",
+                    "in": "header",
+                    "name": "Subscription-ID",
+                    "required": true,
+                    "schema": {
+                      "example": "b80d923d-e8ac-4c34-9506-55d3de347034",
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "description": "the Notification-Signature is used to sign the notification. The header has the following format: \n\n<i>Notification-Signature&#58; &lt;signature-type&gt;=&lt;signature&gt;</i>\n\nThe <i>&lt;signature-type&gt;</i> part is a keyword that determines which algorithm was used to compute the signature.\n\nThe signature <b>MUST</b> cover the entire request body of the request including whitespace and newlines. The content <b>MUST</b> decoded into bytes using the UTF-8 encoding before computing the signature. None of the HTTP headers nor the request URL is covered by the signature.\n\nSupported signature typies are&#58;\n- sha256\n\nExample&#58; sha256=ae688919f5e31f4c210ca6af362ce4d9ed87acfb51c1721a8507ee395de5e2de\n",
+                    "in": "header",
+                    "name": "Notification-Signature",
+                    "required": true,
+                    "schema": {
+                      "example": "sha256=ae688919f5e31f4c210ca6af362ce4d9ed87acfb51c1721a8507ee395de5e2de",
+                      "pattern": "\\s*([a-zA-Z0-9-_+]+=[0-9a-fA-F]+)\\s*",
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "description": "SemVer used to indicate the version of the contract (API version) returned.\n",
+                    "in": "header",
+                    "name": "API-Version",
+                    "required": true,
+                    "schema": {
+                      "example": "1.0.0",
+                      "type": "string"
+                    }
+                  }
+                ],
+                "requestBody": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "items": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/transportEvent"
+                            },
+                            {
+                              "$ref": "#/components/schemas/shipmentEvent"
+                            },
+                            {
+                              "$ref": "#/components/schemas/equipmentEvent"
+                            }
+                          ]
+                        },
+                        "type": "array"
+                      }
+                    }
+                  },
+                  "required": true
+                },
+                "responses": {
+                  "204": {
+                    "description": "Your server returns this code if it accepts the callback"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "description": "An API-Version header MAY be added to the request (optional); if added it MUST only contain MAJOR version. API-Version header MUST be aligned with the URI version.\n",
+            "in": "header",
+            "name": "API-Version",
+            "required": false,
+            "schema": {
+              "example": "1",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/subscriptionBodyWithSecret"
+              }
+            }
+          },
+          "description": "Parameters used to configure the subscription. It is possible to only receive cirtain types of events by adding filter values to the subscription.\n\nAll values in the subscription body except&#58; <i>callback, secret and subscriptionID</i> will be used as filters. All filters specified must be filfilled in order to match an Event. A logical <b>AND</b> is used between filters. So\n\n<i>shipmentEventTypeCode=DRFT<b>&</b>carrierBookingReference=ABC123123</i>\n\nmeans that the events matched must both be Draft (shipmentEventTypeCode=DRFT) <b>and</b> be connected to carrierBookingReference ABC123123 (carrierBookingReference=ABC123123)\n\nFilters that are specified as (comma separated) lists use logical <b>OR</b> between list values. So\n\n<i>eventType=SHIPMENT,TRANSPORT</i>\n\nmeans that <b>both</b> Shipment- <b>and</b> Transport-events will be matched by this subscription.\n",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/subscription"
+                }
+              }
+            },
+            "description": "Subscription created",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/error"
+                    },
+                    {
+                      "properties": {
+                        "httpMethod": {
+                          "example": "POST"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "requestUri": {
+                          "example": "https://dcsa.org/dcsa/tnt/v2/event-subscriptions"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Unexpected error",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          }
+        },
+        "summary": "Create a subscription",
+        "tags": [
+          "Subscriptions"
+        ]
+      }
+    },
+    "/v2/event-subscriptions/{subscriptionID}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "The universal unique ID of the subscription.",
+            "example": "123e4567-e89b-12d3-a456-426614174000",
+            "in": "path",
+            "name": "subscriptionID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/subscriptionID"
+            }
+          },
+          {
+            "description": "An API-Version header MAY be added to the request (optional); if added it MUST only contain MAJOR version. API-Version header MUST be aligned with the URI version.\n",
+            "in": "header",
+            "name": "API-Version",
+            "required": false,
+            "schema": {
+              "example": "1",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Subscription stopped",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/error"
+                    },
+                    {
+                      "properties": {
+                        "httpMethod": {
+                          "example": "DELETE"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "requestUri": {
+                          "example": "https://dcsa.org/dcsa/tnt/v2/event-subscriptions/8fbdc2d8-57c8-48b9-a04b-18fd8ec1d809"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Unexpected error",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          }
+        },
+        "summary": "Stop a subscription, using the subscription ID",
+        "tags": [
+          "Subscriptions"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "description": "The universal unique ID of the subscription.",
+            "example": "123e4567-e89b-12d3-a456-426614174000",
+            "in": "path",
+            "name": "subscriptionID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/subscriptionID"
+            }
+          },
+          {
+            "description": "An API-Version header MAY be added to the request (optional); if added it MUST only contain MAJOR version. API-Version header MUST be aligned with the URI version.\n",
+            "in": "header",
+            "name": "API-Version",
+            "required": false,
+            "schema": {
+              "example": "1",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/subscription"
+                }
+              }
+            },
+            "description": "Subscription returned",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/error"
+                    },
+                    {
+                      "properties": {
+                        "httpMethod": {
+                          "example": "GET"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "requestUri": {
+                          "example": "https://dcsa.org/dcsa/tnt/v2/event-subscriptions/8fbdc2d8-57c8-48b9-a04b-18fd8ec1d809"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Unexpected error",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          }
+        },
+        "summary": "Find a subscription by subscription ID",
+        "tags": [
+          "Subscriptions"
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "description": "The universal unique ID of the subscription.",
+            "example": "123e4567-e89b-12d3-a456-426614174000",
+            "in": "path",
+            "name": "subscriptionID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/subscriptionID"
+            }
+          },
+          {
+            "description": "An API-Version header MAY be added to the request (optional); if added it MUST only contain MAJOR version. API-Version header MUST be aligned with the URI version.\n",
+            "in": "header",
+            "name": "API-Version",
+            "required": false,
+            "schema": {
+              "example": "1",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/subscription"
+              }
+            }
+          },
+          "description": "Parameters used to configure the subscription",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/subscription"
+                }
+              }
+            },
+            "description": "Subscription updated",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/error"
+                    },
+                    {
+                      "properties": {
+                        "httpMethod": {
+                          "example": "PUT"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "requestUri": {
+                          "example": "https://dcsa.org/dcsa/tnt/v2/event-subscriptions/8fbdc2d8-57c8-48b9-a04b-18fd8ec1d809"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Unexpected error",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          }
+        },
+        "summary": "Alter a subscription",
+        "tags": [
+          "Subscriptions"
+        ]
+      }
+    },
+    "/v2/event-subscriptions/{subscriptionID}/secret": {
+      "put": {
+        "parameters": [
+          {
+            "description": "The universal unique ID of the subscription.",
+            "example": "123e4567-e89b-12d3-a456-426614174000",
+            "in": "path",
+            "name": "subscriptionID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/subscriptionID"
+            }
+          },
+          {
+            "description": "An API-Version header MAY be added to the request (optional); if added it MUST only contain MAJOR version. API-Version header MUST be aligned with the URI version.\n",
+            "in": "header",
+            "name": "API-Version",
+            "required": false,
+            "schema": {
+              "example": "1",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "properties": {
+                      "secret": {
+                        "$ref": "#/components/schemas/secret"
+                      }
+                    },
+                    "type": "object"
+                  }
+                ]
+              }
+            }
+          },
+          "description": "Parameters used to configure the subscription",
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Secret updated",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/error"
+                    },
+                    {
+                      "properties": {
+                        "httpMethod": {
+                          "example": "PUT"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "requestUri": {
+                          "example": "https://dcsa.org/dcsa/tnt/v2/event-subscriptions/8fbdc2d8-57c8-48b9-a04b-18fd8ec1d809/secret"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Unexpected error",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          }
+        },
+        "summary": "Resets the Secret on an existing subscription.",
+        "tags": [
+          "Secret"
+        ]
+      }
+    },
+    "/v2/events": {
+      "get": {
+        "description": "Returns all events filtered by the queryParameters.\n\n<b>NB</b>&#58; It is possible to combine queryParameters. When combining queryParameters be aware that it is also possible to make combinations that are mutual contradicting.\n\nExample&#58; <i>shipmentEventTypeCode=DRFT and equipmentEventTypeCode=GTIN</i>\n\nSince there is no event that can be a ShipmentEvent <u>and</u> an EquipmentEvent at the same time <b>this will return an empty list<b>!\n",
+        "parameters": [
+          {
+            "description": "The type of event(s) to filter by. Possible values are\n\n- SHIPMENT (Shipment events)\n- TRANSPORT (Transport events)\n- EQUIPMENT (Equipment events)\n\nIt is possible to select multiple values by comma (,) separating them. For multiple values the OR-operator is used. For example eventType=SHIPMENT,EQUIPMENT matches both Shipment- and Equipment-events.\n\nDefault value is all event types.\n",
+            "explode": false,
+            "in": "query",
+            "name": "eventType",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "SHIPMENT",
+                  "TRANSPORT",
+                  "EQUIPMENT"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "style": "form"
+          },
+          {
+            "description": "The status of the document in the process to filter by. Possible values are\n- RECE (Received)\n- DRFT (Drafted)\n- PENA (Pending Approval)\n- PENU (Pending Update)\n- REJE (Rejected)\n- APPR (Approved)\n- ISSU (Issued)\n- SURR (Surrendered)\n- SUBM (Submitted)\n- VOID (Void)\n- CONF (Confirmed)\n- REQS (Requested)\n- CMPL (Completed)\n- HOLD (On Hold)\n- RELS (Released)\n\nIt is possible to select multiple values by comma (,) separating them. For multiple values the OR-operator is used. For example <i>shipmentEventTypeCode=RECE,DRFT</i>  Matches <b>both</b> Received (RECE) and Drafted (DRFT) shipment events.\n\nDefault is all shipmentEventTypeCodes.\n\nThis filter is only relevant when filtering on ShipmentEvents\n",
+            "example": "RECE,DRFT",
+            "explode": false,
+            "in": "query",
+            "name": "shipmentEventTypeCode",
+            "schema": {
+              "default": "RECE,DRFT,PENA,PENU,REJE,APPR,ISSU,SURR,SUBM,VOID,CONF,REQS,CMPL,HOLD,RELS",
+              "items": {
+                "$ref": "#/components/schemas/shipmentEventTypeCode"
+              },
+              "type": "array"
+            },
+            "style": "form"
+          },
+          {
+            "description": "The documentTypeCode to filter by. Possible values are\n- CBR (Carrier Booking Request Reference)\n- BKG (Booking)\n- SHI (Shipping Instruction)\n- SRM (Shipment Release Message)\n- TRD (Transport Document)\n- ARN (Arrival Notice)\n- VGM (Verified Gross Mass)\n- CAS (Cargo Survey)\n- CUS (Customs Inspection)\n- DGD (Dangerous Goods Declaration)\n- OOG (Out of Gauge)\n\nIt is possible to select multiple values by comma (,) separating them. For multiple values the OR-operator is used. For example <i>documentTypeCode=SHI,TRD</i> Matches <b>both</b> ShippingInstruction (SHI) and TransportDocument (TRD) shipment events.\n\nDefault is all documentTypeCodes.\n\nThis filter is only relevant when filtering on ShipmentEvents\n",
+            "example": "SHI,TRD",
+            "explode": false,
+            "in": "query",
+            "name": "documentTypeCode",
+            "schema": {
+              "default": "CBR,BKG,SHI,SRM,TRD,ARN,VGM,CAS,CUS,DGD,OOG",
+              "items": {
+                "$ref": "#/components/schemas/documentTypeCode"
+              },
+              "type": "array"
+            },
+            "style": "form"
+          },
+          {
+            "description": "A set of unique characters provided by carrier to identify a booking.\n\nSpecifying this filter will only return events related to this particular carrierBookingReference.\n",
+            "in": "query",
+            "name": "carrierBookingReference",
+            "schema": {
+              "$ref": "#/components/schemas/carrierBookingReference"
+            }
+          },
+          {
+            "deprecated": true,
+            "description": "Deprecated - use carrierBookingReference instead.",
+            "in": "query",
+            "name": "bookingReference",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "deprecated": true,
+            "description": "A unique id to identify a transport document.\n\nDeprecated - use transportDocumentReference instead transportDocumentReference\n",
+            "in": "query",
+            "name": "transportDocumentID",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A unique number reference allocated by the shipping line to the transport document and the main number used for the tracking of the status of the shipment.\n\nSpecifying this filter will only return events related to this particular transportDocumentReference\n",
+            "in": "query",
+            "name": "transportDocumentReference",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/transportDocumentReference"
+            }
+          },
+          {
+            "description": "Identifier for type of Transport event to filter by\n- ARRI (Arrived)\n- DEPA (Departed)\n\nIt is possible to select multiple values by comma (,) separating them. For multiple values the OR-operator is used. For example <i>transportEventTypeCode=ARRI,DEPA</i> matches <b>both</b> Arrived (ARRI) and Departed (DEPA) transport events.\n\nDefault is all transportEventTypeCodes.\n\nThis filter is only relevant when filtering on TransportEvents\n",
+            "example": "ARRI,DEPA",
+            "explode": false,
+            "in": "query",
+            "name": "transportEventTypeCode",
+            "schema": {
+              "default": "ARRI,DEPA",
+              "items": {
+                "$ref": "#/components/schemas/transportEventTypeCode"
+              },
+              "type": "array"
+            },
+            "style": "form"
+          },
+          {
+            "deprecated": true,
+            "description": "ID uniquely identifying a schedule, to filter events by.\n\nThis filter was added by mistake and is thus deprecated.\n",
+            "in": "query",
+            "name": "scheduleID",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/scheduleID"
+            }
+          },
+          {
+            "description": "ID uniquely identifying a transport call, to filter events by.\n\nSpecifying this filter will only return events related to this particular transportCallID\n",
+            "in": "query",
+            "name": "transportCallID",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/transportCallID"
+            }
+          },
+          {
+            "description": "The identifier of vessel for which schedule details are published. Depending on schedule type, this may not be available yet.\n\nSpecifying this filter will only return events related to this particular vesselIMONumber.\n",
+            "in": "query",
+            "name": "vesselIMONumber",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/vesselIMONumber"
+            }
+          },
+          {
+            "deprecated": true,
+            "description": "Filter on the vessel operator-specific identifier of the Voyage.\n\nSpecifying this filter will only return events related to this particular carrierVoyageNumber.\n\n<b>Deprecated:</b> Use exportVoyageNumber instead\n",
+            "in": "query",
+            "name": "carrierVoyageNumber",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/carrierVoyageNumber"
+            }
+          },
+          {
+            "description": "Filter on the vessel operator-specific identifier of the export Voyage.\n\nSpecifying this filter will only return events related to this particular exportVoyageNumber.\n",
+            "in": "query",
+            "name": "exportVoyageNumber",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/exportVoyageNumber"
+            }
+          },
+          {
+            "description": "Filter on the carrier specific identifier of the service.\n\nSpecifying this filter will only return events related to this particular carrierServiceCode.\n",
+            "in": "query",
+            "name": "carrierServiceCode",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/carrierServiceCode"
+            }
+          },
+          {
+            "description": "The UN Location code specifying where the place is located.\n\nSpecifying this filter will only return events related to this particular UN Location code.\n",
+            "in": "query",
+            "name": "UNLocationCode",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/UNLocationCode"
+            }
+          },
+          {
+            "description": "Unique identifier for equipmentEventTypeCode.\n- LOAD (Loaded)\n- DISC (Discharged)\n- GTIN (Gated in)\n- GTOT (Gated out)\n- STUF (Stuffed)\n- STRP (Stripped)\n- PICK (Pick-up)\n- DROP (Drop-off)\n- INSP (Inspected)\n- RSEA (Resealed)\n- RMVD (Removed)\n\nIt is possible to select multiple values by comma (,) separating them. For multiple values the OR-operator is used. For example <i>equipmentEventTypeCode=GTIN,GTOT</i> matches <b>both</b> Gated in (GTIN) and Gated out (GTOT) equipment events.\n\nDefault is all equipmentEventTypeCodes.\n\nThis filter is only relevant when filtering on EquipmentEvents\n",
+            "example": "GTIN,GTOT",
+            "explode": false,
+            "in": "query",
+            "name": "equipmentEventTypeCode",
+            "schema": {
+              "default": "LOAD,DISC,GTIN,GTOT,STUF,STRP,PICK,DROP,INSP,RSEA,RMVD",
+              "items": {
+                "$ref": "#/components/schemas/equipmentEventTypeCode"
+              },
+              "type": "array"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Will filter by the unique identifier for the equipment, which should follow the BIC ISO Container Identification Number where possible.\n\nSpecifying this filter will only return events related to this particular equipmentReference\n",
+            "in": "query",
+            "name": "equipmentReference",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/equipmentReference"
+            }
+          },
+          {
+            "description": "Limit the result based on the creating date of the event. It is possible to use operators on this query parameter. This is done by adding a colon followed by an operator at the end of the queryParameterName (before the =)\n\n<i>eventCreatedDateTime<b>&#58;gte</b>=2021-04-01T14&#58;12&#58;56+01&#58;00</i>\n\nwould result in all events created &#8805; 2021-04-01T14&#58;12&#58;56+01&#58;00\n\nThe following operators are supported\n- &#58;gte (&#8805; Greater than or equal)\n- &#58;gt (&#62; Greater than)\n- &#58;lte (&#8804; Less than or equal)\n- &#58;lt (&#60; Less than)\n- &#58;eq (&#61; Equal to)\n\nIf no operator is provided, a <b>strictly equal</b> is used (this is equivalent to <b>&#58;eq</b> operator).\n",
+            "example": "2021-04-01T14:12:56+01:00",
+            "in": "query",
+            "name": "eventCreatedDateTime",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/eventCreatedDateTime"
+            }
+          },
+          {
+            "description": "Maximum number of items to return.",
+            "example": 100,
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "format": "int32",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "A server generated value to specify a specific point in a collection result, used for pagination.",
+            "example": "fE9mZnNldHw9MTAmbGltaXQ9MTA=",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A comma-separated list of field names to define the sort order. Field names should be suffixed by a (:) followed by either the keyword ASC (for ascending order) or DESC (for descening order) to specify direction. <b>:ASC</b> may be omitted, in which case ascending order will be used.\n",
+            "example": "carrierBookingReference:DESC",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "An API-Version header MAY be added to the request (optional); if added it MUST only contain MAJOR version. API-Version header MUST be aligned with the URI version.\n",
+            "in": "header",
+            "name": "API-Version",
+            "required": false,
+            "schema": {
+              "example": "1",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/transportEvent"
+                      },
+                      {
+                        "$ref": "#/components/schemas/shipmentEvent"
+                      },
+                      {
+                        "$ref": "#/components/schemas/equipmentEvent"
+                      }
+                    ]
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful operation",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              },
+              "Current-Page": {
+                "$ref": "#/components/headers/Current-Page"
+              },
+              "First-Page": {
+                "$ref": "#/components/headers/First-Page"
+              },
+              "Last-Page": {
+                "$ref": "#/components/headers/Last-Page"
+              },
+              "Next-Page": {
+                "$ref": "#/components/headers/Next-Page"
+              },
+              "Prev-Page": {
+                "$ref": "#/components/headers/Prev-Page"
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/error"
+                    },
+                    {
+                      "properties": {
+                        "httpMethod": {
+                          "example": "GET"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "requestUri": {
+                          "example": "https://dcsa.org/dcsa/tnt/v2/events"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Unexpected error",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          }
+        },
+        "summary": "Find events.",
+        "tags": [
+          "Events"
+        ]
+      }
+    },
+    "/v2/events/{eventID}": {
+      "get": {
+        "deprecated": true,
+        "description": "Returns event with the specified eventID.",
+        "parameters": [
+          {
+            "deprecated": true,
+            "description": "The ID of the event to receive",
+            "example": "123e4567-e89b-12d3-a456-426614174000",
+            "in": "path",
+            "name": "eventID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/eventID"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "propertyName": "eventType"
+                  },
+                  "example": {
+                    "documentID": "84db923d-2a19-4eb0-beb5-446c1ec57d34",
+                    "documentTypeCode": "TRD",
+                    "eventCreatedDateTime": "2019-11-12T07:41:00+08:30",
+                    "eventID": "84db923d-2a19-4eb0-beb5-446c1ec57d34",
+                    "eventSubtype": "ISSU",
+                    "eventType": "SHIPMENT",
+                    "reason": "All good"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/shipmentEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/transportEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/equipmentEvent"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful operation",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/error"
+                    },
+                    {
+                      "properties": {
+                        "httpMethod": {
+                          "example": "GET"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "requestUri": {
+                          "example": "https://dcsa.org/dcsa/tnt/v2/events/123e4567-e89b-12d3-a456-426614174000"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Unexpected error",
+            "headers": {
+              "API-Version": {
+                "$ref": "#/components/headers/API-Version"
+              }
+            }
+          }
+        },
+        "summary": "Find events by eventID.",
+        "tags": [
+          "Events"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Event operations",
+      "name": "Events"
+    },
+    {
+      "description": "Subscription operations",
+      "name": "Subscriptions"
+    },
+    {
+      "description": "Update secret",
+      "name": "Secret"
+    }
+  ]
+}

@@ -204,6 +204,30 @@ class GatewaySecurityTest {
                 .withHeader("X-Forwarded-User", absent()));
     }
 
+    /**
+     * Carriers push DCSA notifications without a token (ADR 0037): the gateway lets the POST through to logistics
+     * with the body and the signature headers unchanged, since logistics verifies the signature over the exact bytes.
+     * Nothing else on the path is open.
+     */
+    @Test
+    void aCarrierNotificationNeedsNoTokenAndReachesLogisticsUnchanged() {
+        String body = "[{\"eventID\":\"3cecb101-7a1a-43a4-9d62-e88a131651e2\"}]";
+        client().post().uri("/api/v1/dcsa/notifications/carrier-kalahari-freight")
+                .header("Content-Type", "application/json")
+                .header("Notification-Signature", "sha256=ae688919f5e31f4c210ca6af362ce4d9ed87acfb51c1721a8507ee395de5e2de")
+                .header("Subscription-ID", "6f2d0a6e-1c1d-4f53-9a64-1c4e8f0b7a21")
+                .bodyValue(body)
+                .exchange()
+                .expectStatus().is2xxSuccessful();
+        UPSTREAM.verify(com.github.tomakehurst.wiremock.client.WireMock
+                .postRequestedFor(urlPathEqualTo("/api/v1/dcsa/notifications/carrier-kalahari-freight"))
+                .withHeader("Notification-Signature", com.github.tomakehurst.wiremock.client.WireMock.equalTo(
+                        "sha256=ae688919f5e31f4c210ca6af362ce4d9ed87acfb51c1721a8507ee395de5e2de"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.equalTo(body)));
+        client().get().uri("/api/v1/dcsa/notifications/carrier-kalahari-freight").exchange()
+                .expectStatus().isUnauthorized();
+    }
+
     @Test
     void anInvalidTokenOnThePublicRouteIsStillA401() {
         client().get().uri("/api/v1/shipments/track/FF-00010000-6")

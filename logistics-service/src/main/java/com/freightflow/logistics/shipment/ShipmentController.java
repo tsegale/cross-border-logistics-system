@@ -121,7 +121,8 @@ public class ShipmentController {
             @PathVariable UUID id,
             @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @Valid @RequestBody com.freightflow.logistics.shipment.dto.AssignCarrierRequest request) {
-        ShipmentResponse assigned = shipmentService.assignCarrier(caller, id, request.carrierId(), ifMatch);
+        ShipmentResponse assigned = shipmentService.assignCarrier(caller, id, request.carrierId(),
+                request.containerNumber(), ifMatch);
         return ResponseEntity.ok()
                 .header(HttpHeaders.ETAG, ETags.format(assigned.version()))
                 .body(assigned);

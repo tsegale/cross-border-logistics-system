@@ -128,6 +128,18 @@ freightflow:
     jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
     audience: logistics-service
   logistics:
+    # Carrier events in DCSA Track and Trace 2.2 (ADR 0037). Each carrier pushes under its subscription, signed with
+    # its secret (compose secret dcsa_carrier_secret, ADR 0019); a POLL carrier is also fetched from its API.
+    dcsa:
+      replay-window: ${DCSA_REPLAY_WINDOW:24h}
+      clock-skew: 5m
+      process-interval: 500ms
+      carriers:
+        carrier-kalahari-freight:
+          subscription-id: ${DCSA_KALAHARI_SUBSCRIPTION_ID:6f2d0a6e-1c1d-4f53-9a64-1c4e8f0b7a21}
+          secret: ${dcsa_carrier_secret:${DCSA_CARRIER_SECRET:}}
+          mode: ${DCSA_KALAHARI_MODE:PUSH}
+          base-url: ${DCSA_KALAHARI_API_URL:http://127.0.0.1:8090/carrier}
     supported-currencies: ${LOGISTICS_SUPPORTED_CURRENCIES:NAD,ZAR,EUR}
     quote-validity: ${LOGISTICS_QUOTE_VALIDITY:24h}
     # Payment saga relay (ADR 0012)
@@ -187,6 +199,15 @@ resilience4j:
           - io.github.resilience4j.bulkhead.BulkheadFullException
         # Neither is banking refusing to price on a stale reference rate (ADR 0034).
         ignore-exception-predicate: com.freightflow.logistics.banking.FxRatesStale
+      # The poll of a carrier's DCSA events (ADR 0037): a few failures in a row stop it until the carrier is back.
+      dcsa-poll:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 5
+        minimum-number-of-calls: 3
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: ${DCSA_POLL_BREAKER_OPEN_WAIT:2m}
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
   bulkhead:
     instances:
       banking-payments:

@@ -83,6 +83,8 @@ class AuthorisationMatrixTest extends IntegrationTest {
         table.put("POST customs assessment", new int[] {403, 403, 409, 403, 403, 403, 401});
         table.put("GET customs assessment",  new int[] {403, 403, 404, 404, 403, 403, 401});
         table.put("POST customs confirmation", new int[] {403, 403, 404, 403, 403, 403, 401});
+        // DCSA notifications (ADR 0037) authenticate by signature, not by token: unsigned, every caller gets the 401.
+        table.put("POST dcsa notification",  new int[] {401, 401, 401, 401, 401, 401, 401});
         table.put("GET payment commands",    new int[] {403, 403, 200, 200, 403, 403, 401});
         table.put("GET payment command",     new int[] {403, 403, 200, 200, 403, 403, 401});
         table.put("POST payment retry",      new int[] {403, 403, 200, 403, 403, 403, 401});
@@ -154,6 +156,8 @@ class AuthorisationMatrixTest extends IntegrationTest {
                             """.formatted(UUID.randomUUID(), Instant.now()));
             case "POST cancellation" -> post("/api/v1/shipments/{id}/cancellation", f.shipment())
                     .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Matrix\"}");
+            case "POST dcsa notification" -> post("/api/v1/dcsa/notifications/carrier-kalahari-freight")
+                    .contentType(MediaType.APPLICATION_JSON).content("[]");
             case "POST customs assessment" -> post("/api/v1/shipments/{id}/customs-assessment", f.shipment())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("{\"duties\":1.00,\"importVat\":1.00,\"currency\":\"EUR\",\"authorityReference\":\"MATRIX\"}");

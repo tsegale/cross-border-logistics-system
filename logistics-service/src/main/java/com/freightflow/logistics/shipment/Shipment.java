@@ -145,6 +145,9 @@ public class Shipment {
     @Column(name = "carrier_id", length = 64)
     private String carrierId;
 
+    @Column(name = "container_number", length = 11)
+    private String containerNumber;
+
     // Who did it (ADR 0020).
     @Column(name = "booked_by_subject", length = 64, updatable = false)
     private String bookedBySubject;
@@ -362,6 +365,15 @@ public class Shipment {
             return carrierId != null && carrierId.equals(caller.clientId());
         }
         return caller.mayAccess(bookingOrganizationId) || caller.mayAccess(payerOrganizationId);
+    }
+
+    /** ISO 6346, already validated: the equipmentReference of the carrier's DCSA events (ADR 0037). */
+    public void assignContainer(String containerNumber) {
+        this.containerNumber = Objects.requireNonNull(containerNumber, "containerNumber");
+    }
+
+    public String getContainerNumber() {
+        return containerNumber;
     }
 
     public void assignCarrier(String carrierId, Instant now) {

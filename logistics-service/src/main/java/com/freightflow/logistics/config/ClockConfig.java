@@ -12,7 +12,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import java.time.Clock;
 
 @Configuration
-@EnableConfigurationProperties({LogisticsProperties.class, PaymentProperties.class, HoldExpiryProperties.class,
+@EnableConfigurationProperties({com.freightflow.logistics.dcsa.DcsaProperties.class, LogisticsProperties.class, PaymentProperties.class, HoldExpiryProperties.class,
         OutboxProperties.class})
 @EnableScheduling
 @EnableResilientMethods

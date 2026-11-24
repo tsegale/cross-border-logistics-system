@@ -7,6 +7,8 @@ import com.freightflow.logistics.idempotency.IdempotencyKeyInFlightException;
 import com.freightflow.logistics.idempotency.IdempotencyPayloadMismatchException;
 import com.freightflow.logistics.idempotency.MissingIdempotencyKeyException;
 import com.freightflow.logistics.customs.CustomsExceptions;
+import com.freightflow.logistics.dcsa.ContainerNumber;
+import com.freightflow.logistics.dcsa.DcsaExceptions;
 import com.freightflow.logistics.location.UnknownLocationException;
 import com.freightflow.logistics.payment.PaymentCommandController;
 import com.freightflow.logistics.quote.InvalidRouteException;
@@ -91,6 +93,31 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 "Request body could not be parsed or contains an invalid enum value"
         );
         return handleExceptionInternal(ex, problem, headers, HttpStatus.BAD_REQUEST, request);
+    }
+
+    @ExceptionHandler(DcsaExceptions.InvalidSignatureException.class)
+    public ProblemDetail handleInvalidWebhookSignature(DcsaExceptions.InvalidSignatureException ex) {
+        return problem(HttpStatus.UNAUTHORIZED, "invalid-webhook-signature", "Invalid notification signature",
+                ex.getMessage());
+    }
+
+    @ExceptionHandler(DcsaExceptions.ReplayRejectedException.class)
+    public ProblemDetail handleWebhookReplay(DcsaExceptions.ReplayRejectedException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "webhook-replay-rejected", "Notification outside the accepted window",
+                ex.getMessage());
+    }
+
+    @ExceptionHandler(DcsaExceptions.MalformedEventException.class)
+    public ProblemDetail handleMalformedDcsaEvent(DcsaExceptions.MalformedEventException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "malformed-dcsa-event", "Not a DCSA event notification", ex.getMessage());
+    }
+
+    @ExceptionHandler(ContainerNumber.InvalidContainerNumberException.class)
+    public ProblemDetail handleInvalidContainerNumber(ContainerNumber.InvalidContainerNumberException ex) {
+        ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "invalid-container-number", "Invalid container number",
+                ex.getMessage());
+        problem.setProperty("containerNumber", ex.getContainerNumber());
+        return problem;
     }
 
     @ExceptionHandler(CustomsExceptions.CustomsMarketUnsupportedException.class)
