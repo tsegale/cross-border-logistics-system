@@ -7,6 +7,11 @@ updates:
     schedule: { interval: weekly }
     groups:
       maven: { patterns: ["*"] }
+    ignore:
+      # The OpenTelemetry Logback appender is built on one OpenTelemetry API version, and must match the one Spring
+      # Boot manages (ADR 0030): #8's 2.33.1-alpha needed a newer API and failed with ClassNotFoundException
+      # (io.opentelemetry.api.incubator.common.ExtendedAttributes). It moves with a Spring Boot upgrade, by hand.
+      - dependency-name: "io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0"
 
   - package-ecosystem: docker
     directories: ["/api-gateway", "/banking-service", "/logistics-service", "/notification-service"]
@@ -19,6 +24,9 @@ updates:
     ignore:
       - dependency-name: "eclipse-temurin"
         update-types: ["version-update:semver-major"]
+      # The build image is the Maven wrapper's version on Java 21, changed together with the wrapper in one commit.
+      # Bot PR #7 moved it to the floating maven:3-eclipse-temurin-26, a non-LTS JDK beside a Java 21 runtime.
+      - dependency-name: "maven"
 
   - package-ecosystem: docker-compose
     directory: "/"

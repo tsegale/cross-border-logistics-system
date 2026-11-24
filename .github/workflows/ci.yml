@@ -194,6 +194,19 @@ jobs:
       - if: failure()
         run: $COMPOSE logs --tail 150
 
+  # Every tracked text file is stored with LF (.gitattributes). Dependabot's wrapper bumps have written mvnw.cmd into the
+  # index with CRLF, which then shows as changed on every checkout.
+  line-endings:
+    name: Files stored with LF
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          crlf="$(git ls-files --eol | awk '$1 == "i/crlf" || $1 == "i/mixed" {print $NF}')"
+          if [ -n "$crlf" ]; then
+            echo "::error::stored with CRLF (run git add --renormalize .):"; echo "$crlf"; exit 1
+          fi
+
   # A changed event schema must stay compatible with the one already on main (ADR 0023): consumers built against
   # either read events written under the other. A breaking change goes to a new topic version instead.
   event-schemas:
