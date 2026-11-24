@@ -41,7 +41,7 @@ Topics without a consumer today exist for the ones to come (reporting, audit) an
 | Type | Topic | Aggregate (key) | When | Consumers |
 | --- | --- | --- | --- | --- |
 | [`account.opened`](events/account.opened.schema.json) | account.v1 | account | a customer account was opened | |
-| [`journal-entry.posted`](events/journal-entry.posted.schema.json) | journal-entry.v1 | journal entry | any money movement: deposit, transfer, FX transfer, reversal, capture; with its postings | |
+| [`journal-entry.posted`](events/journal-entry.posted.schema.json) | journal-entry.v1 | journal entry | any money movement: deposit, transfer, FX transfer, reversal, capture, and since schemaVersion 2 a customs settlement (ADR 0036); with its postings | |
 | [`hold.authorised`](events/hold.authorised.schema.json) | hold.v1 | hold | money reserved for a charge | |
 | [`hold.extended`](events/hold.extended.schema.json) | hold.v1 | hold | an active hold's expiry moved later | |
 | [`hold.captured`](events/hold.captured.schema.json) | hold.v1 | hold | the charge was taken (with the capture's journal entry) | logistics, notification |

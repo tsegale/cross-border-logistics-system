@@ -9,17 +9,22 @@ import com.freightflow.banking.account.AccountService;
 import com.freightflow.banking.account.AccountType;
 import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.common.MoneyRounding;
+import com.freightflow.banking.common.UuidV7;
 import com.freightflow.banking.config.BankingProperties;
 import com.freightflow.banking.events.BankingEvents;
 import com.freightflow.banking.fx.ExchangeRateProvider;
 import com.freightflow.banking.fx.ExchangeRateProvider.RateQuote;
 import com.freightflow.banking.hold.HoldExceptions.CaptureExceedsHoldException;
+import com.freightflow.banking.hold.HoldExceptions.CustomsAlreadySettledException;
+import com.freightflow.banking.hold.HoldExceptions.HoldNotCapturedException;
 import com.freightflow.banking.hold.HoldExceptions.HoldExpiredException;
 import com.freightflow.banking.hold.HoldExceptions.HoldNotActiveException;
 import com.freightflow.banking.hold.HoldExceptions.HoldNotFoundException;
 import com.freightflow.banking.hold.HoldExceptions.InvalidHoldException;
 import com.freightflow.banking.hold.dto.CaptureHoldRequest;
 import com.freightflow.banking.hold.dto.CreateHoldRequest;
+import com.freightflow.banking.hold.dto.CustomsSettlementRequest;
+import com.freightflow.banking.hold.dto.CustomsSettlementResponse;
 import com.freightflow.banking.hold.dto.ExtendHoldRequest;
 import com.freightflow.banking.hold.dto.HoldResponse;
 import com.freightflow.banking.idempotency.IdempotencyService;
@@ -41,6 +46,7 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -154,13 +160,16 @@ public class HoldService {
     @Transactional
     public HoldResponse capture(Caller caller, UUID holdId, CaptureHoldRequest request, String idempotencyKey) {
         BigDecimal requested = request == null ? null : request.amount();
+        BigDecimal disbursement = request == null || request.disbursementAmount() == null
+                ? BigDecimal.ZERO : request.disbursementAmount();
         Map<String, Object> canonical = Map.of("holdId", holdId.toString(),
-                "amount", requested == null ? "full" : requested.stripTrailingZeros().toPlainString());
+                "amount", requested == null ? "full" : requested.stripTrailingZeros().toPlainString(),
+                "disbursementAmount", disbursement.stripTrailingZeros().toPlainString());
         return idempotencyService.execute("hold-capture:" + holdId, caller, idempotencyKey, canonical, 200,
-                HoldResponse.class, () -> doCapture(caller, holdId, requested)).body();
+                HoldResponse.class, () -> doCapture(caller, holdId, requested, disbursement)).body();
     }
 
-    private HoldResponse doCapture(Caller caller, UUID holdId, BigDecimal requested) {
+    private HoldResponse doCapture(Caller caller, UUID holdId, BigDecimal requested, BigDecimal requestedDisbursement) {
         Instant now = clock.instant();
         Locked locked = lockPayerThenHold(holdId);
         Hold hold = locked.hold();
@@ -176,6 +185,15 @@ public class HoldService {
                         MoneyRounding.roundToMinorUnits(captured, hold.getCurrency()));
             }
         }
+        if (requestedDisbursement.signum() > 0) {
+            assertMinorUnits(requestedDisbursement, hold.getCurrency());
+        }
+        BigDecimal disbursement = MoneyRounding.normalizeCustomerAmount(requestedDisbursement, hold.getCurrency());
+        if (disbursement.compareTo(captured) > 0) {
+            throw new InvalidHoldException("disbursementAmount " + disbursement.toPlainString()
+                    + " is more than the captured " + captured.toPlainString());
+        }
+        BigDecimal freight = captured.subtract(disbursement);
         BigDecimal payerDebit = !hold.isCrossCurrency()
                 ? captured
                 : MoneyRounding.normalizeCustomerAmount(
@@ -186,33 +204,133 @@ public class HoldService {
         // The whole reservation is freed and the captured part debited in one transaction, under the account lock.
         locked.account().releaseReservation(hold.getPayerAmount(), now);
         Account revenue = systemAccount(AccountType.FREIGHT_REVENUE, hold.getCurrency());
-        List<PostingInstruction> postings;
+        List<PostingInstruction> postings = new ArrayList<>();
         if (!hold.isCrossCurrency()) {
-            postings = List.of(
-                    new PostingInstruction(hold.getPayerAccountId(), captured.negate(), hold.getCurrency()),
-                    new PostingInstruction(revenue.getId(), captured, hold.getCurrency()));
+            postings.add(new PostingInstruction(hold.getPayerAccountId(), captured.negate(), hold.getCurrency()));
         } else {
             Account fxPayer = systemAccount(AccountType.FX_POSITION, hold.getPayerCurrency());
             Account fxCharge = systemAccount(AccountType.FX_POSITION, hold.getCurrency());
-            postings = List.of(
-                    new PostingInstruction(hold.getPayerAccountId(), payerDebit.negate(), hold.getPayerCurrency()),
-                    new PostingInstruction(fxPayer.getId(), payerDebit, hold.getPayerCurrency()),
-                    new PostingInstruction(fxCharge.getId(), captured.negate(), hold.getCurrency()),
-                    new PostingInstruction(revenue.getId(), captured, hold.getCurrency()));
+            postings.add(new PostingInstruction(hold.getPayerAccountId(), payerDebit.negate(), hold.getPayerCurrency()));
+            postings.add(new PostingInstruction(fxPayer.getId(), payerDebit, hold.getPayerCurrency()));
+            postings.add(new PostingInstruction(fxCharge.getId(), captured.negate(), hold.getCurrency()));
+        }
+        // The freight is revenue; duties and taxes collected with it are owed to customs (ADR 0036).
+        if (freight.signum() > 0) {
+            postings.add(new PostingInstruction(revenue.getId(), freight, hold.getCurrency()));
+        }
+        if (disbursement.signum() > 0) {
+            Account customs = systemAccount(AccountType.CUSTOMS_DISBURSEMENTS, hold.getCurrency());
+            postings.add(new PostingInstruction(customs.getId(), disbursement, hold.getCurrency()));
         }
         JournalEntryResponse entry = ledgerService.recordEntry(caller.actor(), JournalEntryType.CAPTURE,
                 "CAPTURE " + hold.getReference(), null, null, hold.getFxRate(), postings);
 
         int updated = jdbcTemplate.update("""
                 UPDATE holds SET status = 'CAPTURED', captured_amount = ?, captured_payer_amount = ?,
-                                 capture_journal_entry_id = ?, closed_at = ?
+                                 captured_disbursement_amount = ?, capture_journal_entry_id = ?, closed_at = ?
                 WHERE id = ? AND status = 'ACTIVE'
-                """, captured, payerDebit, entry.id(), Timestamp.from(now), holdId);
+                """, captured, payerDebit, disbursement, entry.id(), Timestamp.from(now), holdId);
         assertOneRow(updated, holdId);
         Hold current = fresh(holdId);
         events.holdCaptured(current, locked.account().getOwnerOrganizationId(), caller.actor());
         log.info("Hold {} captured: {} {} (journal entry {})", holdId, captured, hold.getCurrency(), entry.id());
         return respond(current);
+    }
+
+    // ------------------------------------------------------------------ customs settlement
+
+    /**
+     * Pays the assessed duties and taxes to the customs authority out of CUSTOMS_DISBURSEMENTS, and charges the payer
+     * the amount the assessment exceeds the captured estimate by, or refunds the amount it falls short by, in one
+     * balanced entry (ADR 0036). In the charge currency C, with payer leg p:
+     * <pre>
+     *   CUSTOMS_DISBURSEMENTS[C]  -estimate     the liability the capture created is paid off
+     *   CLEARING[C]               +assessed     paid out to the authority
+     *   payer                     estimate - assessed (negative: charged, positive: refunded)
+     * </pre>
+     * A cross-currency hold converts the payer leg at its locked rate through FX_POSITION, as the capture did.
+     * Moves money, so it takes an Idempotency-Key; a hold is settled at most once.
+     */
+    @Transactional
+    public CustomsSettlementResponse settleCustoms(Caller caller, UUID holdId, CustomsSettlementRequest request,
+                                                   String idempotencyKey) {
+        Map<String, Object> canonical = Map.of("holdId", holdId.toString(),
+                "assessedAmount", request.assessedAmount().stripTrailingZeros().toPlainString(),
+                "authorityReference", request.authorityReference().trim());
+        return idempotencyService.execute("hold-customs-settlement:" + holdId, caller, idempotencyKey, canonical, 200,
+                CustomsSettlementResponse.class, () -> doSettleCustoms(caller.actor(), holdId, request)).body();
+    }
+
+    private CustomsSettlementResponse doSettleCustoms(Actor actor, UUID holdId, CustomsSettlementRequest request) {
+        Instant now = clock.instant();
+        Locked locked = lockPayerThenHold(holdId);
+        Hold hold = locked.hold();
+        if (hold.getStatus() != HoldStatus.CAPTURED) {
+            throw new HoldNotCapturedException(holdId, hold.getStatus());
+        }
+        Boolean settled = jdbcTemplate.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM customs_settlements WHERE hold_id = ?)", Boolean.class, holdId);
+        if (Boolean.TRUE.equals(settled)) {
+            throw new CustomsAlreadySettledException(holdId);
+        }
+        String currency = hold.getCurrency();
+        BigDecimal assessed = request.assessedAmount();
+        if (assessed.signum() > 0) {
+            assertMinorUnits(assessed, currency);
+        }
+        assessed = MoneyRounding.normalizeCustomerAmount(assessed, currency);
+        BigDecimal estimate = hold.getCapturedDisbursementAmount() == null
+                ? MoneyRounding.toStorageScale(BigDecimal.ZERO)
+                : MoneyRounding.normalizeCustomerAmount(hold.getCapturedDisbursementAmount(), currency);
+        BigDecimal difference = assessed.subtract(estimate);
+        BigDecimal payerDifference = !hold.isCrossCurrency() || difference.signum() == 0
+                ? difference
+                : MoneyRounding.normalizeCustomerAmount(difference.divide(hold.getFxRate(),
+                        MoneyRounding.STORAGE_SCALE + 4, MoneyRounding.ROUNDING_MODE), hold.getPayerCurrency());
+
+        List<PostingInstruction> postings = new ArrayList<>();
+        if (estimate.signum() > 0) {
+            postings.add(new PostingInstruction(systemAccount(AccountType.CUSTOMS_DISBURSEMENTS, currency).getId(),
+                    estimate.negate(), currency));
+        }
+        if (assessed.signum() > 0) {
+            postings.add(new PostingInstruction(systemAccount(AccountType.CLEARING, currency).getId(), assessed, currency));
+        }
+        if (difference.signum() != 0) {
+            if (!hold.isCrossCurrency()) {
+                postings.add(new PostingInstruction(hold.getPayerAccountId(), difference.negate(), currency));
+            } else {
+                Account fxPayer = systemAccount(AccountType.FX_POSITION, hold.getPayerCurrency());
+                Account fxCharge = systemAccount(AccountType.FX_POSITION, currency);
+                postings.add(new PostingInstruction(hold.getPayerAccountId(), payerDifference.negate(),
+                        hold.getPayerCurrency()));
+                postings.add(new PostingInstruction(fxPayer.getId(), payerDifference, hold.getPayerCurrency()));
+                postings.add(new PostingInstruction(fxCharge.getId(), difference.negate(), currency));
+            }
+        }
+        if (postings.isEmpty()) {
+            throw new InvalidHoldException("Nothing to settle: no estimate was captured and nothing was assessed");
+        }
+        JournalEntryResponse entry = ledgerService.recordEntry(actor, JournalEntryType.CUSTOMS_SETTLEMENT,
+                "CUSTOMS " + request.authorityReference().trim() + " " + hold.getReference(), null, null,
+                hold.isCrossCurrency() && difference.signum() != 0 ? hold.getFxRate() : null, postings);
+
+        UUID id = UuidV7.next(clock);
+        jdbcTemplate.update("""
+                INSERT INTO customs_settlements (id, hold_id, currency, estimate, assessed, difference, payer_difference,
+                                                 authority_reference, journal_entry_id, settled_by_subject,
+                                                 settled_by_client_id, settled_request_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id, holdId, currency, estimate, assessed, difference, payerDifference,
+                request.authorityReference().trim(), entry.id(), actor.subject(), actor.clientId(), actor.requestId(),
+                Timestamp.from(now));
+        log.info("Customs for hold {} settled: estimate {} assessed {} {} (journal entry {})", holdId, estimate,
+                assessed, currency, entry.id());
+        return new CustomsSettlementResponse(id, holdId, currency,
+                MoneyRounding.roundToMinorUnits(estimate, currency), MoneyRounding.roundToMinorUnits(assessed, currency),
+                MoneyRounding.roundToMinorUnits(difference, currency),
+                MoneyRounding.roundToMinorUnits(payerDifference, hold.getPayerCurrency()), hold.getPayerCurrency(),
+                request.authorityReference().trim(), entry.id(), now);
     }
 
     // ------------------------------------------------------------------ extension

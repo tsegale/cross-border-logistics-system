@@ -2,6 +2,8 @@ package com.freightflow.banking.hold;
 
 import com.freightflow.banking.security.Caller;
 import com.freightflow.banking.hold.dto.CaptureHoldRequest;
+import com.freightflow.banking.hold.dto.CustomsSettlementRequest;
+import com.freightflow.banking.hold.dto.CustomsSettlementResponse;
 import com.freightflow.banking.hold.dto.CreateHoldRequest;
 import com.freightflow.banking.hold.dto.ExtendHoldRequest;
 import com.freightflow.banking.hold.dto.HoldResponse;
@@ -113,6 +115,28 @@ public class HoldController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody(required = false) CaptureHoldRequest request) {
         return holdService.capture(caller, id, request, idempotencyKey);
+    }
+
+    @PostMapping("/{id}/customs-settlement")
+    @Operation(summary = "Settle customs for a captured hold: pay the assessed duties and taxes to the authority out "
+            + "of CUSTOMS_DISBURSEMENTS, charge or refund the payer the difference from the estimate (ADR 0036)",
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Settled",
+                            content = @Content(schema = @Schema(implementation = CustomsSettlementResponse.class))),
+                    @ApiResponse(responseCode = "404", description = "Hold not found",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "409", description = "Hold not captured, already settled, or key in flight",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "422", description = "The payer cannot cover the difference, or key reused with another body",
+                            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+            })
+    public CustomsSettlementResponse settleCustoms(
+            Caller caller,
+            @PathVariable("id") UUID id,
+            @Parameter(description = "Idempotency-Key header", required = true)
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody CustomsSettlementRequest request) {
+        return holdService.settleCustoms(caller, id, request, idempotencyKey);
     }
 
     @PostMapping("/{id}/extension")

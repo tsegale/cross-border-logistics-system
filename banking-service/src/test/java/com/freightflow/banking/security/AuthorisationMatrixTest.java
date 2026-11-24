@@ -103,6 +103,8 @@ class AuthorisationMatrixTest extends IntegrationTest {
         table.put("POST capture",                new int[] {403, 403, 403, 403, 403, 403, 200, 401});
         table.put("POST extension",              new int[] {403, 403, 403, 403, 403, 403, 200, 401});
         table.put("POST release",                new int[] {403, 403, 403, 403, 403, 403, 200, 401});
+        // The fixture's hold is not captured: logistics gets the 409 that says so (ADR 0036).
+        table.put("POST customs settlement",     new int[] {403, 403, 403, 403, 403, 403, 409, 401});
         table.put("GET api docs",                new int[] {200, 200, 200, 200, 200, 403, 403, 401});
         List<Arguments> cases = new ArrayList<>();
         table.forEach((endpoint, expected) -> {
@@ -215,6 +217,9 @@ class AuthorisationMatrixTest extends IntegrationTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content("{\"expiresAt\":\"" + java.time.Instant.now().plus(java.time.Duration.ofDays(9)) + "\"}");
             case "POST release" -> post("/api/v1/holds/{id}/release", f.holdId()).header("Idempotency-Key", key());
+            case "POST customs settlement" -> post("/api/v1/holds/{id}/customs-settlement", f.holdId())
+                    .header("Idempotency-Key", key()).contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"assessedAmount\":1.00,\"authorityReference\":\"MATRIX\"}");
             case "GET api docs" -> get("/docs/banking/v3/api-docs");
             default -> throw new IllegalArgumentException(endpoint);
         };

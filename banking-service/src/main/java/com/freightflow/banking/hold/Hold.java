@@ -77,6 +77,10 @@ public class Hold {
     @Column(name = "captured_payer_amount", precision = 19, scale = 4, updatable = false)
     private BigDecimal capturedPayerAmount;
 
+    /** The part of the captured amount that was duties and taxes, credited to CUSTOMS_DISBURSEMENTS (ADR 0036). */
+    @Column(name = "captured_disbursement_amount", precision = 19, scale = 4, updatable = false)
+    private BigDecimal capturedDisbursementAmount;
+
     @Column(name = "capture_journal_entry_id", updatable = false)
     private UUID captureJournalEntryId;
 
@@ -225,6 +229,10 @@ public class Hold {
 
     public BigDecimal getCapturedPayerAmount() {
         return capturedPayerAmount;
+    }
+
+    public BigDecimal getCapturedDisbursementAmount() {
+        return capturedDisbursementAmount;
     }
 
     public UUID getCaptureJournalEntryId() {

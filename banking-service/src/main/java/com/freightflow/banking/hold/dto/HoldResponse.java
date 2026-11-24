@@ -29,6 +29,8 @@ public record HoldResponse(
         HoldStatus status,
         @Schema(nullable = true) BigDecimal capturedAmount,
         @Schema(nullable = true) BigDecimal capturedPayerAmount,
+        @Schema(description = "The part of the capture that was duties and taxes (ADR 0036)", nullable = true)
+        BigDecimal capturedDisbursementAmount,
         @Schema(nullable = true) UUID captureJournalEntryId,
         Instant expiresAt,
         @Schema(nullable = true) Instant closedAt,
@@ -53,6 +55,8 @@ public record HoldResponse(
                         : MoneyRounding.roundToMinorUnits(hold.getCapturedAmount(), hold.getCurrency()),
                 hold.getCapturedPayerAmount() == null ? null
                         : MoneyRounding.roundToMinorUnits(hold.getCapturedPayerAmount(), hold.getPayerCurrency()),
+                hold.getCapturedDisbursementAmount() == null ? null
+                        : MoneyRounding.roundToMinorUnits(hold.getCapturedDisbursementAmount(), hold.getCurrency()),
                 hold.getCaptureJournalEntryId(),
                 hold.getExpiresAt(),
                 hold.getClosedAt(),

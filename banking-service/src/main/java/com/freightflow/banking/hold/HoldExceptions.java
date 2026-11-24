@@ -94,4 +94,38 @@ public final class HoldExceptions {
             super(message);
         }
     }
+
+    /** A customs settlement needs the hold captured first: the estimate is what the capture put aside. */
+    public static class HoldNotCapturedException extends RuntimeException {
+        private final UUID holdId;
+        private final HoldStatus status;
+
+        public HoldNotCapturedException(UUID holdId, HoldStatus status) {
+            super("Hold " + holdId + " is " + status + "; customs is settled only for a captured hold");
+            this.holdId = holdId;
+            this.status = status;
+        }
+
+        public UUID getHoldId() {
+            return holdId;
+        }
+
+        public HoldStatus getStatus() {
+            return status;
+        }
+    }
+
+    /** One settlement per hold: a second one, with another key, would pay customs twice. */
+    public static class CustomsAlreadySettledException extends RuntimeException {
+        private final UUID holdId;
+
+        public CustomsAlreadySettledException(UUID holdId) {
+            super("Customs for hold " + holdId + " is already settled");
+            this.holdId = holdId;
+        }
+
+        public UUID getHoldId() {
+            return holdId;
+        }
+    }
 }

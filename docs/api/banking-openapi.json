@@ -74,7 +74,7 @@
           },
           "type" : {
             "description" : "Account type",
-            "enum" : [ "CUSTOMER", "CLEARING", "FREIGHT_REVENUE", "FX_POSITION" ],
+            "enum" : [ "CUSTOMER", "CLEARING", "FREIGHT_REVENUE", "FX_POSITION", "CUSTOMS_DISBURSEMENTS" ],
             "example" : "CUSTOMER",
             "type" : "string"
           },
@@ -198,6 +198,12 @@
             "description" : "Amount to capture in the hold's charge currency; omitted means the full amount",
             "example" : 524.75,
             "minimum" : 0.01,
+            "type" : [ "number", "null" ]
+          },
+          "disbursementAmount" : {
+            "description" : "The part of the captured amount that is duties and taxes collected for the customs authority, in the charge currency: credited to CUSTOMS_DISBURSEMENTS, not FREIGHT_REVENUE (ADR 0036). Omitted means none",
+            "example" : 3528.52,
+            "minimum" : 0.0,
             "type" : [ "number", "null" ]
           }
         },
@@ -415,6 +421,71 @@
         },
         "type" : "object"
       },
+      "CustomsSettlementRequest" : {
+        "description" : "Pay the duties and taxes customs assessed for a captured hold to the authority (ADR 0036). The difference from the estimate captured into CUSTOMS_DISBURSEMENTS is charged to or refunded to the payer.",
+        "properties" : {
+          "assessedAmount" : {
+            "description" : "Duties and import VAT as assessed, in the hold's charge currency",
+            "example" : 3611.34,
+            "minimum" : 0.0,
+            "type" : "number"
+          },
+          "authorityReference" : {
+            "description" : "The authority's reference for the assessment, such as the customs declaration number",
+            "example" : "26DE470100123456E1",
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "assessedAmount", "authorityReference" ],
+        "type" : "object"
+      },
+      "CustomsSettlementResponse" : {
+        "description" : "A customs settlement: the assessed amount paid to the authority, and the difference from the estimate charged (positive) or refunded (negative) to the payer",
+        "properties" : {
+          "assessed" : {
+            "type" : "number"
+          },
+          "authorityReference" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "difference" : {
+            "description" : "assessed - estimate, in the charge currency",
+            "type" : "number"
+          },
+          "estimate" : {
+            "type" : "number"
+          },
+          "holdId" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "journalEntryId" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "payerCurrency" : {
+            "type" : "string"
+          },
+          "payerDifference" : {
+            "description" : "The difference in the payer's currency, at the hold's locked rate",
+            "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
       "DecisionRequest" : {
         "description" : "The checker's note on a decision: optional for an approval, required for a rejection",
         "properties" : {
@@ -539,6 +610,10 @@
           "capturedAmount" : {
             "type" : [ "number", "null" ]
           },
+          "capturedDisbursementAmount" : {
+            "description" : "The part of the capture that was duties and taxes (ADR 0036)",
+            "type" : [ "number", "null" ]
+          },
           "capturedPayerAmount" : {
             "type" : [ "number", "null" ]
           },
@@ -617,7 +692,7 @@
             "type" : "string"
           },
           "entryType" : {
-            "enum" : [ "DEPOSIT", "TRANSFER", "FX_TRANSFER", "REVERSAL", "CAPTURE" ],
+            "enum" : [ "DEPOSIT", "TRANSFER", "FX_TRANSFER", "REVERSAL", "CAPTURE", "CUSTOMS_SETTLEMENT" ],
             "type" : "string"
           },
           "fxQuoteId" : {
@@ -858,7 +933,7 @@
             "type" : "string"
           },
           "entryType" : {
-            "enum" : [ "DEPOSIT", "TRANSFER", "FX_TRANSFER", "REVERSAL", "CAPTURE" ],
+            "enum" : [ "DEPOSIT", "TRANSFER", "FX_TRANSFER", "REVERSAL", "CAPTURE", "CUSTOMS_SETTLEMENT" ],
             "type" : "string"
           },
           "journalEntryId" : {
@@ -1810,6 +1885,82 @@
           }
         },
         "summary" : "Capture a hold, fully or in part, once: payer to FREIGHT_REVENUE at the locked rate",
+        "tags" : [ "Holds (internal)" ]
+      }
+    },
+    "/api/v1/holds/{id}/customs-settlement" : {
+      "post" : {
+        "operationId" : "settleCustoms",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        }, {
+          "description" : "Idempotency-Key header",
+          "in" : "header",
+          "name" : "Idempotency-Key",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CustomsSettlementRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CustomsSettlementResponse"
+                }
+              }
+            },
+            "description" : "Settled"
+          },
+          "404" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Hold not found"
+          },
+          "409" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Hold not captured, already settled, or key in flight"
+          },
+          "422" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "The payer cannot cover the difference, or key reused with another body"
+          }
+        },
+        "summary" : "Settle customs for a captured hold: pay the assessed duties and taxes to the authority out of CUSTOMS_DISBURSEMENTS, charge or refund the payer the difference from the estimate (ADR 0036)",
         "tags" : [ "Holds (internal)" ]
       }
     },

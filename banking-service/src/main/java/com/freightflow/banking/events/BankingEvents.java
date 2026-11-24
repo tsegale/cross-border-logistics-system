@@ -33,7 +33,7 @@ public class BankingEvents {
     /** Every type banking publishes, with its topic and the current schemaVersion of its schema. */
     public enum Type {
         ACCOUNT_OPENED("account.opened", EventTopics.ACCOUNT, 1),
-        JOURNAL_ENTRY_POSTED("journal-entry.posted", EventTopics.JOURNAL_ENTRY, 1),
+        JOURNAL_ENTRY_POSTED("journal-entry.posted", EventTopics.JOURNAL_ENTRY, 2),
         HOLD_AUTHORISED("hold.authorised", EventTopics.HOLD, 1),
         HOLD_EXTENDED("hold.extended", EventTopics.HOLD, 1),
         HOLD_CAPTURED("hold.captured", EventTopics.HOLD, 1),

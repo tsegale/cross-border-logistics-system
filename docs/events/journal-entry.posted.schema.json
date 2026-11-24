@@ -13,7 +13,8 @@
     },
     "schemaVersion": {
       "enum": [
-        1
+        1,
+        2
       ]
     },
     "payload": {
@@ -38,8 +39,10 @@
             "TRANSFER",
             "FX_TRANSFER",
             "REVERSAL",
-            "CAPTURE"
-          ]
+            "CAPTURE",
+            "CUSTOMS_SETTLEMENT"
+          ],
+          "description": "CUSTOMS_SETTLEMENT (schemaVersion 2): duties and taxes paid to customs out of CUSTOMS_DISBURSEMENTS, the difference charged or refunded (ADR 0036)."
         },
         "reversesEntryId": {
           "description": "The entry a REVERSAL undoes.",
@@ -116,7 +119,7 @@
     {
       "eventId": "0193a5d0-11f3-7b4c-85d6-e7f8091a2b3c",
       "type": "journal-entry.posted",
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "occurredAt": "2026-11-24T06:40:11.902Z",
       "aggregateId": "0193a5d0-11f2-7a3b-b4c5-d6e7f8091a2b",
       "sequence": 1,

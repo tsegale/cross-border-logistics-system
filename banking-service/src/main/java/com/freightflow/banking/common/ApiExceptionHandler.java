@@ -18,6 +18,8 @@ import com.freightflow.banking.fx.rates.ReferenceRateExceptions.InvalidReference
 import com.freightflow.banking.fx.rates.ReferenceRateExceptions.RateConfirmationAlreadyRequestedException;
 import com.freightflow.banking.fx.rates.ReferenceRateExceptions.ReferenceRateNotFoundException;
 import com.freightflow.banking.fx.rates.ReferenceRateExceptions.ReferenceRateNotQuarantinedException;
+import com.freightflow.banking.hold.HoldExceptions.CustomsAlreadySettledException;
+import com.freightflow.banking.hold.HoldExceptions.HoldNotCapturedException;
 import com.freightflow.banking.hold.HoldExceptions.CaptureExceedsHoldException;
 import com.freightflow.banking.hold.HoldExceptions.HoldExpiredException;
 import com.freightflow.banking.hold.HoldExceptions.HoldNotActiveException;
@@ -213,6 +215,22 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setProperty("holdId", ex.getHoldId());
         problem.setProperty("holdAmount", ex.getHoldAmount());
         problem.setProperty("requestedAmount", ex.getRequested());
+        return problem;
+    }
+
+    @ExceptionHandler(HoldNotCapturedException.class)
+    public ProblemDetail handleHoldNotCaptured(HoldNotCapturedException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "hold-not-captured", "Hold is not captured", ex.getMessage());
+        problem.setProperty("holdId", ex.getHoldId());
+        problem.setProperty("holdStatus", ex.getStatus());
+        return problem;
+    }
+
+    @ExceptionHandler(CustomsAlreadySettledException.class)
+    public ProblemDetail handleCustomsAlreadySettled(CustomsAlreadySettledException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "customs-already-settled", "Customs already settled",
+                ex.getMessage());
+        problem.setProperty("holdId", ex.getHoldId());
         return problem;
     }
 
