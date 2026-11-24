@@ -29,12 +29,13 @@ and the benchmarks, with headroom; **every JVM sizes its heap from its own limit
 | keycloak-db | 128m | 54 | 54 | 58 | |
 | mailpit | 48m | 18 | 10 | 19 | |
 | redis | 32m | 8 | 4 | 8 | |
+| partner-simulator | 48m | | | | Python, stdlib only; 14.7 MiB after the laptop's cold start and smoke test (ADR 0034) |
 | kafka-init | 256m | 137 | (exits first) | 84 | `KAFKA_HEAP_OPTS=-Xmx128m` |
 | debug-ports (profile debug) | 32m | | | | socat |
 
 MiB throughout; smoke-test peaks from CI run 44887512287, benchmark peaks (payment flow at 16 VUs, the events suite
 with a broker outage) from run 44899628552 (Intel Xeon 6975P-C, 4 vCPUs); docs/benchmarks/memory.md. **The running default stack's limits
-add up to 3,728 MiB**, inside the 3,784 MiB of a 3.7 GiB VM; its measured peaks add up to 2,558 MiB under the smoke
+add up to 3,776 MiB** (3,728 before the partner simulator), inside the 3,784 MiB of a 3.7 GiB VM; its measured peaks add up to 2,558 MiB under the smoke
 test and about 2,840 MiB under the benchmarks.
 
 **On the laptop** (Intel Core i5-1135G7, 8 threads, 7.7 GiB; Docker Desktop's VM 3,784 MiB) the default stack
@@ -42,7 +43,10 @@ starts within these limits and the smoke test passes, 91 calls; the containers h
 start there is slow: logistics' warm-up ran into its one-minute limit before Keycloak answered tokens, its healthcheck
 gave up, and `docker compose up -d --wait` had to be run a second time; the first seed and smoke runs timed out on the
 gateway's first requests, and passed when repeated. notification-service sat at 327 MiB of its first 352, so its
-limit is 384.
+limit is 384. Since the warm-up waits for its dependencies on a deadline of its own and kafka-init retries
+each admin call (2026-11-24), one `docker compose up -d --wait` from stopped containers brings the whole default
+stack up healthy: 283 s on the same laptop, exit 0, logistics' warm-up 17 steps with none failed after it had waited
+for Keycloak and banking; the smoke test then passed, 91 calls.
 
 **JVM flags** (`JAVA_OPTS` per service in docker-compose.yml, the Dockerfiles keep a default for a bare `docker run`):
 `-XX:MaxRAMPercentage=<45|50> -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k

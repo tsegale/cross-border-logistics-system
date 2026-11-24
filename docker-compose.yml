@@ -155,6 +155,11 @@ services:
       # Its own SCRAM user; the password is its own secret only, mounted as kafka_password (ADR 0022).
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_USERNAME: banking
+      # Daily reference rates (ADR 0034): the ECB and the Bank of Namibia, or the partner simulator in CI.
+      ECB_BASE_URL: ${ECB_BASE_URL:-https://data-api.ecb.europa.eu}
+      BON_RATES_URL: ${BON_RATES_URL:-https://services.bon.com.na/ratestable/api/rates}
+      FX_MAX_AGE_WORKING_DAYS: ${FX_MAX_AGE_WORKING_DAYS:-2}
+      FX_REFRESH_INTERVAL: ${FX_REFRESH_INTERVAL:-15m}
     secrets:
       - banking_db_password
       - source: kafka_banking_password
@@ -164,6 +169,9 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      # Its first rate fetch runs seconds after start; with the real sources this costs nothing.
+      partner-simulator:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/actuator/health/readiness > /dev/null || exit 1"]
       interval: 10s
@@ -360,6 +368,24 @@ services:
     secrets: [smtp_password]
     healthcheck:
       test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # Stand-ins for the outside services (ADR 0034): the ECB's and the Bank of Namibia's rates as they answer, on today's
+  # working days, with a /_control endpoint for the fire drill. CI points banking at it (ECB_BASE_URL, BON_RATES_URL),
+  # so no CI job calls a live API; a local stack uses the real sources unless .env says otherwise.
+  partner-simulator:
+    mem_limit: 48m
+    image: python:3.15.2-alpine
+    command: ["python", "-I", "/app/simulator.py"]
+    volumes:
+      - ./infra/partners/simulator.py:/app/simulator.py:ro
+    environment:
+      ECB_LAG_WORKING_DAYS: ${SIMULATOR_ECB_LAG_WORKING_DAYS:-0}
+      BON_FACTOR: ${SIMULATOR_BON_FACTOR:-1.0016}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
       interval: 5s
       timeout: 5s
       retries: 12

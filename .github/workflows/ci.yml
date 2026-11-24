@@ -12,6 +12,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # No CI job calls a live API (ADR 0034): banking's rate sources are the partner simulator in compose.
+  ECB_BASE_URL: http://partner-simulator:8090/ecb
+  BON_RATES_URL: http://partner-simulator:8090/bon/ratestable/api/rates
+
 jobs:
   java:
     name: Java · ${{ matrix.service }}
@@ -48,8 +53,9 @@ jobs:
           docker compose config --quiet
           docker compose --profile debug config --quiet
           docker compose --env-file .env --env-file infra/observability/observability.env --profile observability config --quiet
-          # Kafka (ADR 0022) and the notification service with its database and SMTP server (ADR 0027) are core.
-          for s in kafka kafka-init notification-service notification-db mailpit; do
+          # Kafka (ADR 0022), the notification service with its database and SMTP server (ADR 0027) and the
+          # partner simulator CI's rates come from (ADR 0034) are core.
+          for s in kafka kafka-init notification-service notification-db mailpit partner-simulator; do
             docker compose config --services | grep -qx "$s" || { echo "::error::$s is not in the default profile"; exit 1; }
           done
 
@@ -202,7 +208,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: |
-          crlf="$(git ls-files --eol | awk '$1 == "i/crlf" || $1 == "i/mixed" {print $NF}')"
+          crlf="$(git ls-files --eol | awk '$3 != "attr/-text" && ($1 == "i/crlf" || $1 == "i/mixed") {print $NF}')"
           if [ -n "$crlf" ]; then
             echo "::error::stored with CRLF (run git add --renormalize .):"; echo "$crlf"; exit 1
           fi

@@ -18,6 +18,14 @@ defaults:
     shell: bash
 
 env:
+  # No CI job calls a live API (ADR 0034): banking's rate sources are the partner simulator in compose.
+  ECB_BASE_URL: http://partner-simulator:8090/ecb
+  BON_RATES_URL: http://partner-simulator:8090/bon/ratestable/api/rates
+  # Phase 4 (reference rates): banking's first rate is three working days old and off the NAD/ZAR peg, so it is
+  # quarantined and stale from the start; the drill puts the sources right at the end. No other phase uses FX.
+  SIMULATOR_ECB_LAG_WORKING_DAYS: "3"
+  SIMULATOR_BON_FACTOR: "1.05"
+  FX_REFRESH_INTERVAL: 1m
   COMPOSE: docker compose --env-file .env --env-file infra/observability/observability.env -f docker-compose.yml -f benchmarks/compose.bench.yml --profile observability
 
 jobs:

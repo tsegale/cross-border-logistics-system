@@ -37,6 +37,9 @@ defaults:
     shell: bash
 
 env:
+  # No CI job calls a live API (ADR 0034): banking's rate sources are the partner simulator in compose.
+  ECB_BASE_URL: http://partner-simulator:8090/ecb
+  BON_RATES_URL: http://partner-simulator:8090/bon/ratestable/api/rates
   K6_VERSION: v2.3.0
   # docker-compose.yml passes it to every Spring service's JVM.
   JAVA_GC: ${{ inputs.java_gc == 'g1' && '-XX:+UseG1GC' || '-XX:+UseSerialGC' }}
