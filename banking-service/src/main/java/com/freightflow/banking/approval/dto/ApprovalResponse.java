@@ -28,6 +28,8 @@ public record ApprovalResponse(
         UUID journalEntryId,
         @Schema(nullable = true)
         String reason,
+        @Schema(description = "RATE_CONFIRMATION: the quarantined reference rate (ADR 0034)", nullable = true)
+        UUID referenceRateId,
         @Schema(description = "The maker")
         Actor requestedBy,
         Instant requestedAt,
@@ -54,6 +56,7 @@ public record ApprovalResponse(
                 request.getReference(),
                 request.getJournalEntryId(),
                 request.getReason(),
+                request.getReferenceRateId(),
                 request.getRequestedBy(),
                 request.getRequestedAt(),
                 request.getExpiresAt(),

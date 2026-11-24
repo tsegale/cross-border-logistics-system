@@ -157,7 +157,7 @@
             "type" : [ "string", "null" ]
           },
           "kind" : {
-            "enum" : [ "DEPOSIT", "REVERSAL" ],
+            "enum" : [ "DEPOSIT", "REVERSAL", "RATE_CONFIRMATION" ],
             "type" : "string"
           },
           "postedEntryId" : {
@@ -169,6 +169,11 @@
             "type" : [ "string", "null" ]
           },
           "reference" : {
+            "type" : [ "string", "null" ]
+          },
+          "referenceRateId" : {
+            "description" : "RATE_CONFIRMATION: the quarantined reference rate (ADR 0034)",
+            "format" : "uuid",
             "type" : [ "string", "null" ]
           },
           "requestedAt" : {
@@ -219,7 +224,7 @@
         "type" : "object"
       },
       "CreateApprovalRequest" : {
-        "description" : "A deposit or reversal for a second operator to approve (ADR 0021). A DEPOSIT names account, amount, currency and reference; a REVERSAL names journalEntryId and, optionally, reason.",
+        "description" : "A deposit, reversal or rate confirmation for a second operator to approve (ADR 0021). A DEPOSIT names account, amount, currency and reference; a REVERSAL names journalEntryId and, optionally, reason; a RATE_CONFIRMATION names referenceRateId and reason.",
         "properties" : {
           "account" : {
             "description" : "DEPOSIT: the customer account, by id or account number",
@@ -248,7 +253,7 @@
           },
           "kind" : {
             "description" : "What the approval posts",
-            "enum" : [ "DEPOSIT", "REVERSAL" ],
+            "enum" : [ "DEPOSIT", "REVERSAL", "RATE_CONFIRMATION" ],
             "example" : "DEPOSIT",
             "type" : "string"
           },
@@ -264,6 +269,11 @@
             "example" : "DEP-BANK-WINDHOEK-001",
             "maxLength" : 160,
             "minLength" : 0,
+            "type" : [ "string", "null" ]
+          },
+          "referenceRateId" : {
+            "description" : "RATE_CONFIRMATION: the quarantined reference rate to make usable (ADR 0034); reason is required with it",
+            "format" : "uuid",
             "type" : [ "string", "null" ]
           }
         },
@@ -456,6 +466,16 @@
           "rate" : {
             "type" : "number"
           },
+          "rateSource" : {
+            "description" : "Where the rate came from (ADR 0034): ecb, ecb+cma-peg or cma-peg",
+            "example" : "ecb",
+            "type" : "string"
+          },
+          "rateValueDate" : {
+            "description" : "The day of the reference rate the quote is priced from",
+            "format" : "date",
+            "type" : [ "string", "null" ]
+          },
           "sellAmount" : {
             "type" : "number"
           },
@@ -494,6 +514,13 @@
             "description" : "Where the rates come from",
             "example" : "static-configuration",
             "type" : "string"
+          },
+          "unavailable" : {
+            "description" : "Currencies left out because their reference rate is stale (ADR 0034); a quote or hold in them is refused with fx-rates-stale until a fresh rate is confirmed",
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
           }
         },
         "type" : "object"
@@ -551,6 +578,16 @@
           },
           "payerCurrency" : {
             "type" : "string"
+          },
+          "rateSource" : {
+            "description" : "Where the locked rate came from (ADR 0034): ecb, ecb+cma-peg or cma-peg",
+            "example" : "ecb+cma-peg",
+            "type" : [ "string", "null" ]
+          },
+          "rateValueDate" : {
+            "description" : "The day of the reference rate the locked rate came from",
+            "format" : "date",
+            "type" : [ "string", "null" ]
           },
           "reference" : {
             "type" : "string"
@@ -681,10 +718,20 @@
             "example" : 20.0,
             "type" : "number"
           },
+          "source" : {
+            "description" : "Where this rate came from (ADR 0034)",
+            "example" : "ecb+cma-peg",
+            "type" : "string"
+          },
           "spread" : {
             "description" : "Spread banking applies when it converts",
             "example" : 0.005,
             "type" : "number"
+          },
+          "valueDate" : {
+            "description" : "The day of the reference rate it came from",
+            "format" : "date",
+            "type" : [ "string", "null" ]
           }
         },
         "type" : "object"
@@ -713,6 +760,81 @@
               "$ref" : "#/components/schemas/CurrencyTrialBalance"
             },
             "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "ReferenceRateListResponse" : {
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ReferenceRateResponse"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "ReferenceRateResponse" : {
+        "description" : "One day's reference rate from one source: 1 base = rate quote currency",
+        "properties" : {
+          "baseCurrency" : {
+            "example" : "EUR",
+            "type" : "string"
+          },
+          "crossCheckRate" : {
+            "description" : "That source's rate for the same day: NAD per EUR for the Bank of Namibia",
+            "type" : [ "number", "null" ]
+          },
+          "crossCheckSource" : {
+            "description" : "The second source it was checked against",
+            "example" : "bank-of-namibia",
+            "type" : [ "string", "null" ]
+          },
+          "decidedApprovalId" : {
+            "description" : "The RATE_CONFIRMATION approval that decided it",
+            "format" : "uuid",
+            "type" : [ "string", "null" ]
+          },
+          "decidedAt" : {
+            "format" : "date-time",
+            "type" : [ "string", "null" ]
+          },
+          "fetchedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "previousRate" : {
+            "description" : "The confirmed rate before it, which its day-on-day move was measured against",
+            "type" : [ "number", "null" ]
+          },
+          "quarantineReason" : {
+            "description" : "Every check it failed",
+            "type" : [ "string", "null" ]
+          },
+          "quoteCurrency" : {
+            "example" : "ZAR",
+            "type" : "string"
+          },
+          "rate" : {
+            "example" : 19.1513,
+            "type" : "number"
+          },
+          "source" : {
+            "example" : "ecb",
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "CONFIRMED", "QUARANTINED", "REJECTED" ],
+            "type" : "string"
+          },
+          "valueDate" : {
+            "format" : "date",
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -1158,7 +1280,7 @@
     },
     "/api/v1/approvals/{id}" : {
       "get" : {
-        "operationId" : "get",
+        "operationId" : "get_1",
         "parameters" : [ {
           "in" : "path",
           "name" : "id",
@@ -1910,6 +2032,94 @@
         "tags" : [ "Ledger Reconciliation" ]
       }
     },
+    "/api/v1/reference-rates" : {
+      "get" : {
+        "operationId" : "list_1",
+        "parameters" : [ {
+          "description" : "CONFIRMED, QUARANTINED or REJECTED",
+          "example" : "QUARANTINED",
+          "in" : "query",
+          "name" : "status",
+          "required" : false,
+          "schema" : {
+            "default" : "QUARANTINED",
+            "enum" : [ "CONFIRMED", "QUARANTINED", "REJECTED" ],
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "default" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ReferenceRateListResponse"
+                }
+              }
+            },
+            "description" : "The rates"
+          },
+          "400" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "limit outside 1..100"
+          }
+        },
+        "summary" : "Reference rates in one status, newest value date first",
+        "tags" : [ "Reference rates" ]
+      }
+    },
+    "/api/v1/reference-rates/{id}" : {
+      "get" : {
+        "operationId" : "get",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ReferenceRateResponse"
+                }
+              }
+            },
+            "description" : "The rate"
+          },
+          "404" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "No such rate"
+          }
+        },
+        "summary" : "One reference rate",
+        "tags" : [ "Reference rates" ]
+      }
+    },
     "/api/v1/transfers" : {
       "post" : {
         "operationId" : "createTransfer",
@@ -2065,6 +2275,9 @@
   }, {
     "description" : "Deposits and reversals one operator requests and a different operator approves",
     "name" : "Approvals"
+  }, {
+    "description" : "Daily ECB reference rates, their checks and their quarantine (ADR 0034)",
+    "name" : "Reference rates"
   }, {
     "description" : "Short-lived foreign exchange quotes for cross-currency transfers",
     "name" : "FX Quotes"

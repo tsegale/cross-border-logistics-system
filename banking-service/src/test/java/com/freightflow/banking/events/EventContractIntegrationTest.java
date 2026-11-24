@@ -79,11 +79,11 @@ class EventContractIntegrationTest extends IntegrationTest {
 
         ApprovalResponse rejected = approvals.request(TestCallers.OPERATOR,
                 new CreateApprovalRequest(ApprovalKind.DEPOSIT, eur.accountNumber(), new BigDecimal("99.00"), "EUR",
-                        "TYPO", null, null), key());
+                        "TYPO", null, null, null), key());
         approvals.reject(TestCallers.SECOND_OPERATOR, rejected.id(), "Wrong amount");
         ApprovalResponse lapsedApproval = approvals.request(TestCallers.OPERATOR,
                 new CreateApprovalRequest(ApprovalKind.DEPOSIT, eur.accountNumber(), new BigDecimal("1.00"), "EUR",
-                        "LATE", null, null), key());
+                        "LATE", null, null, null), key());
         jdbcTemplate.update("""
                 UPDATE approval_requests SET requested_at = now() - interval '2 hours', expires_at = now() - interval '1 hour'
                 WHERE id = ?""", lapsedApproval.id());

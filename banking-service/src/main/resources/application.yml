@@ -125,7 +125,29 @@ freightflow:
     fx:
       quote-ttl: ${FX_QUOTE_TTL:60s}
       default-spread: ${FX_DEFAULT_SPREAD:0.0050}
-      # Static mid-market rates (Phase 1). NAD and ZAR are pegged 1:1 in the Common Monetary Area (spread 0).
+      # Daily reference rates (ADR 0034): EUR/ZAR from the ECB, NAD = ZAR under the CMA peg, cross-checked against
+      # the Bank of Namibia's NAD per EUR. Stale or quarantined rates are never priced with.
+      reference:
+        provider: ${FX_RATE_PROVIDER:ecb}
+        ecb-base-url: ${ECB_BASE_URL:https://data-api.ecb.europa.eu}
+        bon-url: ${BON_RATES_URL:https://services.bon.com.na/ratestable/api/rates}
+        # The ECB publishes around 16:00 CET on TARGET working days; a day's rate is due an hour after.
+        publication-time: "16:00"
+        publication-grace: ${FX_PUBLICATION_GRACE:1h}
+        zone: Europe/Berlin
+        max-age-working-days: ${FX_MAX_AGE_WORKING_DAYS:2}
+        max-daily-move: ${FX_MAX_DAILY_MOVE:0.05}
+        peg-tolerance: ${FX_PEG_TOLERANCE:0.02}
+        refresh-interval: ${FX_REFRESH_INTERVAL:15m}
+        lookback: 10
+        connect-timeout: ${FX_SOURCE_CONNECT_TIMEOUT:2s}
+        read-timeout: ${FX_SOURCE_READ_TIMEOUT:5s}
+        retry:
+          max-retries: 2
+          delay: 500ms
+          budget: 20s
+      # Fixed mid-market rates, used only with FX_RATE_PROVIDER=static (tests that need known numbers). NAD and ZAR
+      # are pegged 1:1 in the Common Monetary Area (spread 0).
       rates:
         NAD:
           ZAR: 1.00000000
@@ -139,6 +161,31 @@ freightflow:
       pair-spreads:
         NAD-ZAR: 0.0000
         ZAR-NAD: 0.0000
+
+# A breaker per reference rate source (ADR 0013, ADR 0034). Few calls, so small windows: three failures in five open
+# it, and a refresh while it is open fails at once instead of waiting out the timeouts.
+resilience4j:
+  circuitbreaker:
+    instances:
+      ecb:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 5
+        minimum-number-of-calls: 3
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: ${ECB_BREAKER_OPEN_WAIT:5m}
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        # A 404 is a series without observations, read as empty; other 4xx are not the ECB failing.
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException$NotFound
+      bank-of-namibia:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 5
+        minimum-number-of-calls: 3
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: ${BON_BREAKER_OPEN_WAIT:30m}
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
 
 # Served under the path the gateway publishes them at, so Swagger UI works through the gateway unchanged.
 springdoc:

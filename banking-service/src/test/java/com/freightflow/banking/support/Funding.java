@@ -30,7 +30,7 @@ public class Funding {
     /** Deposits {@code amount} into the account (id or number) and returns the posted entry. */
     public JournalEntryResponse deposit(String account, BigDecimal amount, String currency, String reference) {
         ApprovalResponse requested = approvals.request(TestCallers.OPERATOR,
-                new CreateApprovalRequest(ApprovalKind.DEPOSIT, account, amount, currency, reference, null, null), key());
+                new CreateApprovalRequest(ApprovalKind.DEPOSIT, account, amount, currency, reference, null, null, null), key());
         return approve(requested);
     }
 
@@ -41,7 +41,7 @@ public class Funding {
     /** Reverses the entry and returns the reversal. */
     public JournalEntryResponse reverse(UUID journalEntryId, String reason) {
         ApprovalResponse requested = approvals.request(TestCallers.OPERATOR,
-                new CreateApprovalRequest(ApprovalKind.REVERSAL, null, null, null, null, journalEntryId, reason), key());
+                new CreateApprovalRequest(ApprovalKind.REVERSAL, null, null, null, null, journalEntryId, reason, null), key());
         return approve(requested);
     }
 

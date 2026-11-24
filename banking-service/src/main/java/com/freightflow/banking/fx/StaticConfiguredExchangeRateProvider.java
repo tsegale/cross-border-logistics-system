@@ -2,16 +2,19 @@ package com.freightflow.banking.fx;
 
 import com.freightflow.banking.common.MoneyRounding;
 import com.freightflow.banking.config.BankingProperties;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.Map;
 
 /**
- * Static, configuration-backed exchange rate provider for Phase 1 (not live market data).
- * Respects the 1:1 Common Monetary Area peg between NAD and ZAR.
+ * Fixed rates from {@code freightflow.banking.fx.rates}, not market data: for tests that need known numbers, with
+ * {@code freightflow.banking.fx.reference.provider=static}. Respects the 1:1 Common Monetary Area peg between NAD and
+ * ZAR. Production prices from the ECB (ADR 0034).
  */
 @Component
+@ConditionalOnProperty(name = "freightflow.banking.fx.reference.provider", havingValue = "static")
 public class StaticConfiguredExchangeRateProvider implements ExchangeRateProvider {
 
     private final BankingProperties properties;
@@ -55,6 +58,6 @@ public class StaticConfiguredExchangeRateProvider implements ExchangeRateProvide
         BigDecimal effectiveRate = scaledMid.multiply(BigDecimal.ONE.subtract(scaledSpread))
                 .setScale(MoneyRounding.RATE_SCALE, MoneyRounding.ROUNDING_MODE);
 
-        return new RateQuote(sell, buy, scaledMid, scaledSpread, effectiveRate);
+        return new RateQuote(sell, buy, scaledMid, scaledSpread, effectiveRate, sourceName(), null, null);
     }
 }

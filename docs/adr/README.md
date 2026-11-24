@@ -38,3 +38,4 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | [0031](0031-collector-sampling-and-redaction.md) | An OpenTelemetry Collector in front of the backends: tail sampling, redaction, infrastructure metrics | Accepted |
 | [0032](0032-observability-stack.md) | The observability stack: separate Grafana, Prometheus, Tempo, Loki and Alertmanager behind a profile | Accepted |
 | [0033](0033-slos-and-burn-rate-alerting.md) | SLOs on what customers feel, multi-window burn-rate alerts, and a fire drill | Accepted |
+| [0034](0034-live-reference-exchange-rates.md) | Daily ECB reference rates, NAD under the CMA peg, a Bank of Namibia cross-check, and quarantine | Accepted |

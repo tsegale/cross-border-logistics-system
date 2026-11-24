@@ -13,6 +13,11 @@ import com.freightflow.banking.account.InvalidAccountNumberException;
 import com.freightflow.banking.fx.FxQuoteNotFoundException;
 import com.freightflow.banking.fx.FxQuoteUnavailableException;
 import com.freightflow.banking.fx.InvalidFxQuoteRequestException;
+import com.freightflow.banking.fx.rates.ReferenceRateExceptions.FxRatesStaleException;
+import com.freightflow.banking.fx.rates.ReferenceRateExceptions.InvalidReferenceRateQueryException;
+import com.freightflow.banking.fx.rates.ReferenceRateExceptions.RateConfirmationAlreadyRequestedException;
+import com.freightflow.banking.fx.rates.ReferenceRateExceptions.ReferenceRateNotFoundException;
+import com.freightflow.banking.fx.rates.ReferenceRateExceptions.ReferenceRateNotQuarantinedException;
 import com.freightflow.banking.hold.HoldExceptions.CaptureExceedsHoldException;
 import com.freightflow.banking.hold.HoldExceptions.HoldExpiredException;
 import com.freightflow.banking.hold.HoldExceptions.HoldNotActiveException;
@@ -253,6 +258,53 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 "Invalid FX quote request",
                 ex.getMessage()
         );
+    }
+
+    /**
+     * Rates too old to price with (ADR 0034). 503, not 409: nothing about the request is wrong, and the same request
+     * succeeds once a fresh rate is confirmed. Logistics' payment relay retries it like any other 503.
+     */
+    @ExceptionHandler(FxRatesStaleException.class)
+    public ResponseEntity<ProblemDetail> handleFxRatesStale(FxRatesStaleException ex) {
+        ProblemDetail problem = problem(HttpStatus.SERVICE_UNAVAILABLE, "fx-rates-stale",
+                "Exchange rates are out of date", ex.getMessage());
+        problem.setProperty("currencyPair", ex.getCurrencyPair());
+        problem.setProperty("rateValueDate", ex.getValueDate());
+        problem.setProperty("expectedValueDate", ex.getExpectedValueDate());
+        problem.setProperty("maxAgeWorkingDays", ex.getMaxAgeWorkingDays());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header(HttpHeaders.RETRY_AFTER, "900")
+                .body(problem);
+    }
+
+    @ExceptionHandler(ReferenceRateNotFoundException.class)
+    public ProblemDetail handleReferenceRateNotFound(ReferenceRateNotFoundException ex) {
+        ProblemDetail problem = problem(HttpStatus.NOT_FOUND, "reference-rate-not-found", "Reference rate not found",
+                ex.getMessage());
+        problem.setProperty("referenceRateId", ex.getReferenceRateId());
+        return problem;
+    }
+
+    @ExceptionHandler(ReferenceRateNotQuarantinedException.class)
+    public ProblemDetail handleReferenceRateNotQuarantined(ReferenceRateNotQuarantinedException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "reference-rate-not-quarantined",
+                "Reference rate is not quarantined", ex.getMessage());
+        problem.setProperty("referenceRateId", ex.getReferenceRateId());
+        problem.setProperty("referenceRateStatus", ex.getStatus());
+        return problem;
+    }
+
+    @ExceptionHandler(RateConfirmationAlreadyRequestedException.class)
+    public ProblemDetail handleRateConfirmationAlreadyRequested(RateConfirmationAlreadyRequestedException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "rate-confirmation-already-requested",
+                "A confirmation of this rate is already waiting for approval", ex.getMessage());
+        problem.setProperty("referenceRateId", ex.getReferenceRateId());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidReferenceRateQueryException.class)
+    public ProblemDetail handleInvalidReferenceRateQuery(InvalidReferenceRateQueryException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "invalid-reference-rate-query", "Invalid reference rate query",
+                ex.getMessage());
     }
 
     @ExceptionHandler(JournalEntryAlreadyReversedException.class)

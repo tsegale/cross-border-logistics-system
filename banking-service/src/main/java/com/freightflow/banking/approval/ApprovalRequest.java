@@ -29,7 +29,7 @@ public class ApprovalRequest {
     private UUID id;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "kind", length = 16, nullable = false, updatable = false)
+    @Column(name = "kind", length = 32, nullable = false, updatable = false)
     private ApprovalKind kind;
 
     @Enumerated(EnumType.STRING)
@@ -53,6 +53,9 @@ public class ApprovalRequest {
 
     @Column(name = "reason", length = 160, updatable = false)
     private String reason;
+
+    @Column(name = "reference_rate_id", updatable = false)
+    private UUID referenceRateId;
 
     @Column(name = "requested_by_subject", length = 64, nullable = false, updatable = false)
     private String requestedBySubject;
@@ -108,6 +111,14 @@ public class ApprovalRequest {
         return request;
     }
 
+    public static ApprovalRequest rateConfirmation(UUID referenceRateId, String reason, Actor maker, Instant now,
+                                                   Instant expiresAt) {
+        ApprovalRequest request = base(ApprovalKind.RATE_CONFIRMATION, maker, now, expiresAt);
+        request.referenceRateId = Objects.requireNonNull(referenceRateId, "referenceRateId");
+        request.reason = Objects.requireNonNull(reason, "reason");
+        return request;
+    }
+
     private static ApprovalRequest base(ApprovalKind kind, Actor maker, Instant now, Instant expiresAt) {
         ApprovalRequest request = new ApprovalRequest();
         request.kind = kind;
@@ -131,6 +142,11 @@ public class ApprovalRequest {
     void approve(Actor checker, Instant now, String comment, UUID entryId) {
         decide(ApprovalStatus.APPROVED, checker, now, comment);
         this.postedEntryId = Objects.requireNonNull(entryId, "entryId");
+    }
+
+    /** A confirmation decides a rate; it posts nothing. */
+    void approveWithoutEntry(Actor checker, Instant now, String comment) {
+        decide(ApprovalStatus.APPROVED, checker, now, comment);
     }
 
     void reject(Actor checker, Instant now, String comment) {
@@ -205,6 +221,10 @@ public class ApprovalRequest {
 
     public String getReason() {
         return reason;
+    }
+
+    public UUID getReferenceRateId() {
+        return referenceRateId;
     }
 
     public Instant getRequestedAt() {

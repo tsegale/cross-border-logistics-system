@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -40,7 +41,8 @@ class FxQuoteControllerTest {
     void createdQuoteIs201WithLocation() throws Exception {
         given(fxQuoteService.createQuote(any(), any())).willReturn(new FxQuoteResponse(ID, "NAD", "EUR",
                 new BigDecimal("50000.00"), new BigDecimal("2487.50"), new BigDecimal("0.05000000"),
-                new BigDecimal("0.005000"), new BigDecimal("0.04975000"), Instant.parse("2026-11-10T10:01:00Z"),
+                new BigDecimal("0.005000"), new BigDecimal("0.04975000"), "ecb+cma-peg", LocalDate.parse("2026-11-09"),
+                Instant.parse("2026-11-10T10:01:00Z"),
                 null, Instant.parse("2026-11-10T10:00:00Z")));
 
         mockMvc.perform(post("/api/v1/fx-quotes").contentType(MediaType.APPLICATION_JSON)

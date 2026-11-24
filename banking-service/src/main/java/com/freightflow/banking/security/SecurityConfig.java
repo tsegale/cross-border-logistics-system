@@ -64,6 +64,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/approvals", "/api/v1/approvals/**")
                                 .hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
                         .requestMatchers("/api/v1/ledger/**").hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
+                        // Stored reference rates and their quarantine (ADR 0034): back office only.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/reference-rates", "/api/v1/reference-rates/**")
+                                .hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
                         // Only the owning customer moves its money; an operator corrects through a reversal (ADR 0021).
                         .requestMatchers(HttpMethod.POST, "/api/v1/transfers").hasRole(Caller.CUSTOMER)
                         .requestMatchers(HttpMethod.POST, "/api/v1/accounts", "/api/v1/fx-quotes")

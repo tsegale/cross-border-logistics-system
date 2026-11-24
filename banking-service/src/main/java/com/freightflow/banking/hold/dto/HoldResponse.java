@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Schema(description = "A hold: funds reserved on the payer account, then captured or released")
@@ -21,6 +22,10 @@ public record HoldResponse(
         String payerCurrency,
         @Schema(description = "Locked rate for a cross-currency hold: 1 payer currency = fxRate charge currency",
                 nullable = true) BigDecimal fxRate,
+        @Schema(description = "Where the locked rate came from (ADR 0034): ecb, ecb+cma-peg or cma-peg", nullable = true,
+                example = "ecb+cma-peg") String rateSource,
+        @Schema(description = "The day of the reference rate the locked rate came from", nullable = true)
+        LocalDate rateValueDate,
         HoldStatus status,
         @Schema(nullable = true) BigDecimal capturedAmount,
         @Schema(nullable = true) BigDecimal capturedPayerAmount,
@@ -41,6 +46,8 @@ public record HoldResponse(
                 MoneyRounding.roundToMinorUnits(hold.getPayerAmount(), hold.getPayerCurrency()),
                 hold.getPayerCurrency(),
                 hold.getFxRate(),
+                hold.getRateSource(),
+                hold.getRateValueDate(),
                 hold.getStatus(),
                 hold.getCapturedAmount() == null ? null
                         : MoneyRounding.roundToMinorUnits(hold.getCapturedAmount(), hold.getCurrency()),

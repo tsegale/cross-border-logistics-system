@@ -12,6 +12,8 @@ import com.freightflow.banking.approval.dto.ApprovalResponse;
 import com.freightflow.banking.approval.dto.CreateApprovalRequest;
 import com.freightflow.banking.common.LockTimeouts;
 import com.freightflow.banking.config.BankingProperties;
+import com.freightflow.banking.fx.rates.ReferenceRateExceptions.RateConfirmationAlreadyRequestedException;
+import com.freightflow.banking.fx.rates.ReferenceRateService;
 import com.freightflow.banking.events.BankingEvents;
 import com.freightflow.banking.idempotency.IdempotencyService;
 import com.freightflow.banking.journal.LedgerService;
@@ -57,12 +59,15 @@ public class ApprovalService {
     private final JdbcTemplate jdbcTemplate;
     private final MeterRegistry meters;
     private final BankingEvents events;
+    private final ReferenceRateService referenceRates;
     private final Clock clock;
 
     public ApprovalService(ApprovalRepository approvals, AccountRepository accounts, LedgerService ledger,
                            IdempotencyService idempotency, ApprovalProperties properties, BankingProperties banking,
-                           JdbcTemplate jdbcTemplate, MeterRegistry meters, BankingEvents events, Clock clock) {
+                           JdbcTemplate jdbcTemplate, MeterRegistry meters, BankingEvents events,
+                           ReferenceRateService referenceRates, Clock clock) {
         this.events = events;
+        this.referenceRates = referenceRates;
         this.approvals = approvals;
         this.accounts = accounts;
         this.ledger = ledger;
@@ -98,6 +103,14 @@ public class ApprovalService {
                 }
                 yield ApprovalRequest.reversal(body.journalEntryId(), reasonOf(body), maker, now, expiresAt);
             }
+            case RATE_CONFIRMATION -> {
+                referenceRates.requireQuarantined(body.referenceRateId());
+                if (pendingConfirmationExists(body.referenceRateId())) {
+                    throw new RateConfirmationAlreadyRequestedException(body.referenceRateId());
+                }
+                yield ApprovalRequest.rateConfirmation(body.referenceRateId(), trimmed(body.reason()), maker, now,
+                        expiresAt);
+            }
         };
         ApprovalRequest saved = approvals.saveAndFlush(request);
         count("requested", saved.getKind());
@@ -119,10 +132,21 @@ public class ApprovalService {
     private ApprovalResponse decideApproval(Actor checker, UUID id, String comment) {
         Instant now = clock.instant();
         ApprovalRequest request = lockPending(id, checker, now);
+        if (request.getKind() == ApprovalKind.RATE_CONFIRMATION) {
+            referenceRates.decide(request.getReferenceRateId(), true, id);
+            request.approveWithoutEntry(checker, now, comment);
+            approvals.saveAndFlush(request);
+            events.approvalDecided(request, checker);
+            count("approved", request.getKind());
+            log.info("Approval {} approved by {}: reference rate {} confirmed", id, checker.subject(),
+                    request.getReferenceRateId());
+            return toResponse(request);
+        }
         JournalEntryResponse entry = switch (request.getKind()) {
             case DEPOSIT -> ledger.postDeposit(checker, id, request.getAccountId(), request.getAmount(),
                     request.getCurrency(), request.getReference());
             case REVERSAL -> ledger.postReversal(checker, id, request.getJournalEntryId(), request.getReason());
+            case RATE_CONFIRMATION -> throw new IllegalStateException("a rate confirmation posts no entry");
         };
         // Posting clears the persistence context; the row is still locked by this transaction.
         ApprovalRequest decided = approvals.findById(id).orElseThrow(() -> new ApprovalNotFoundException(id));
@@ -144,6 +168,10 @@ public class ApprovalService {
         Actor checker = caller.actor();
         Instant now = clock.instant();
         ApprovalRequest request = lockPending(id, checker, now);
+        if (request.getKind() == ApprovalKind.RATE_CONFIRMATION) {
+            // Two operators agree the rate is wrong: it is never used. An expired request leaves it quarantined.
+            referenceRates.decide(request.getReferenceRateId(), false, id);
+        }
         request.reject(checker, now, reason);
         approvals.saveAndFlush(request);
         events.approvalDecided(request, checker);
@@ -203,6 +231,14 @@ public class ApprovalService {
                 () -> approvals.findByIdForUpdate(id)).orElseThrow(() -> new ApprovalNotFoundException(id));
     }
 
+    private boolean pendingConfirmationExists(UUID referenceRateId) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM approval_requests
+                               WHERE kind = 'RATE_CONFIRMATION' AND status = 'PENDING' AND reference_rate_id = ?)
+                """, Boolean.class, referenceRateId);
+        return Boolean.TRUE.equals(exists);
+    }
+
     private boolean pendingReversalExists(UUID journalEntryId) {
         Boolean exists = jdbcTemplate.queryForObject("""
                 SELECT EXISTS (SELECT 1 FROM approval_requests
@@ -221,8 +257,9 @@ public class ApprovalService {
                         || body.currency() == null || body.reference() == null || body.reference().isBlank()) {
                     throw new InvalidApprovalRequestException("A DEPOSIT needs account, amount, currency and reference");
                 }
-                if (body.journalEntryId() != null || body.reason() != null) {
-                    throw new InvalidApprovalRequestException("A DEPOSIT takes no journalEntryId or reason");
+                if (body.journalEntryId() != null || body.reason() != null || body.referenceRateId() != null) {
+                    throw new InvalidApprovalRequestException(
+                            "A DEPOSIT takes no journalEntryId, reason or referenceRateId");
                 }
                 canonical.put("account", body.account().trim().toUpperCase(Locale.ROOT));
                 canonical.put("amount", body.amount().stripTrailingZeros().toPlainString());
@@ -233,11 +270,26 @@ public class ApprovalService {
                 if (body.journalEntryId() == null) {
                     throw new InvalidApprovalRequestException("A REVERSAL needs journalEntryId");
                 }
-                if (body.account() != null || body.amount() != null || body.currency() != null || body.reference() != null) {
-                    throw new InvalidApprovalRequestException("A REVERSAL takes no account, amount, currency or reference");
+                if (body.account() != null || body.amount() != null || body.currency() != null || body.reference() != null
+                        || body.referenceRateId() != null) {
+                    throw new InvalidApprovalRequestException(
+                            "A REVERSAL takes no account, amount, currency, reference or referenceRateId");
                 }
                 canonical.put("journalEntryId", body.journalEntryId().toString());
                 canonical.put("reason", reasonOf(body));
+            }
+            case RATE_CONFIRMATION -> {
+                if (body.referenceRateId() == null || trimmed(body.reason()) == null) {
+                    throw new InvalidApprovalRequestException(
+                            "A RATE_CONFIRMATION needs referenceRateId and a reason saying why the rate is right");
+                }
+                if (body.account() != null || body.amount() != null || body.currency() != null || body.reference() != null
+                        || body.journalEntryId() != null) {
+                    throw new InvalidApprovalRequestException(
+                            "A RATE_CONFIRMATION takes no account, amount, currency, reference or journalEntryId");
+                }
+                canonical.put("referenceRateId", body.referenceRateId().toString());
+                canonical.put("reason", trimmed(body.reason()));
             }
         }
         return canonical;

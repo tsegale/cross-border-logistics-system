@@ -12,6 +12,7 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
@@ -55,6 +56,16 @@ public class Hold {
 
     @Column(name = "fx_spread", precision = 10, scale = 6, updatable = false)
     private BigDecimal fxSpread;
+
+    /** Which rate priced a cross-currency hold (ADR 0034); null for a hold in the payer's own currency. */
+    @Column(name = "rate_source", length = 32, updatable = false)
+    private String rateSource;
+
+    @Column(name = "rate_value_date", updatable = false)
+    private LocalDate rateValueDate;
+
+    @Column(name = "reference_rate_id", updatable = false)
+    private UUID referenceRateId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 16, nullable = false, updatable = false)
@@ -111,6 +122,9 @@ public class Hold {
             hold.fxRate = fx.rate();
             hold.fxMidRate = fx.midRate();
             hold.fxSpread = fx.spread();
+            hold.rateSource = Objects.requireNonNull(fx.source(), "fx.source");
+            hold.rateValueDate = fx.valueDate();
+            hold.referenceRateId = fx.referenceRateId();
         }
         hold.status = HoldStatus.ACTIVE;
         hold.expiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
@@ -141,7 +155,8 @@ public class Hold {
     }
 
     /** The rate locked on a cross-currency hold: 1 payer currency = rate charge currency. */
-    public record FxLock(BigDecimal rate, BigDecimal midRate, BigDecimal spread) {
+    public record FxLock(BigDecimal rate, BigDecimal midRate, BigDecimal spread, String source, LocalDate valueDate,
+                         UUID referenceRateId) {
     }
 
     public boolean isCrossCurrency() {
@@ -186,6 +201,18 @@ public class Hold {
 
     public BigDecimal getFxSpread() {
         return fxSpread;
+    }
+
+    public String getRateSource() {
+        return rateSource;
+    }
+
+    public LocalDate getRateValueDate() {
+        return rateValueDate;
+    }
+
+    public UUID getReferenceRateId() {
+        return referenceRateId;
     }
 
     public HoldStatus getStatus() {

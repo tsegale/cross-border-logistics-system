@@ -340,7 +340,7 @@ class ApprovalIntegrationTest extends IntegrationTest {
 
     private CreateApprovalRequest deposit(String amount) {
         return new CreateApprovalRequest(ApprovalKind.DEPOSIT, account, new BigDecimal(amount), "NAD", "DEP-RACE",
-                null, null);
+                null, null, null);
     }
 
     private void assertBalance(String expected) throws Exception {

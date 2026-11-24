@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://freightflow.dev/events/approval.decided.schema.json",
   "title": "approval.decided",
-  "description": "A four-eyes approval request (ADR 0021) was approved, rejected or expired. The actor is the second operator (null when it expired). Comments and reasons are free text and stay in banking.",
+  "description": "A four-eyes approval request (ADR 0021) was approved, rejected or expired: a deposit or reversal, or the confirmation of a quarantined reference rate (ADR 0034), which posts no entry. The actor is the second operator (null when it expired). Comments and reasons are free text and stay in banking.",
   "x-topic": "freightflow.approval.v1",
   "x-producer": "banking-service",
   "x-consumers": [],
@@ -13,7 +13,8 @@
     },
     "schemaVersion": {
       "enum": [
-        1
+        1,
+        2
       ]
     },
     "payload": {
@@ -38,7 +39,8 @@
           "type": "string",
           "enum": [
             "DEPOSIT",
-            "REVERSAL"
+            "REVERSAL",
+            "RATE_CONFIRMATION"
           ]
         },
         "status": {
@@ -102,6 +104,17 @@
             }
           ]
         },
+        "referenceRateId": {
+          "description": "The reference rate a RATE_CONFIRMATION decided (schemaVersion 2).",
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "requestedBy": {
           "type": "object",
           "additionalProperties": false,
@@ -134,7 +147,7 @@
     {
       "eventId": "0193a5c2-0b1d-7e3f-9041-5263748596a7",
       "type": "approval.decided",
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "occurredAt": "2026-11-20T08:05:44.610Z",
       "aggregateId": "0193a5c1-2a3b-7c4d-8e5f-60718293a4b5",
       "sequence": 1,
@@ -153,6 +166,7 @@
         "currency": "EUR",
         "journalEntryId": null,
         "postedEntryId": "0193a5c2-0b1c-7d2e-8f30-4152637485a6",
+        "referenceRateId": null,
         "requestedBy": {
           "subject": "7b2e1d3f-4c5e-4f60-9b0c-1d2e3f4a5b6c",
           "clientId": "freightflow-web"

@@ -9,8 +9,9 @@ import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-@Schema(description = "A deposit or reversal for a second operator to approve (ADR 0021). A DEPOSIT names account, "
-        + "amount, currency and reference; a REVERSAL names journalEntryId and, optionally, reason.")
+@Schema(description = "A deposit, reversal or rate confirmation for a second operator to approve (ADR 0021). A DEPOSIT "
+        + "names account, amount, currency and reference; a REVERSAL names journalEntryId and, optionally, reason; a "
+        + "RATE_CONFIRMATION names referenceRateId and reason.")
 public record CreateApprovalRequest(
         @Schema(description = "What the approval posts", example = "DEPOSIT")
         @NotNull(message = "kind is required")
@@ -41,6 +42,10 @@ public record CreateApprovalRequest(
         @Schema(description = "REVERSAL: why; defaults to \"Reversal of <id>\"", example = "Duplicate deposit",
                 nullable = true)
         @Size(max = 160, message = "reason must be at most 160 characters")
-        String reason
+        String reason,
+
+        @Schema(description = "RATE_CONFIRMATION: the quarantined reference rate to make usable (ADR 0034); reason is "
+                + "required with it", nullable = true)
+        UUID referenceRateId
 ) {
 }

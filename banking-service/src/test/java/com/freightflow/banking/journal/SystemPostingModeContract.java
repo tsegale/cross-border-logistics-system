@@ -116,7 +116,7 @@ abstract class SystemPostingModeContract extends IntegrationTest {
         // deposit first, unblocked: methods run in random order, and the first approval in a context is cold.
         funding.deposit(customer.id().toString(), new BigDecimal("1.00"), "EUR", "WARM-UP");
         ApprovalResponse requested = approvals.request(TestCallers.OPERATOR, new CreateApprovalRequest(
-                ApprovalKind.DEPOSIT, customer.id().toString(), new BigDecimal("1.00"), "EUR", "BLOCKED", null, null),
+                ApprovalKind.DEPOSIT, customer.id().toString(), new BigDecimal("1.00"), "EUR", "BLOCKED", null, null, null),
                 "blocked-" + java.util.UUID.randomUUID());
         CountDownLatch locked = new CountDownLatch(1);
         try (ExecutorService pool = Executors.newSingleThreadExecutor()) {

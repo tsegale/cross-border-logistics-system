@@ -98,7 +98,8 @@ public class FxQuoteService {
                 rateQuote.effectiveRate(),
                 now,
                 expiresAt
-        ).ownedBy(caller.isCustomer() ? caller.requireOrganization() : null));
+        ).pricedBy(rateQuote.source(), rateQuote.valueDate(), rateQuote.referenceRateId())
+                .ownedBy(caller.isCustomer() ? caller.requireOrganization() : null));
         quotes.flush();
         return FxQuoteResponse.from(saved);
     }

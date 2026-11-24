@@ -12,7 +12,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @SpringBootTest(properties = {
         "spring.datasource.hikari.maximum-pool-size=32",
         "spring.datasource.hikari.minimum-idle=2",
-        "spring.datasource.hikari.connection-timeout=60000"
+        "spring.datasource.hikari.connection-timeout=60000",
+        // Fixed rates, so money assertions have known numbers; the ECB path has its own tests (ADR 0034), and
+        // reference rates are never deleted, so tests sharing this database must not store them.
+        "freightflow.banking.fx.reference.provider=static"
 })
 @AutoConfigureMockMvc
 @org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing

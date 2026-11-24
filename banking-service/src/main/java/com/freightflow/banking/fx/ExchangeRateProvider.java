@@ -1,10 +1,13 @@
 package com.freightflow.banking.fx;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.UUID;
 
 /**
- * Source of exchange rates for FX quotes (ADR 0007).
- * Phase 1 uses {@link StaticConfiguredExchangeRateProvider}; Phase 6 adds live ECB/reference feeds.
+ * Source of exchange rates for FX quotes and holds (ADR 0007). {@link com.freightflow.banking.fx.rates.ReferenceExchangeRateProvider}
+ * prices from the ECB's daily reference rates (ADR 0034); {@link StaticConfiguredExchangeRateProvider} from a fixed
+ * table, for tests that need fixed numbers.
  */
 public interface ExchangeRateProvider {
 
@@ -18,7 +21,12 @@ public interface ExchangeRateProvider {
             String buyCurrency,
             BigDecimal midRate,
             BigDecimal spread,
-            BigDecimal effectiveRate
+            BigDecimal effectiveRate,
+            // Where the mid rate came from, which day it is for and, for a stored reference rate, its row (ADR 0034).
+            // The NAD/ZAR peg has a source but no day or row.
+            String source,
+            LocalDate valueDate,
+            UUID referenceRateId
     ) {
     }
 }

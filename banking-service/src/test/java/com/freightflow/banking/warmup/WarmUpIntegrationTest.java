@@ -41,7 +41,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * goes ready afterwards.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"freightflow.warm-up.enabled=true", "freightflow.warm-up.rounds=2"})
+        properties = {"freightflow.warm-up.enabled=true", "freightflow.warm-up.rounds=2",
+                "freightflow.banking.fx.reference.provider=static"})
 class WarmUpIntegrationTest extends IntegrationTest {
 
     private static final RSAKey KEY = generate();

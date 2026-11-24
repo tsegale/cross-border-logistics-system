@@ -47,7 +47,7 @@ Topics without a consumer today exist for the ones to come (reporting, audit) an
 | [`hold.captured`](events/hold.captured.schema.json) | hold.v1 | hold | the charge was taken (with the capture's journal entry) | logistics, notification |
 | [`hold.released`](events/hold.released.schema.json) | hold.v1 | hold | the reservation was given back without a charge | notification |
 | [`hold.expired`](events/hold.expired.schema.json) | hold.v1 | hold | banking's sweeper closed a hold nobody captured or released; actor null | logistics, notification |
-| [`approval.decided`](events/approval.decided.schema.json) | approval.v1 | approval | a four-eyes request was approved, rejected or expired (ADR 0021) | |
+| [`approval.decided`](events/approval.decided.schema.json) | approval.v1 | approval | a four-eyes request was approved, rejected or expired (ADR 0021); since schemaVersion 2 also a `RATE_CONFIRMATION` of a quarantined reference rate, with its `referenceRateId` (ADR 0034) | |
 
 A hold's events are ordered: `hold.authorised` (1), any `hold.extended`, then one of `captured`, `released`,
 `expired`. A capture also writes a `journal-entry.posted` on its own entry, with no order to the hold's events.

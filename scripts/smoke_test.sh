@@ -225,9 +225,18 @@ expect .approvalId "$DEPOSIT_APPROVAL"
 as customer-namib-exports
 call 200 GET "/api/v1/fx-rates?base=EUR"
 expect .base EUR
+# Daily ECB reference rates (ADR 0034): EUR/NAD is the ECB's ZAR rate under the CMA peg, and moves every day, so the
+# quote is checked against its own rate, not a constant.
+expect .rates[0].currency NAD
+expect .rates[0].source ecb+cma-peg
 call 201 POST /api/v1/fx-quotes '{"sellCurrency":"NAD","buyCurrency":"EUR","sellAmount":20000.00}'
 FX_ID="$(field .id)"
-expect .buyAmount 995.00
+expect .rateSource ecb+cma-peg
+FX_EXPECTED="$("$PYTHON" -c '
+import decimal, sys
+amount = decimal.Decimal("20000.00") * decimal.Decimal(sys.argv[1])
+print(amount.quantize(decimal.Decimal("0.01"), rounding=decimal.ROUND_HALF_EVEN))' "$(field .rate)")"
+expect .buyAmount "$FX_EXPECTED"
 call 201 POST /api/v1/transfers \
   "{\"sourceAccount\":\"${NAD_ACC}\",\"targetAccount\":\"${EUR_ACC}\",\"amount\":20000.00,\"currency\":\"NAD\",\"fxQuoteId\":\"${FX_ID}\",\"reference\":\"SMOKE-FX-${RUN_ID}\"}" \
   "Idempotency-Key: smoke-fx-${RUN_ID}"

@@ -10,6 +10,7 @@ import org.hibernate.annotations.UuidGenerator;
 import java.util.Locale;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -55,6 +56,16 @@ public class FxQuote {
     /** The organisation that asked for the quote, the only one that may use it (ADR 0018); null: an operator's. */
     @Column(name = "owner_organization_id", updatable = false)
     private UUID ownerOrganizationId;
+
+    /** Which rate priced it (ADR 0034): its source, the day it is for and, for a stored reference rate, its row. */
+    @Column(name = "rate_source", length = 32, nullable = false, updatable = false)
+    private String rateSource;
+
+    @Column(name = "rate_value_date", updatable = false)
+    private LocalDate rateValueDate;
+
+    @Column(name = "reference_rate_id", updatable = false)
+    private UUID referenceRateId;
 
     protected FxQuote() {
     }
@@ -135,6 +146,25 @@ public class FxQuote {
     }
 
     /** Sets the owner; must be called before the quote is saved. */
+    public FxQuote pricedBy(String source, LocalDate valueDate, UUID referenceRateId) {
+        this.rateSource = Objects.requireNonNull(source, "source");
+        this.rateValueDate = valueDate;
+        this.referenceRateId = referenceRateId;
+        return this;
+    }
+
+    public String getRateSource() {
+        return rateSource;
+    }
+
+    public LocalDate getRateValueDate() {
+        return rateValueDate;
+    }
+
+    public UUID getReferenceRateId() {
+        return referenceRateId;
+    }
+
     public FxQuote ownedBy(UUID organizationId) {
         this.ownerOrganizationId = organizationId;
         return this;

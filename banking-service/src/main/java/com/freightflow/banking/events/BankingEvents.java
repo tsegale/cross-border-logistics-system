@@ -39,7 +39,7 @@ public class BankingEvents {
         HOLD_CAPTURED("hold.captured", EventTopics.HOLD, 1),
         HOLD_RELEASED("hold.released", EventTopics.HOLD, 1),
         HOLD_EXPIRED("hold.expired", EventTopics.HOLD, 1),
-        APPROVAL_DECIDED("approval.decided", EventTopics.APPROVAL, 1);
+        APPROVAL_DECIDED("approval.decided", EventTopics.APPROVAL, 2);
 
         private final String name;
         private final String topic;
@@ -99,7 +99,8 @@ public class BankingEvents {
     }
 
     public record ApprovalDecided(UUID approvalId, String kind, String status, UUID accountId, String amount,
-                                  String currency, UUID journalEntryId, UUID postedEntryId, RequestedBy requestedBy) {
+                                  String currency, UUID journalEntryId, UUID postedEntryId, UUID referenceRateId,
+                                  RequestedBy requestedBy) {
     }
 
     public record RequestedBy(String subject, String clientId) {
@@ -159,7 +160,7 @@ public class BankingEvents {
         append(Type.APPROVAL_DECIDED, request.getId(), new ApprovalDecided(request.getId(), request.getKind().name(),
                 request.getStatus().name(), request.getAccountId(),
                 request.getAmount() == null ? null : money(request.getAmount()), request.getCurrency(),
-                request.getJournalEntryId(), request.getPostedEntryId(),
+                request.getJournalEntryId(), request.getPostedEntryId(), request.getReferenceRateId(),
                 new RequestedBy(request.getRequestedBy().subject(), request.getRequestedBy().clientId())), actor);
     }
 

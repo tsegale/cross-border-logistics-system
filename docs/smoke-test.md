@@ -76,7 +76,7 @@ curl -s -X POST -H "$CHECKER" -H "Idempotency-Key: approve-${RUN_ID}" \
 # The EUR account is funded the same way.
 
 QUOTE=$(curl -s -X POST -H "$CUSTOMER" -H "Content-Type: application/json" "${GATEWAY}/api/v1/fx-quotes" \
-  -d '{"sellCurrency":"NAD","buyCurrency":"EUR","sellAmount":20000.00}')      # buyAmount 995.00
+  -d '{"sellCurrency":"NAD","buyCurrency":"EUR","sellAmount":20000.00}')      # buyAmount = 20000 x rate (the day's ECB rate, ADR 0034)
 FX_ID=$(echo "$QUOTE" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 curl -s -X POST -H "$CUSTOMER" -H "Content-Type: application/json" -H "Idempotency-Key: fx-${RUN_ID}" \
   "${GATEWAY}/api/v1/transfers" \

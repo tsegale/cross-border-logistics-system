@@ -132,7 +132,8 @@ public class HoldService {
             payerAmount = MoneyRounding.normalizeCustomerAmount(
                     amount.divide(rate.effectiveRate(), MoneyRounding.STORAGE_SCALE + 4, MoneyRounding.ROUNDING_MODE),
                     payer.getCurrency());
-            fx = new Hold.FxLock(rate.effectiveRate(), rate.midRate(), rate.spread());
+            fx = new Hold.FxLock(rate.effectiveRate(), rate.midRate(), rate.spread(), rate.source(),
+                    rate.valueDate(), rate.referenceRateId());
         }
 
         Account locked = lockAccount(payer.getId());

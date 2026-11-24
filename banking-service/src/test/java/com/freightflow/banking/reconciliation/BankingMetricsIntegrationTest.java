@@ -64,7 +64,7 @@ class BankingMetricsIntegrationTest extends IntegrationTest {
         double expiring = gauge("freightflow.approvals.expiring");
 
         ApprovalResponse requested = approvals.request(TestCallers.OPERATOR, new CreateApprovalRequest(
-                ApprovalKind.DEPOSIT, account.id().toString(), new BigDecimal("10.00"), "EUR", "WAIT", null, null),
+                ApprovalKind.DEPOSIT, account.id().toString(), new BigDecimal("10.00"), "EUR", "WAIT", null, null, null),
                 "metrics-" + UUID.randomUUID());
 
         assertThat(gauge("freightflow.approvals.pending")).isEqualTo(pending + 1);
