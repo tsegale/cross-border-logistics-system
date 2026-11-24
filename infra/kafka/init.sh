@@ -27,15 +27,32 @@ for attempt in $(seq 1 60); do
   sleep 2
 done
 
+# Each admin call is retried: on a loaded host (a laptop starting the whole stack) a call can time out once, and
+# kafka-init used to exit 1 with nothing logged. Both operations are idempotent, so a retry is safe. The command's own
+# output is shown on failure, never the command line, which can hold a password.
+retrying() {
+  local what="$1" out attempt
+  shift
+  for attempt in 1 2 3 4 5; do
+    if out="$("$@" 2>&1)"; then
+      return 0
+    fi
+    echo "kafka-init: ${what} failed (attempt ${attempt} of 5): ${out}" >&2
+    sleep $((attempt * 3))
+  done
+  echo "kafka-init: ${what} failed 5 times, giving up" >&2
+  return 1
+}
+
 for service in banking logistics notification monitoring; do
   secret="/run/secrets/kafka_${service}_password"
   if [[ ! -r "$secret" ]]; then
     echo "kafka-init: no ${secret}, skipping user ${service}"
     continue
   fi
-  "$BIN/kafka-configs.sh" --bootstrap-server "$BOOTSTRAP" --command-config "$ADMIN_CONFIG" --alter \
-    --entity-type users --entity-name "$service" \
-    --add-config "SCRAM-SHA-512=[iterations=8192,password=$(cat "$secret")]" > /dev/null
+  retrying "user ${service}" "$BIN/kafka-configs.sh" --bootstrap-server "$BOOTSTRAP" --command-config "$ADMIN_CONFIG" \
+    --alter --entity-type users --entity-name "$service" \
+    --add-config "SCRAM-SHA-512=[iterations=8192,password=$(cat "$secret")]"
   echo "kafka-init: user ${service}"
 done
 
@@ -60,7 +77,7 @@ done < "$ACLS"
 
 acl() {
   # shellcheck disable=SC2068
-  "$BIN/kafka-acls.sh" --bootstrap-server "$BOOTSTRAP" --command-config "$ADMIN_CONFIG" --add $@ > /dev/null
+  retrying "acl" "$BIN/kafka-acls.sh" --bootstrap-server "$BOOTSTRAP" --command-config "$ADMIN_CONFIG" --add $@
 }
 
 for type in LITERAL PREFIXED; do
