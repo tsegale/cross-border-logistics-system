@@ -5,6 +5,7 @@ import ch.qos.logback.core.BasicStatusManager;
 import ch.qos.logback.core.status.ErrorStatus;
 import ch.qos.logback.core.status.InfoStatus;
 import ch.qos.logback.core.status.StatusManager;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.mockito.Mockito;
@@ -21,6 +22,15 @@ class LogbackErrorsTest {
 
     private final StatusManager statuses = ((LoggerContext) LoggerFactory.getILoggerFactory()).getStatusManager();
     private final ExtensionContext context = Mockito.mock(ExtensionContext.class);
+
+    /**
+     * Spring Boot reads logback's status list when it configures logging for a new application context, and refuses
+     * to start on an error there: the next test's context would fail on the error put there on purpose.
+     */
+    @AfterEach
+    void forgetTheStatusesPutThereOnPurpose() {
+        statuses.clear();
+    }
 
     @Test
     void anAppenderErrorFailsTheTest() {
