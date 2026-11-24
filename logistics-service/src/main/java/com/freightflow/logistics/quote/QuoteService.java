@@ -1,5 +1,11 @@
 package com.freightflow.logistics.quote;
 
+import com.freightflow.logistics.customs.CustomsEstimator;
+import com.freightflow.logistics.customs.CustomsQuoting;
+import com.freightflow.logistics.customs.CustomsTariffs;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.EnumSet;
 import com.freightflow.logistics.security.Caller;
 import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.config.LogisticsProperties;
@@ -32,6 +38,7 @@ public class QuoteService {
     private final QuotePackageRepository quotePackages;
     private final LogisticsProperties properties;
     private final IndicativePricing indicativePricing;
+    private final CustomsQuoting customs;
     private final Clock clock;
 
     public QuoteService(
@@ -41,7 +48,9 @@ public class QuoteService {
             QuotePackageRepository quotePackages,
             LogisticsProperties properties,
             IndicativePricing indicativePricing,
+            CustomsQuoting customs,
             Clock clock) {
+        this.customs = customs;
         this.locations = locations;
         this.tariffs = tariffs;
         this.quotes = quotes;
@@ -112,6 +121,17 @@ public class QuoteService {
         Instant now = clock.instant();
         Instant validUntil = now.plus(properties.quoteValidity());
 
+        // Duties and import VAT for the declared goods (ADR 0035). Customs counts the whole move's freight, whoever
+        // pays it, and the goods are expected at customs after the longest transit.
+        CustomsQuoting.Quoted customsEstimate = null;
+        if (request.goods() != null && !request.goods().isEmpty()) {
+            LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
+            FreightPricing.Charges wholeMove = FreightPricing.price(FreightPricing.TariffRates.of(tariff),
+                    calc.chargeableUnits(), EnumSet.allOf(ChargeLeg.class));
+            customsEstimate = customs.estimate(destination.getCountryCode(), request.goods(), wholeMove,
+                    quoteCurrency, today, today.plusDays(tariff.getTransitDaysMax()));
+        }
+
         FreightQuote savedQuote = quotes.save(FreightQuote.create(
                 origin.getUnlocode(),
                 destination.getUnlocode(),
@@ -141,7 +161,13 @@ public class QuoteService {
                 tariff.getTransitDaysMax(),
                 validUntil,
                 now
-        ).ownedBy(caller.isCustomer() ? caller.requireOrganization() : null).withIndicative(shownCurrency, indicative));
+        ).ownedBy(caller.isCustomer() ? caller.requireOrganization() : null).withIndicative(shownCurrency, indicative)
+                .withCustoms(customsEstimate == null ? null : customsSummary(customsEstimate, incoterm, payerRole,
+                        quoteCurrency)));
+        if (customsEstimate != null) {
+            quotes.flush();
+            customs.save(savedQuote.getId(), customsEstimate.estimate());
+        }
 
         List<QuotePackage> savedPackages = new ArrayList<>(request.packages().size());
         for (int i = 0; i < request.packages().size(); i++) {
@@ -160,7 +186,7 @@ public class QuoteService {
         quotes.flush();
         quotePackages.flush();
 
-        return QuoteResponse.from(savedQuote, savedPackages);
+        return QuoteResponse.from(savedQuote, savedPackages, customsView(savedQuote));
     }
 
     @Transactional(readOnly = true)
@@ -169,6 +195,28 @@ public class QuoteService {
                 .filter(found -> caller.mayAccess(found.getOwnerOrganizationId()))
                 .orElseThrow(() -> new QuoteNotFoundException(id));
         List<QuotePackage> pkgs = quotePackages.findByQuoteIdOrderByLineNumberAsc(id);
-        return QuoteResponse.from(quote, pkgs);
+        return QuoteResponse.from(quote, pkgs, customsView(quote));
+    }
+
+    /**
+     * Collected with the freight only when the quoting party owes them and they are in the freight currency: one
+     * hold, one capture split into revenue and disbursement (ADR 0036).
+     */
+    private static FreightQuote.CustomsSummary customsSummary(CustomsQuoting.Quoted quoted, Incoterm incoterm,
+                                                              PayerRole payerRole, String quoteCurrency) {
+        CustomsEstimator.Estimate estimate = quoted.estimate();
+        PayerRole dutiesPaidBy = incoterm.importDutiesPaidBy();
+        boolean collected = dutiesPaidBy == payerRole && estimate.currency().equals(quoteCurrency);
+        return new FreightQuote.CustomsSummary(estimate.market().name(), quoted.source().id(), estimate.currency(),
+                estimate.duties(), estimate.importVat(), dutiesPaidBy, collected);
+    }
+
+    private QuoteResponse.CustomsDto customsView(FreightQuote quote) {
+        if (quote.getCustomsMarket() == null) {
+            return null;
+        }
+        CustomsTariffs.Source source = customs.source(quote.getCustomsTariffSourceId())
+                .orElseThrow(() -> new IllegalStateException("Tariff source of quote " + quote.getId() + " vanished"));
+        return QuoteResponse.CustomsDto.of(quote, source, customs.lines(quote.getId()));
     }
 }

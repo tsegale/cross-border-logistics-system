@@ -1,5 +1,6 @@
 package com.freightflow.logistics.quote.dto;
 
+import com.freightflow.logistics.customs.dto.GoodsLineRequest;
 import com.freightflow.logistics.quote.Incoterm;
 import com.freightflow.logistics.quote.PayerRole;
 import com.freightflow.logistics.quote.TransportMode;
@@ -34,6 +35,15 @@ public record CreateQuoteRequest(
         @Schema(description = "Optional currency to show an indicative total in, using banking-service's rates. "
                 + "The quote itself is always priced in the tariff currency.", example = "NAD", nullable = true)
         @Size(min = 3, max = 3, message = "indicativeCurrency must be a 3-letter ISO 4217 code")
-        String indicativeCurrency
+        String indicativeCurrency,
+
+        @Schema(description = "The goods, for an estimate of duties and import VAT into Germany or Namibia "
+                + "(ADR 0035). Optional: without them the quote is freight only.", nullable = true)
+        @Size(max = 50, message = "goods must have at most 50 lines")
+        List<@Valid GoodsLineRequest> goods
 ) {
+    public CreateQuoteRequest(String origin, String destination, TransportMode mode, Incoterm incoterm,
+                              PayerRole payerRole, List<PackageSpecDto> packages, String indicativeCurrency) {
+        this(origin, destination, mode, incoterm, payerRole, packages, indicativeCurrency, null);
+    }
 }

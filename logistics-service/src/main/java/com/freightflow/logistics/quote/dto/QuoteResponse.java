@@ -1,5 +1,9 @@
 package com.freightflow.logistics.quote.dto;
 
+import com.freightflow.logistics.customs.CustomsQuoting;
+import com.freightflow.logistics.customs.CustomsTariffs;
+import io.swagger.v3.oas.annotations.media.Schema;
+import java.time.LocalDate;
 import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.quote.BillingUnit;
 import com.freightflow.logistics.quote.ChargeLeg;
@@ -43,6 +47,12 @@ public record QuoteResponse(
         List<QuoteLineItemDto> lineItems,
         List<String> notes,
         IncotermAllocationDto incotermAllocation,
+        @Schema(description = "Estimated duties and import VAT for the declared goods (ADR 0035), shown apart from "
+                + "the freight; null without goods", nullable = true)
+        CustomsDto customs,
+        @Schema(description = "What a booking authorises: the freight total plus the customs estimate when "
+                + "FreightFlow collects it")
+        BigDecimal amountDueOnBooking,
         int transitDaysMin,
         int transitDaysMax,
         Instant validUntil,
@@ -86,13 +96,70 @@ public record QuoteResponse(
             "Import duties and taxes are not part of this quote. Under DDP they are paid to customs on the "
                     + "shipper's behalf and billed at cost as a disbursement.";
 
+    public static final String DUTIES_COLLECTED =
+            "The estimated duties and import VAT are collected with the freight and held for customs as a "
+                    + "disbursement: they are not part of the freight charge.";
+    public static final String DUTIES_NOT_COLLECTED =
+            "The estimated duties and import VAT are shown for information: their payer settles them with customs, "
+                    + "or they are in another currency than the freight.";
+
     public static final String INDICATIVE_ONLY =
             "The indicative total is for information only. You are charged in the quote currency; the exchange "
                     + "rate is fixed by banking-service when the payment is authorised.";
     public static final String INDICATIVE_UNAVAILABLE =
             "An indicative total in the requested currency is unavailable right now; the quote itself is valid.";
 
+    @Schema(description = "An estimate, not an assessment: customs assesses the real amount at import")
+    public record CustomsDto(
+            @Schema(example = "EU") String market,
+            @Schema(example = "Estimate. Customs assesses the duties and import VAT at import; any difference is "
+                    + "charged or refunded.") String label,
+            String currency,
+            BigDecimal estimatedDuties,
+            BigDecimal estimatedImportVat,
+            BigDecimal estimatedTotal,
+            @Schema(description = "Who owes them: the shipper under DDP, the consignee otherwise") PayerRole paidBy,
+            @Schema(description = "Whether the booking holds them with the freight; otherwise the payer settles them "
+                    + "with customs directly") boolean collectedWithFreight,
+            String tariffSource,
+            LocalDate tariffDate,
+            LocalDate tariffReviewBy,
+            List<GoodsLineDto> lines
+    ) {
+        public static final String LABEL = "Estimate. Customs assesses the duties and import VAT at import; any "
+                + "difference from what was collected is charged or refunded.";
+
+        public static CustomsDto of(FreightQuote quote, CustomsTariffs.Source source,
+                                    List<CustomsQuoting.StoredLine> lines) {
+            String ccy = quote.getCustomsCurrency();
+            BigDecimal duties = MoneyRounding.roundToMinorUnits(quote.getEstimatedDuties(), ccy);
+            BigDecimal vat = MoneyRounding.roundToMinorUnits(quote.getEstimatedImportVat(), ccy);
+            return new CustomsDto(quote.getCustomsMarket(), LABEL, ccy, duties, vat, duties.add(vat),
+                    quote.getDutiesPaidBy(), Boolean.TRUE.equals(quote.getDutiesCollected()), source.name(),
+                    source.referenceDate(), source.reviewBy(), lines.stream().map(line -> new GoodsLineDto(
+                            line.lineNumber(), line.hsCode(), line.description(), line.originCountry(),
+                            line.netWeightKg(), line.declaredValue(), line.declaredCurrency(), line.originProofType(),
+                            MoneyRounding.roundToMinorUnits(line.customsValue(), ccy), line.preferenceApplied(),
+                            line.preferenceNote(), line.dutyRateText(), MoneyRounding.roundToMinorUnits(line.duty(), ccy),
+                            MoneyRounding.roundToMinorUnits(line.vatBase(), ccy), line.vatPercent(),
+                            MoneyRounding.roundToMinorUnits(line.importVat(), ccy))).toList());
+        }
+    }
+
+    public record GoodsLineDto(int line, String hsCode, String description, String originCountry,
+                               BigDecimal netWeightKg, BigDecimal declaredValue, String declaredCurrency,
+                               @Schema(nullable = true) String originProof,
+                               @Schema(description = "CIF at the EU border into Germany, FOB into Namibia")
+                               BigDecimal customsValue,
+                               boolean preferenceApplied, String preferenceNote, String dutyRate, BigDecimal duty,
+                               BigDecimal vatBase, BigDecimal vatPercent, BigDecimal importVat) {
+    }
+
     public static QuoteResponse from(FreightQuote quote, List<QuotePackage> packages) {
+        return from(quote, packages, null);
+    }
+
+    public static QuoteResponse from(FreightQuote quote, List<QuotePackage> packages, CustomsDto customs) {
         String ccy = quote.getCurrency();
         Incoterm incoterm = quote.getIncoterm();
         Set<ChargeLeg> legs = incoterm.billableLegs(quote.getPayerRole());
@@ -144,7 +211,12 @@ public record QuoteResponse(
                 incoterm.importDutiesPaidBy()
         );
         List<String> notes = new ArrayList<>();
-        notes.add(incoterm.importDutiesPaidBy() == PayerRole.SHIPPER ? DUTIES_AS_DISBURSEMENT : DUTIES_EXCLUDED);
+        if (customs == null) {
+            notes.add(incoterm.importDutiesPaidBy() == PayerRole.SHIPPER ? DUTIES_AS_DISBURSEMENT : DUTIES_EXCLUDED);
+        } else {
+            notes.add(CustomsDto.LABEL);
+            notes.add(customs.collectedWithFreight() ? DUTIES_COLLECTED : DUTIES_NOT_COLLECTED);
+        }
         IndicativeDto indicative = null;
         if (quote.getIndicativeCurrency() != null && quote.getIndicativeTotalAmount() != null) {
             indicative = new IndicativeDto(
@@ -185,6 +257,8 @@ public record QuoteResponse(
                 List.copyOf(items),
                 List.copyOf(notes),
                 allocation,
+                customs,
+                customs != null && customs.collectedWithFreight() ? total.add(customs.estimatedTotal()) : total,
                 quote.getTransitDaysMin(),
                 quote.getTransitDaysMax(),
                 quote.getValidUntil(),

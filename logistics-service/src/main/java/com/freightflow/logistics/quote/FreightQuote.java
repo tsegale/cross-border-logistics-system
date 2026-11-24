@@ -130,7 +130,86 @@ public class FreightQuote {
     @Column(name = "owner_organization_id", updatable = false)
     private UUID ownerOrganizationId;
 
+    /** The estimate of duties and import VAT for the declared goods (ADR 0035); all null without goods. */
+    @Column(name = "customs_market", length = 8, updatable = false)
+    private String customsMarket;
+
+    @Column(name = "customs_tariff_source_id", updatable = false)
+    private UUID customsTariffSourceId;
+
+    @Column(name = "customs_currency", length = 3, updatable = false)
+    private String customsCurrency;
+
+    @Column(name = "estimated_duties", precision = 19, scale = 4, updatable = false)
+    private BigDecimal estimatedDuties;
+
+    @Column(name = "estimated_import_vat", precision = 19, scale = 4, updatable = false)
+    private BigDecimal estimatedImportVat;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "duties_paid_by", length = 16, updatable = false)
+    private PayerRole dutiesPaidBy;
+
+    /** Whether the booking holds them with the freight: the quoting party pays them, in the freight currency. */
+    @Column(name = "duties_collected", updatable = false)
+    private Boolean dutiesCollected;
+
     protected FreightQuote() {
+    }
+
+    /** The customs estimate as the quote keeps it (ADR 0035); set before the quote is first saved. */
+    public record CustomsSummary(String market, UUID tariffSourceId, String currency, BigDecimal duties,
+                                 BigDecimal importVat, PayerRole paidBy, boolean collected) {
+    }
+
+    /** Without goods ({@code null}) the quote has no customs estimate. */
+    public FreightQuote withCustoms(CustomsSummary customs) {
+        if (customs == null) {
+            return this;
+        }
+        this.customsMarket = Objects.requireNonNull(customs.market(), "market");
+        this.customsTariffSourceId = Objects.requireNonNull(customs.tariffSourceId(), "tariffSourceId");
+        this.customsCurrency = Objects.requireNonNull(customs.currency(), "currency");
+        this.estimatedDuties = MoneyRounding.toStorageScale(customs.duties());
+        this.estimatedImportVat = MoneyRounding.toStorageScale(customs.importVat());
+        this.dutiesPaidBy = Objects.requireNonNull(customs.paidBy(), "paidBy");
+        this.dutiesCollected = customs.collected();
+        return this;
+    }
+
+    /** What a booking holds for customs on top of the freight: the estimate if collected, else zero. */
+    public BigDecimal collectedCustomsEstimate() {
+        return Boolean.TRUE.equals(dutiesCollected)
+                ? estimatedDuties.add(estimatedImportVat)
+                : MoneyRounding.toStorageScale(BigDecimal.ZERO);
+    }
+
+    public String getCustomsMarket() {
+        return customsMarket;
+    }
+
+    public UUID getCustomsTariffSourceId() {
+        return customsTariffSourceId;
+    }
+
+    public String getCustomsCurrency() {
+        return customsCurrency;
+    }
+
+    public BigDecimal getEstimatedDuties() {
+        return estimatedDuties;
+    }
+
+    public BigDecimal getEstimatedImportVat() {
+        return estimatedImportVat;
+    }
+
+    public PayerRole getDutiesPaidBy() {
+        return dutiesPaidBy;
+    }
+
+    public Boolean getDutiesCollected() {
+        return dutiesCollected;
     }
 
     /** Sets the owner; must be called before the quote is saved. */

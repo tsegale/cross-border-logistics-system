@@ -6,6 +6,7 @@ import com.freightflow.logistics.deadletter.DeadLetterExceptions.RedriveFailedEx
 import com.freightflow.logistics.idempotency.IdempotencyKeyInFlightException;
 import com.freightflow.logistics.idempotency.IdempotencyPayloadMismatchException;
 import com.freightflow.logistics.idempotency.MissingIdempotencyKeyException;
+import com.freightflow.logistics.customs.CustomsExceptions;
 import com.freightflow.logistics.location.UnknownLocationException;
 import com.freightflow.logistics.payment.PaymentCommandController;
 import com.freightflow.logistics.quote.InvalidRouteException;
@@ -90,6 +91,66 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 "Request body could not be parsed or contains an invalid enum value"
         );
         return handleExceptionInternal(ex, problem, headers, HttpStatus.BAD_REQUEST, request);
+    }
+
+    @ExceptionHandler(CustomsExceptions.CustomsMarketUnsupportedException.class)
+    public ProblemDetail handleCustomsMarketUnsupported(CustomsExceptions.CustomsMarketUnsupportedException ex) {
+        ProblemDetail problem = problem(HttpStatus.UNPROCESSABLE_CONTENT, "customs-market-unsupported",
+                "Duties are not estimated for this destination", ex.getMessage());
+        problem.setProperty("country", ex.getCountry());
+        return problem;
+    }
+
+    @ExceptionHandler(CustomsExceptions.InvalidHsCodeException.class)
+    public ProblemDetail handleInvalidHsCode(CustomsExceptions.InvalidHsCodeException ex) {
+        ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "invalid-hs-code", "Invalid tariff code",
+                ex.getMessage());
+        problem.setProperty("line", ex.getLine());
+        problem.setProperty("hsCode", ex.getHsCode());
+        return problem;
+    }
+
+    @ExceptionHandler(CustomsExceptions.UnknownTariffCodeException.class)
+    public ProblemDetail handleUnknownTariffCode(CustomsExceptions.UnknownTariffCodeException ex) {
+        ProblemDetail problem = problem(HttpStatus.UNPROCESSABLE_CONTENT, "unknown-tariff-code",
+                "Tariff code not in the loaded tariff", ex.getMessage());
+        problem.setProperty("hsCode", ex.getHsCode());
+        problem.setProperty("market", ex.getMarket());
+        problem.setProperty("tariffDate", ex.getTariffDate());
+        return problem;
+    }
+
+    @ExceptionHandler(CustomsExceptions.CustomsConversionUnavailableException.class)
+    public ProblemDetail handleCustomsConversionUnavailable(CustomsExceptions.CustomsConversionUnavailableException ex) {
+        ProblemDetail problem = problem(HttpStatus.SERVICE_UNAVAILABLE, "customs-conversion-unavailable",
+                "Exchange rate for the customs estimate unavailable", ex.getMessage());
+        problem.setProperty("from", ex.getFrom());
+        problem.setProperty("to", ex.getTo());
+        return problem;
+    }
+
+    @ExceptionHandler(CustomsExceptions.CustomsAssessmentNotFoundException.class)
+    public ProblemDetail handleCustomsAssessmentNotFound(CustomsExceptions.CustomsAssessmentNotFoundException ex) {
+        ProblemDetail problem = problem(HttpStatus.NOT_FOUND, "customs-assessment-not-found",
+                "Customs assessment not found", ex.getMessage());
+        problem.setProperty("shipmentId", ex.getShipmentId());
+        return problem;
+    }
+
+    @ExceptionHandler(CustomsExceptions.CustomsAssessmentConflictException.class)
+    public ProblemDetail handleCustomsAssessmentConflict(CustomsExceptions.CustomsAssessmentConflictException ex) {
+        ProblemDetail problem = problem(HttpStatus.CONFLICT, "customs-assessment-conflict",
+                "Customs assessment not possible now", ex.getMessage());
+        problem.setProperty("shipmentId", ex.getShipmentId());
+        return problem;
+    }
+
+    @ExceptionHandler(CustomsExceptions.CustomsFourEyesException.class)
+    public ProblemDetail handleCustomsFourEyes(CustomsExceptions.CustomsFourEyesException ex) {
+        ProblemDetail problem = problem(HttpStatus.FORBIDDEN, "four-eyes-required", "A second operator must decide",
+                ex.getMessage());
+        problem.setProperty("shipmentId", ex.getShipmentId());
+        return problem;
     }
 
     @ExceptionHandler(UnknownLocationException.class)

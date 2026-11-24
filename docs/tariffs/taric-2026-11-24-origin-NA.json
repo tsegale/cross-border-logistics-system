@@ -1,0 +1,164 @@
+{
+  "source": "EU TARIC consultation, https://ec.europa.eu/taxation_customs/dds2/taric/",
+  "referenceDate": "2026-11-24",
+  "origin": "NA",
+  "codes": [
+    {
+      "code": "0304741100",
+      "description": [
+        "Fish fillets and other fish meat (whether or not minced), fresh, chilled or frozen",
+        "Hake (Merluccius spp., Urophycis spp.)",
+        "Hake of the genus Merluccius",
+        "Cape hake (shallow-water hake) (Merluccius capensis) and deepwater hake (deepwater Cape hake) (Merluccius paradoxus)"
+      ],
+      "thirdCountryDuty": {
+        "from": "01-01-2012",
+        "to": null,
+        "rate": "7.50 %",
+        "legalBase": "R1006/11"
+      },
+      "tariffPreference": {
+        "from": "10-10-2016",
+        "to": null,
+        "rate": "0 %",
+        "legalBase": "D1623/16"
+      },
+      "sadcEpa": true,
+      "measures": [
+        "Additional Code: Calculate Calculate Find additional code from composition Find additional code from composition ERGA OMNES (ERGA OMNES 1011)",
+        "Import control of organic products (01-01-2022 - ) (CD808) 1 R2123060 R2306/21 Excluding: Switzerland (CH) , Iceland (IS) , Liechtenstein (LI) , Norway (NO) [Show conditions] [Hide conditions] true",
+        "Third country duty (01-01-2012 - ) : 7.50 % 4 R1110060 R1006/11",
+        "Low-value consignment customs duty (01-11-2026 - ) : 3.00 EUR (TM01066) 1 R2603820 R0382/26 [Show conditions] [Hide conditions] true",
+        "Union handling fee (01-11-2026 - ) : 2.00 EUR (TM01086) 1 R2621080 R2108/26 [Show conditions] [Hide conditions] true All third countries (ALLTC 1008)",
+        "Veterinary control (01-08-2024 - ) (CD624) (CD686) (CD737) 1 R2106320 R0632/21 Excluding: Andorra (AD) , Switzerland (CH) , Faroe Islands (FO) , Greenland (GL) , Iceland (IS) , Liechtenstein (LI) , Norway (NO) , San Marino (SM) [Show conditions] [Hide conditions] true SADC EPA (SADC EPA 1035)",
+        "Tariff preference (10-10-2016 - ) : 0 % 1 D1616231 D1623/16 ERGA OMNES (ERGA OMNES 1011)",
+        "Control on illegal, unreported and unregulated fishing (10-01-2026 - ) (CD590) 1 R0810050 R1005/08 Excluding: Cameroon (CM) , Cambodia (KH) , Comoros (excluding Mayotte) (KM) , Trinidad and Tobago (TT) , St Vincent and the Grenadines (VC) [Show conditions] [Hide conditions] true"
+      ]
+    },
+    {
+      "code": "0804100091",
+      "description": [
+        "Dates, figs, pineapples, avocados, guavas, mangoes and mangosteens, fresh or dried",
+        "Dates",
+        "Other",
+        "In immediate containers of a net capacity not exceeding 35 kg"
+      ],
+      "thirdCountryDuty": {
+        "from": "01-07-2000",
+        "to": null,
+        "rate": "7.70 %",
+        "legalBase": "R2204/99"
+      },
+      "tariffPreference": {
+        "from": "10-10-2016",
+        "to": null,
+        "rate": "0 %",
+        "legalBase": "D1623/16"
+      },
+      "sadcEpa": true,
+      "measures": [
+        "Additional Code: Calculate Calculate Find additional code from composition Find additional code from composition ERGA OMNES (ERGA OMNES 1011)",
+        "Import control of organic products (01-01-2022 - ) (CD808) 1 R2123060 R2306/21 Excluding: Switzerland (CH) , Iceland (IS) , Liechtenstein (LI) , Norway (NO) [Show conditions] [Hide conditions] true",
+        "Third country duty (01-07-2000 - ) : 7.70 % 4 R9922040 R2204/99",
+        "Low-value consignment customs duty (01-11-2026 - ) : 3.00 EUR (TM01066) 1 R2603820 R0382/26 [Show conditions] [Hide conditions] true",
+        "Additional duties (20-07-2025 - ) (TM01026) 1 R2512270 R1227/25 Excluding: Belarus (BY) , Russian Federation (RU) [Show conditions] [Hide conditions] true",
+        "Union handling fee (01-11-2026 - ) : 2.00 EUR (TM01086) 1 R2621080 R2108/26 [Show conditions] [Hide conditions] true SADC EPA (SADC EPA 1035)",
+        "Tariff preference (10-10-2016 - ) : 0 % 1 D1616231 D1623/16"
+      ]
+    },
+    {
+      "code": "0804100099",
+      "description": [
+        "Dates, figs, pineapples, avocados, guavas, mangoes and mangosteens, fresh or dried",
+        "Dates",
+        "Other"
+      ],
+      "thirdCountryDuty": {
+        "from": "01-07-2000",
+        "to": null,
+        "rate": "7.70 %",
+        "legalBase": "R2204/99"
+      },
+      "tariffPreference": {
+        "from": "10-10-2016",
+        "to": null,
+        "rate": "0 %",
+        "legalBase": "D1623/16"
+      },
+      "sadcEpa": true,
+      "measures": [
+        "Additional Code: Calculate Calculate Find additional code from composition Find additional code from composition ERGA OMNES (ERGA OMNES 1011)",
+        "Import control of organic products (01-01-2022 - ) (CD808) 1 R2123060 R2306/21 Excluding: Switzerland (CH) , Iceland (IS) , Liechtenstein (LI) , Norway (NO) [Show conditions] [Hide conditions] true",
+        "Third country duty (01-07-2000 - ) : 7.70 % 4 R9922040 R2204/99",
+        "Low-value consignment customs duty (01-11-2026 - ) : 3.00 EUR (TM01066) 1 R2603820 R0382/26 [Show conditions] [Hide conditions] true",
+        "Additional duties (20-07-2025 - ) (TM01026) 1 R2512270 R1227/25 Excluding: Belarus (BY) , Russian Federation (RU) [Show conditions] [Hide conditions] true",
+        "Union handling fee (01-11-2026 - ) : 2.00 EUR (TM01086) 1 R2621080 R2108/26 [Show conditions] [Hide conditions] true SADC EPA (SADC EPA 1035)",
+        "Tariff preference (10-10-2016 - ) : 0 % 1 D1616231 D1623/16"
+      ]
+    },
+    {
+      "code": "4402900090",
+      "description": [
+        "Wood charcoal (including shell or nut charcoal), whether or not agglomerated",
+        "Other",
+        "Other"
+      ],
+      "thirdCountryDuty": {
+        "from": "01-01-2005",
+        "to": null,
+        "rate": "0 %",
+        "legalBase": "R2658/87"
+      },
+      "tariffPreference": {
+        "from": "10-10-2016",
+        "to": null,
+        "rate": "0 %",
+        "legalBase": "D1623/16"
+      },
+      "sadcEpa": true,
+      "measures": [
+        "Additional Code: Calculate Calculate Find additional code from composition Find additional code from composition ERGA OMNES (ERGA OMNES 1011)",
+        "Third country duty (01-01-2005 - ) : 0 % 1 R8726580 R2658/87",
+        "Low-value consignment customs duty (01-11-2026 - ) : 3.00 EUR (TM01066) 1 R2603820 R0382/26 [Show conditions] [Hide conditions] true",
+        "Union handling fee (01-11-2026 - ) : 2.00 EUR (TM01086) 1 R2621080 R2108/26 [Show conditions] [Hide conditions] true SADC EPA (SADC EPA 1035)",
+        "Tariff preference (10-10-2016 - ) : 0 % 1 D1616231 D1623/16 All third countries (ALLTC 1008)",
+        "Restriction on export (01-01-2007 - ) (TM571) 1 R0312100 R1210/03 Additional Code 4056: Articles of wood, between 50 and 100 years old, other than those covered by the additional codes 4008, 4010, 4011, 4013, 4023, 4040 - 4048",
+        "Restriction on export (01-01-2007 - ) 1 R0312100 R1210/03 Additional Code 4099: Other than those mentioned in Regulation (EC) no 1210/2003 (OJ L 169): no restrictions",
+        "Export authorization (15-12-2013 - ) (CD589) 4 R1313320 R1332/13 [Show conditions] [Hide conditions] true"
+      ]
+    },
+    {
+      "code": "0201300090",
+      "description": [
+        "Meat of bovine animals, fresh or chilled",
+        "Boneless",
+        "Other"
+      ],
+      "thirdCountryDuty": {
+        "from": "01-07-2000",
+        "to": null,
+        "rate": "12.80 % + 303.40 EUR / 100 kg",
+        "legalBase": "R2204/99"
+      },
+      "tariffPreference": {
+        "from": "06-11-2016",
+        "to": null,
+        "rate": "0 %",
+        "legalBase": "D1623/16"
+      },
+      "sadcEpa": true,
+      "measures": [
+        "Additional Code: Calculate Calculate Find additional code from composition Find additional code from composition ERGA OMNES (ERGA OMNES 1011)",
+        "Import control of organic products (01-01-2022 - ) (CD808) 1 R2123060 R2306/21 Excluding: Switzerland (CH) , Iceland (IS) , Liechtenstein (LI) , Norway (NO) [Show conditions] [Hide conditions] true",
+        "Third country duty (01-07-2000 - ) : 12.80 % + 303.40 EUR / 100 kg 4 R9922040 R2204/99",
+        "Low-value consignment customs duty (01-11-2026 - ) : 3.00 EUR (TM01066) 1 R2603820 R0382/26 [Show conditions] [Hide conditions] true",
+        "Additional duties (20-07-2025 - ) (TM01026) 1 R2512270 R1227/25 Excluding: Belarus (BY) , Russian Federation (RU) [Show conditions] [Hide conditions] true",
+        "Union handling fee (01-11-2026 - ) : 2.00 EUR (TM01086) 1 R2621080 R2108/26 [Show conditions] [Hide conditions] true All third countries (ALLTC 1008)",
+        "Veterinary control (01-08-2024 - ) (CD624) (CD737) 1 R2106320 R0632/21 Excluding: Andorra (AD) , Switzerland (CH) , Faroe Islands (FO) , Greenland (GL) , Iceland (IS) , Liechtenstein (LI) , Norway (NO) , San Marino (SM) [Show conditions] [Hide conditions] true SADC EPA (SADC EPA 1035)",
+        "Tariff preference (06-11-2016 - ) : 0 % 1 D1616231 D1623/16 All third countries (ALLTC 1008)",
+        "Export control -",
+        "CITES (20-05-2023 - ) (CD371) 4 R2309660 R0966/23 [Show conditions] [Hide conditions] true"
+      ]
+    }
+  ]
+}
