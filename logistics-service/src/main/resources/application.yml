@@ -111,6 +111,8 @@ freightflow:
     rounds: 3
     request-timeout: 5s
     timeout: 60s
+    # Banking and Keycloak first, up to this, before the 60 s above start (a cold start of the whole stack).
+    dependency-timeout: ${WARM_UP_DEPENDENCY_TIMEOUT:4m}
     paths:
       - "/api/v1/shipments"
       - "/api/v1/quotes"

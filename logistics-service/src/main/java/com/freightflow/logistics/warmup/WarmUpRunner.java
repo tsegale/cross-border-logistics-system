@@ -135,12 +135,16 @@ public class WarmUpRunner implements ApplicationRunner {
         }
         ReadinessState readiness = availability.getReadinessState();
         long started = System.nanoTime();
-        long deadline = started + properties.timeout().toNanos();
         AtomicInteger steps = new AtomicInteger();
         AtomicInteger failed = new AtomicInteger();
 
+        // First wait for what the warm-up needs, up to its own deadline: banking, and through logistics' token for
+        // it, Keycloak. On a cold start of the whole stack both can take minutes, and that wait must not use up the
+        // warm-up's own budget, which starts only once they answer.
+        step("banking", steps, failed,
+                () -> untilBankingAnswers(started + properties.dependencyTimeout().toNanos()));
         step("signing keys", steps, failed, this::fetchSigningKeys);
-        step("banking", steps, failed, () -> untilBankingAnswers(deadline));
+        long deadline = System.nanoTime() + properties.timeout().toNanos();
         RestClient self = selfClient();
         for (int round = 0; round < properties.rounds(); round++) {
             if (System.nanoTime() > deadline) {
