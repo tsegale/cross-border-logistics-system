@@ -1,3 +1,7 @@
 # False positive: Keycloak's JDBC URL (jdbc:postgresql://keycloak-db:5432/keycloak) matched generic-api-key because
 # the host name contains "key". It holds no credential; the file now uses KC_DB_URL_HOST instead.
 c2bec53ac833d2558b350ca212ebc946e600d5cf:docker-compose.yml:generic-api-key:72
+
+# Test fixture, not a credential: the DCSA webhook tests sign with a fixed HMAC key, base64 of the ASCII digits
+# "12345678901234567890123456789012". Only tests use it; compose and CI generate dcsa_carrier_secret.
+8865507a5c4e9b743f382b81b9fc8d68025dd24e:logistics-service/src/test/java/com/freightflow/logistics/dcsa/DcsaTestEvents.java:generic-api-key:13
