@@ -1,34 +1,52 @@
 package com.freightflow.banking.support;
 
 import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.core.BasicStatusManager;
 import ch.qos.logback.core.status.ErrorStatus;
+import ch.qos.logback.core.status.InfoStatus;
+import ch.qos.logback.core.status.StatusManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.mockito.Mockito;
 import org.slf4j.LoggerFactory;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 
-/** The check itself: an error logback reports during a test fails that test. */
+/**
+ * The check itself: an error logback reports fails the test. Each test drains the error it put there on purpose
+ * through the extension, so the extension around the test finds nothing left to report.
+ */
 class LogbackErrorsTest {
+
+    private final StatusManager statuses = ((LoggerContext) LoggerFactory.getILoggerFactory()).getStatusManager();
+    private final ExtensionContext context = Mockito.mock(ExtensionContext.class);
 
     @Test
     void anAppenderErrorFailsTheTest() {
-        LoggerContext logback = (LoggerContext) LoggerFactory.getILoggerFactory();
-        ExtensionContext.Store store = Mockito.mock(ExtensionContext.Store.class);
-        ExtensionContext context = Mockito.mock(ExtensionContext.class);
-        Mockito.when(context.getStore(any())).thenReturn(store);
-        Mockito.when(store.get("seen", Integer.class))
-                .thenReturn(logback.getStatusManager().getCopyOfStatusList().size());
-        try {
-            logback.getStatusManager().add(new ErrorStatus("Duplicate nested pairs", this));
-            assertThatThrownBy(() -> new LogbackErrors().afterEach(context))
-                    .isInstanceOf(AssertionError.class)
-                    .hasMessageContaining("Duplicate nested pairs");
-        } finally {
-            // So the extension around this test does not report the error put there on purpose.
-            logback.getStatusManager().clear();
+        statuses.add(new ErrorStatus("Duplicate nested pairs", this));
+
+        assertThatThrownBy(() -> new LogbackErrors().afterEach(context))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("Duplicate nested pairs");
+    }
+
+    @Test
+    void anErrorFailsTheTestAfterLogbacksStatusListIsFull() {
+        // Logback keeps 300 statuses; past that, the list's size stops growing.
+        for (int i = 0; i <= BasicStatusManager.MAX_HEADER_COUNT + BasicStatusManager.TAIL_SIZE; i++) {
+            statuses.add(new InfoStatus("filler " + i, this));
         }
+        statuses.add(new ErrorStatus("Duplicate nested pairs", this));
+
+        assertThatThrownBy(() -> new LogbackErrors().afterEach(context))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("Duplicate nested pairs");
+    }
+
+    @Test
+    void theListenerStaysRegisteredWhenLogbackIsReconfigured() {
+        assertThat(statuses.getCopyOfStatusListenerList()).contains(LogbackErrors.listener());
+        assertThat(LogbackErrors.listener().isResetResistant()).isTrue();
     }
 }
