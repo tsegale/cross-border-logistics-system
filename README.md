@@ -7,7 +7,7 @@ settles through an internal double-entry ledger with accounts in `NAD`, `ZAR` an
 Java 21, Spring Boot 4.1, Spring Cloud Gateway, PostgreSQL 17, Kafka, Docker. Built in phases; each phase ships
 with tests, CI, architecture decision records and measured numbers.
 
-> **Status:** Phase 5 complete: every container has a measured memory limit and the default stack fits a 3.7 GiB Docker VM; one booking is one OpenTelemetry trace through the gateway, both outboxes, banking, Kafka and the email, checked in CI; SLOs with burn-rate alerts, runbooks and a fire drill. Phase 4: banking and logistics publish their changes as events through transactional outboxes, logistics heals holds banking expired, and notification-service emails customers in German or English, once per event. Phase 3 gave every request a Keycloak identity checked by the gateway and each service, object by object; Phase 2 paid for shipments through an authorise, capture and release saga; Phase 1 built the ledger, transfers and FX (`banking-service`) and quotes, shipments and tracking (`logistics-service`).
+> **Status:** Phase 6 (real-world data): FX is priced from the ECB's daily reference rates, with NAD under the CMA peg, a Bank of Namibia cross-check, a staleness rule and four-eyes quarantine. Quotes estimate duties and import VAT from dated TARIC and SACU subsets, with the EU-SADC EPA preference, and the ledger keeps them out of revenue. Carriers report container events in DCSA Track and Trace 2.2 through signed webhooks or polling, with a carrier simulator in compose. Phase 5 made the system observable; Phase 4 added events; Phase 3 identity; Phase 2 the payment saga; Phase 1 the ledger and shipments.
 
 ## Architecture
 
@@ -30,6 +30,63 @@ with tests, CI, architecture decision records and measured numbers.
                                         │            └──▶ logistics (hold.expired, hold.captured)
                                         ▼
                           notification-service :8083 ──SMTP──▶ Mailpit     (Phase 4; own Postgres)
+```
+
+## Phase 6: real-world data
+
+Three outside sources now feed money and shipments: the ECB's exchange rates, the EU's and SACU's tariffs, and the
+carriers' container events. Each is checked before it is trusted. No CI job calls any of them: tests use responses
+recorded from the real APIs, and compose runs a partner simulator. A weekly workflow checks that the real APIs still
+answer the way the recordings say (`live-apis.yml`).
+
+- **Exchange rates** (ADR 0034).
+  - The source is the ECB's daily EUR/ZAR reference rate. NAD is ZAR under the Common Monetary Area's 1:1 peg, and
+    the Bank of Namibia's own NAD per EUR checks that peg.
+  - Every rate is stored once and never overwritten, and every quote and hold records which rate priced it.
+  - More than 2 TARGET working days old, a rate refuses FX with `fx-rates-stale` rather than pricing on it.
+  - A move over 5 %, a peg breach or a closing-day date quarantines the rate until two operators confirm it.
+- **Duties and import VAT** (ADR 0035, ADR 0036).
+  - Quotes take goods lines with tariff codes and estimate the duties into Hamburg. The customs value is CIF, the
+    duty is the TARIC third-country rate or the EPA preference, and EUSt is 19 % or 7 %. Into Walvis Bay the value
+    is FOB, the duty is the SACU rate, and Namibian VAT is 15 % of FOB plus 10 %.
+  - The estimate is shown apart from the freight, labelled an estimate, with the tariff's date.
+  - When FreightFlow collects it, the booking's hold covers it. The capture splits freight revenue from a
+    `CUSTOMS_DISBURSEMENTS` liability in one entry. The assessment, recorded by one operator and confirmed by a
+    second, pays customs and charges or refunds the difference.
+- **Carrier tracking** (ADR 0037).
+  - DCSA T&T 2.2 notifications are verified by their HMAC-SHA256 Notification-Signature, refused when older than
+    24 h, deduplicated by eventID, answered at once and turned into milestones afterwards.
+  - Carriers that do not push are polled.
+  - Containers are ISO 6346 checked.
+
+### Worked example: Namibian hake into Hamburg, with and without the proof of origin
+
+12,000 kg of frozen Cape hake fillets (TARIC 0304 74 11 00), customs value EUR 48,000.00, shipped LCL from Walvis
+Bay under FCA. The consignee in Hamburg quotes, so it owes the freight and the duties. Measured by the smoke test on
+the laptop stack, 2026-11-24 (Intel Core i5-1135G7):
+
+| | With an approved exporter's origin declaration | Without a proof of origin |
+| --- | ---: | ---: |
+| Customs value, CIF Hamburg (goods plus freight to the border) | 48,449.75 | 48,449.75 |
+| Duty | 0.00 (EU-SADC EPA, D1623/16) | 3,633.73 (7.5 %, R1006/11) |
+| Import VAT, 7 % (Anlage 2 Nr. 3 UStG) | 3,401.28 | 3,655.64 |
+| Freight (the consignee's legs) | 524.75 | 524.75 |
+| **Held on booking** | **3,926.03** | **7,814.12** |
+
+All amounts are in EUR. The proof saves the duty and the VAT on it: EUR 3,888.09 on this consignment. The VAT base
+adds to the customs value the duty and EUR 139.96 of costs to the first destination (§ 11 Abs. 3 UStG). At pickup
+the capture credits FREIGHT_REVENUE with 524.75 and CUSTOMS_DISBURSEMENTS with the estimate. When customs assesses,
+two operators record and confirm the notice, and banking pays the assessed amount out of CUSTOMS_DISBURSEMENTS and
+settles the difference with the consignee.
+
+```bash
+curl -s http://127.0.0.1:8080/api/v1/quotes -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
+  "origin":"NAWVB","destination":"DEHAM","mode":"SEA_LCL","incoterm":"FCA","payerRole":"CONSIGNEE",
+  "packages":[{"lengthCm":120,"widthCm":100,"heightCm":150,"weightKg":500,"quantity":2}],
+  "goods":[{"hsCode":"0304741100","description":"Frozen Cape hake fillets","originCountry":"NA","quantity":1200,
+            "netWeightKg":12000,"customsValue":48000.00,"customsValueCurrency":"EUR",
+            "originProof":{"type":"ORIGIN_DECLARATION","reference":"INV-2026-0412","issuedOn":"2026-11-24",
+                           "approvedExporterNumber":"NA/AE/0042"}}]}' | jq .customs
 ```
 
 ## Phase 5: the system explains itself
@@ -527,8 +584,8 @@ Integration tests start their own PostgreSQL 17 in Testcontainers, so Docker mus
 | 2 | Settlement across services: holds, payment saga, resilient HTTP client, contract and fault-injection tests, edge policy | Done |
 | 3 | Security: Keycloak with organisations, token relay validated in every service, object-level authorisation, service-to-service credentials, caller-scoped idempotency, audit actors, threat model | Done |
 | 4 | Events: transactional outbox, Kafka with SCRAM and ACLs, JSON Schema contracts, notification service in German and English, retry and dead-letter topics, four-eyes approvals | Done |
-| 5 | Observability: OpenTelemetry traces, metrics and logs, Grafana dashboards, SLOs and alerts | Next |
-| 6 | Real-world data: live exchange rates, customs duties and Incoterms, carrier tracking feeds | Planned |
+| 5 | Observability: OpenTelemetry traces, metrics and logs, Grafana dashboards, SLOs and alerts | Done |
+| 6 | Real-world data: ECB reference rates, duties and import VAT with the EPA preference, DCSA carrier tracking | Done (UN/LOCODE pending) |
 | 7 | Hardening: load and chaos tests, TLS and mTLS, cloud deployment | Planned |
 
 ## Repository layout

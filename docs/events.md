@@ -137,3 +137,13 @@ The other examples are in each schema's `examples`.
 2. Run the producer's `EventContractIntegrationTest` and `EventSchemaFilesTest`, and each consumer's example test.
 3. CI's "Event schemas stay compatible" compares the schema with the one on `main`
    (`python3 scripts/check_event_schemas.py --base origin/main` locally).
+
+## Phase 6: no new event types
+
+Outside data reaches consumers through the events that already exist, so no consumer needed a change:
+- A customs settlement is a `journal-entry.posted` with `entryType` `CUSTOMS_SETTLEMENT` (schemaVersion 2, ADR 0036).
+- A capture that collected duties posts its disbursement part to `CUSTOMS_DISBURSEMENTS` in the same entry.
+- A confirmed reference rate is an `approval.decided` of kind `RATE_CONFIRMATION` (schemaVersion 2, ADR 0034).
+- A milestone from a DCSA event is an ordinary tracking event, `dcsa:<eventID>` its carrier event id, and is published
+  as `shipment.status-changed` like any other (ADR 0037). The DCSA payload stays in logistics' `dcsa_events` table
+  and is never published: the events carry no personal data (ADR 0024).

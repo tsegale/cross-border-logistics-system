@@ -1,4 +1,4 @@
-# Threat model (Phase 3; insider misuse and the broker added in Phase 4, telemetry in Phase 5)
+# Threat model (Phase 3; insider misuse and the broker added in Phase 4, telemetry in Phase 5, outside data in Phase 6)
 
 STRIDE per trust boundary. Every threat names the control that stops it and the test or check that proves the
 control works. "Residual" is what remains, and where it is addressed.
@@ -160,3 +160,25 @@ people than the databases. ADRs 0030 to 0033.
 Residual: a read-only Docker socket still lets the collector list and inspect every container on the host (their
 environment included); in Kubernetes the kubelet's metrics replace it. Tail sampling keeps 10 % of healthy traces in
 production, so an exemplar can point at a trace that was dropped.
+
+## 10. Outside data: exchange rates, tariffs and carrier events
+
+Phase 6 makes three outside sources inputs to money and to shipments: reference rates price FX, tariffs price duties,
+and carrier events move shipments and trigger captures. ADRs 0034 to 0037.
+
+| STRIDE | Threat | Control | Proof |
+| --- | --- | --- | --- |
+| Tampering | A poisoned or broken rate feed (a wrong ECB figure, a man in the middle, an altered table) prices quotes and holds | HTTPS to the ECB; every rate is checked against the confirmed one before it and against the Bank of Namibia's NAD per EUR. A move over 5 %, a peg breach over 2 %, a closing day, a future date or a first rate without a second source is quarantined, and only two operators release it (ADR 0021, ADR 0034) | `ReferenceRateServiceTest`, `ReferenceRateFlowIntegrationTest` |
+| Tampering | A stored rate is changed afterwards, to reprice history | Rates are never overwritten or deleted: a trigger refuses both; quotes and holds record the rate row they used | `ReferenceRateFlowIntegrationTest` (update and delete refused) |
+| Denial of service | The ECB stops answering, and FX quietly runs on an old rate | Past 2 TARGET working days FX is refused with `fx-rates-stale`, never priced; the refusal does not open logistics' breaker for other payments | `ReferenceRateServiceTest`, `FxRatesStaleBreakerIntegrationTest`; alert `FxReferenceRateStale` |
+| Tampering | A tampered tariff file or subset changes duties | Tariff data is a reviewed migration only, with its source, date, review date and evidence file (the fetched TARIC JSON; the SARS PDF's SHA-256); `scripts/check_live_apis.py` compares a sample to the live TARIC weekly | V13, `docs/tariffs/README.md`; alert `CustomsTariffReviewOverdue`; workflow `live-apis.yml` |
+| Spoofing | A forged carrier notification marks a shipment delivered or triggers a capture | Notifications are accepted only with the carrier's Subscription-ID and a Notification-Signature that is HMAC-SHA256 of the exact body with that subscription's secret (constant-time comparison); nothing is stored otherwise | `DcsaSignatureTest`, `DcsaTrackingIntegrationTest.aForgedOrForeignNotificationIsRefusedAndNothingIsStored`, gateway `aCarrierNotificationNeedsNoTokenAndReachesLogisticsUnchanged`; smoke test; alert `CarrierWebhookSignaturesFailing` |
+| Tampering | A captured genuine notification is replayed | Events created more than 24 h ago or in the future refuse the notification; within the window, each eventID is stored once, so a replay changes nothing | `DcsaTrackingIntegrationTest.aReplayedNotificationChangesNothingAndAStaleOneIsRefused` |
+| Elevation of privilege | A carrier's notifications move another carrier's shipments | An event is matched only to shipments assigned to that carrier, by their container, and recorded as that carrier, through the same object check as its own API calls (ADR 0018) | `DcsaEventProcessor.target`; logistics `AuthorisationMatrixTest` |
+| Denial of service | Flooding the public notification endpoint | The signature check runs before any database write; refusals are counted with bounded labels (unknown carriers share one); the gateway's body limit and timeouts apply | `DcsaWebhookController`; ADR 0037 |
+| Information disclosure | Personal data from carriers or customs reaches events or telemetry | DCSA events hold container and location codes, no parties; logs name carriers by whether they are known, never the path a caller typed; customs settlements carry amounts and references only | ADR 0024; `TelemetryLeaks` |
+
+Residual: the Bank of Namibia endpoint is undocumented; when it changes, the cross-check silently stops (a first
+rate then waits for two operators). A carrier's secret is shared by the carrier and FreightFlow, so either side can
+leak it; rotation replaces both together. The public notification endpoint has no per-caller rate limit at the
+gateway, since carriers have no token to key it by.
