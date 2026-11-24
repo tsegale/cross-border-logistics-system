@@ -23,12 +23,14 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMoc
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * A cold start of the whole stack: banking answers 503 for its first three calls, the way a service still starting
- * does. The warm-up waits for it on its own deadline, and its budget (1 s here) starts only after, so every round
- * still runs. Before, the wait came out of the budget and the warm-up stopped before its first round on the laptop.
+ * A cold start of the whole stack: banking answers 503 for its first three calls, each after 1.5 s, the way a service
+ * still starting does. With the warm-up's pause between tries that is over 7 s of waiting, longer than its own 6 s
+ * budget. It waits on its own deadline and the budget starts only after, so every round still runs. Before, the wait
+ * came out of the budget and the warm-up stopped before its first round on the laptop. The budget leaves the rounds
+ * time to spare on a loaded machine: an earlier version with a 1 s budget failed when the whole suite ran.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "freightflow.warm-up.enabled=true", "freightflow.warm-up.rounds=2", "freightflow.warm-up.timeout=1s",
+        "freightflow.warm-up.enabled=true", "freightflow.warm-up.rounds=2", "freightflow.warm-up.timeout=6s",
         "freightflow.warm-up.dependency-timeout=30s"})
 class WarmUpColdStartIntegrationTest extends IntegrationTest {
 
@@ -46,7 +48,7 @@ class WarmUpColdStartIntegrationTest extends IntegrationTest {
         String state = Scenario.STARTED;
         for (int call = 1; call <= 3; call++) {
             BankingStub.SERVER.stubFor(get(urlPathEqualTo("/api/v1/fx-rates")).inScenario(COLD)
-                    .whenScenarioStateIs(state).willReturn(aResponse().withStatus(503))
+                    .whenScenarioStateIs(state).willReturn(aResponse().withStatus(503).withFixedDelay(1500))
                     .willSetStateTo("call " + call));
             state = "call " + call;
         }
@@ -73,7 +75,8 @@ class WarmUpColdStartIntegrationTest extends IntegrationTest {
         WarmUpRunner.Result result = warmUp.lastResult();
 
         assertThat(result).isNotNull();
-        assertThat(result.millis()).as("it waited for banking, longer than its own 1 s budget").isGreaterThan(1000);
+        assertThat(result.millis()).as("it waited for banking, longer than its own budget")
+                .isGreaterThan(properties.timeout().toMillis());
         // Banking, the keys, then every round: none was cut short by the time spent waiting.
         assertThat(result.steps()).isEqualTo(2 + properties.rounds() * (2 + properties.paths().size()));
     }
