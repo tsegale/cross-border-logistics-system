@@ -53,9 +53,10 @@ it:
             notification  email send                    continues notifications.traceparent
 
 Retry and dead-letter topics: the forwarded record keeps the original's headers, `traceparent` included, and is sent
-by the same observed template. Whether its send continues the trace depends on whether Spring Kafka's error handler
-runs inside the listener's span; that path is not covered by a test yet, so a retried event may show as a second
-trace that starts at the retry topic.
+by the same observed template, so a retried event stays in its trace. `RetryTraceIntegrationTest` (notification) proves
+it: a hold release that fails because its shipment is not known yet goes through a retry topic, succeeds there once
+the booking has arrived, and its email is sent in the trace the hold event carried, with consumer spans on the main
+and the retry topic.
 
 **Parent and child, not span links, for every asynchronous hop.** The OpenTelemetry messaging conventions describe
 both: a link when one consumer span handles many messages (a batch) or when the work should be its own trace, a
