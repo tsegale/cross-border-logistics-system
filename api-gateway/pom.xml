@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.2</version>
+        <version>4.2.0</version>
         <relativePath/>
     </parent>
 
@@ -19,7 +19,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <spring-cloud.version>2025.1.4</spring-cloud.version>
+        <spring-cloud.version>2026.0.0</spring-cloud.version>
         <jacoco.version>0.8.16</jacoco.version>
         <!-- One seed orders test classes (Surefire) and test methods (JUnit). It changes every build; Surefire
              prints it, and -Dsurefire.runOrder.random.seed=<seed> replays that exact order. -->
