@@ -2,7 +2,7 @@
 # ---- build ----
 # Maven as the wrapper pins it (.mvn/wrapper/maven-wrapper.properties; change both together). The image carries
 # Maven, so a build never downloads it: the wrapper's one unretried fetch from Maven Central kept failing CI.
-FROM maven:3.10.0-eclipse-temurin-21 AS build
+FROM maven:3.10.2-eclipse-temurin-21 AS build
 WORKDIR /src
 # Maven Central answers a burst of parallel CI builds with 429s: retry them 3 s apart (the fallback repository below
 # covers what still fails). Both property prefixes: Resolver 1.9 reads aether.connector.*, 2.x aether.transport.*.
