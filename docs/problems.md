@@ -91,9 +91,9 @@ Every error emitted by `banking-service`, `logistics-service` and `notification-
 | `https://freightflow.dev/problems/dead-letter-not-found` | `404 Not Found` | Dead letter not found | — | No dead letter with that id |
 | `https://freightflow.dev/problems/dead-letter-already-redriven` | `409 Conflict` | Dead letter already redriven | — | The dead letter was redriven before; it is not handled twice |
 | `https://freightflow.dev/problems/dead-letter-redrive-failed` | `409 Conflict` | Redrive failed | `redriveAttempts` | Handling the stored event failed again (for example its shipment is still unknown); the letter stays `NEW` with the error recorded |
-| `https://freightflow.dev/problems/notification-not-found` | `404 Not Found` | Notification not found | � | `POST /notifications/{id}/resend` for an id that does not exist |
+| `https://freightflow.dev/problems/notification-not-found` | `404 Not Found` | Notification not found | — | `POST /notifications/{id}/resend` for an id that does not exist |
 | `https://freightflow.dev/problems/notification-not-resendable` | `409 Conflict` | Notification cannot be sent again | `notificationStatus` | Only an `UNKNOWN` email is resent by hand; this one is `PENDING`, `SENDING`, `SENT` or `FAILED` (a second resend finds it `PENDING` or `SENT`) |
-| `https://freightflow.dev/problems/resend-not-acknowledged` | `422 Unprocessable Content` | Duplicate not acknowledged | � | The resend did not send `{"acknowledgeDuplicate": true}`: the email may have arrived, and the operator has to accept that the customer may get it twice |
+| `https://freightflow.dev/problems/resend-not-acknowledged` | `422 Unprocessable Content` | Duplicate not acknowledged | — | The resend did not send `{"acknowledgeDuplicate": true}`: the email may have arrived, and the operator has to accept that the customer may get it twice |
 
 ## `api-gateway` Problem Types (ADR 0015)
 
