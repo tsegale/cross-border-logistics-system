@@ -206,9 +206,14 @@ services:
       KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/token
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_USERNAME: logistics
+      # The carrier simulator's T&T API, polled when DCSA_KALAHARI_MODE=POLL (ADR 0037); it pushes by default.
+      DCSA_KALAHARI_MODE: ${DCSA_KALAHARI_MODE:-PUSH}
+      DCSA_KALAHARI_API_URL: http://partner-simulator:8090/carrier
     secrets:
       - logistics_db_password
       - logistics_client_secret
+      # The carrier simulator's DCSA subscription secret (ADR 0037).
+      - dcsa_carrier_secret
       - source: kafka_logistics_password
         target: kafka_password
     depends_on:
@@ -380,10 +385,15 @@ services:
     image: python:3.15.2-alpine
     command: ["python", "-I", "/app/simulator.py"]
     volumes:
-      - ./infra/partners/simulator.py:/app/simulator.py:ro
+      - ./infra/partners:/app:ro
     environment:
       ECB_LAG_WORKING_DAYS: ${SIMULATOR_ECB_LAG_WORKING_DAYS:-0}
       BON_FACTOR: ${SIMULATOR_BON_FACTOR:-1.0016}
+      # A carrier in DCSA Track and Trace 2.2 (ADR 0037): pushes signed notifications through the gateway, as a real
+      # carrier would, and serves /carrier/v2/events for polling.
+      CARRIER_CALLBACK_URL: http://api-gateway:8080/api/v1/dcsa/notifications/carrier-kalahari-freight
+      CARRIER_SECRET_FILE: /run/secrets/dcsa_carrier_secret
+    secrets: [dcsa_carrier_secret]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
       interval: 5s
@@ -579,6 +589,8 @@ secrets:
     file: ./secrets/smtp_password
   kafka_monitoring_password:
     file: ./secrets/kafka_monitoring_password
+  dcsa_carrier_secret:
+    file: ./secrets/dcsa_carrier_secret
 
 volumes:
   banking-db-data:

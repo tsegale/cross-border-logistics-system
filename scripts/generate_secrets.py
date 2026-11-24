@@ -36,6 +36,9 @@ FILES = (
     "kafka_monitoring_password",
     "notification_db_password",
     "smtp_password",
+    # DCSA Track and Trace (ADR 0037): the secret the carrier simulator signs its notifications with. Hex is valid
+    # Base64, the encoding DCSA's subscription secret uses.
+    "dcsa_carrier_secret",
 )
 # Keycloak's environment: the realm's ${PLACEHOLDERS} and its own admin and database credentials.
 KEYCLOAK_GENERATED = (

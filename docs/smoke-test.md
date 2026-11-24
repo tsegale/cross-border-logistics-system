@@ -145,3 +145,39 @@ Then the script takes the booking event out of logistics' outbox, exactly as it 
 `freightflow.shipment.v1` again with `kafka-console-producer.sh` as `admin`, waits until notification-service counts it
 as a duplicate (`freightflow_events_consumed_total{type="shipment.booked",outcome="duplicate"}`) and checks that
 Mailpit still holds one "Sendung gebucht" email.
+
+## 6. Duties and import VAT, with and without the EPA proof (ADR 0035)
+
+Two quotes for the same 12,000 kg of Namibian Cape hake fillets (TARIC 0304 74 11 00, EUR 48,000.00 FOB) into
+Hamburg under FCA. With an approved exporter's origin declaration, the EU-SADC EPA preference applies: the duty is 0
+and the import VAT is 7 %. Without one, the third-country 7.5 % applies, and VAT is charged on it too. A code that is
+not in the loaded tariff subset is a 422 `unknown-tariff-code`. The script prints the figures; the README's worked
+example has them.
+
+```bash
+curl -s -X POST -H "$NAMIB_CUSTOMER" -H "Content-Type: application/json" "${GATEWAY}/api/v1/quotes" -d '{
+  "origin":"NAWVB","destination":"DEHAM","mode":"SEA_LCL","incoterm":"FCA","payerRole":"CONSIGNEE",
+  "packages":[{"lengthCm":120,"widthCm":100,"heightCm":150,"weightKg":500,"quantity":2}],
+  "goods":[{"hsCode":"0304741100","description":"Frozen Cape hake fillets","originCountry":"NA","quantity":1200,
+    "netWeightKg":12000,"customsValue":48000.00,"customsValueCurrency":"EUR",
+    "originProof":{"type":"ORIGIN_DECLARATION","reference":"INV-2026-0412","issuedOn":"2026-11-24",
+                   "approvedExporterNumber":"NA/AE/0042"}}]}' | python -m json.tool
+# customs.estimatedDuties 0.00, customs.collectedWithFreight true, amountDueOnBooking = freight + estimate
+```
+
+## 7. A shipment on DCSA events from booking to delivery (ADR 0037)
+
+A second shipment is booked and paid. An operator assigns the carrier `carrier-kalahari-freight` and the container
+`CSQU3054383`; a wrong check digit (`CSQU3054384`) is a 400 `invalid-container-number`. A notification without a valid
+signature is refused at the public endpoint with a 401 `invalid-webhook-signature`. Then the carrier simulator runs
+the container's voyage: PICK, GTIN and LOAD at Walvis Bay, the vessel's DEPA and ARRI, then DISC, GTOT and DROP at
+Hamburg, one event a second. It pushes each one signed through the gateway, as a real carrier would. The script waits
+until the shipment is DELIVERED, with its payment captured at the pickup.
+
+```bash
+docker compose exec -T partner-simulator python -c "import urllib.request; urllib.request.urlopen(urllib.request.Request(
+  'http://127.0.0.1:8090/_control/carrier/voyages', method='POST',
+  data=b'{\"containerNumber\":\"CSQU3054383\",\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"intervalSeconds\":1}'))"
+curl -s -H "$NAMIB_CUSTOMER" "${GATEWAY}/api/v1/shipments/${DCSA_SHIP}" | python -c 'import json,sys; print(json.load(sys.stdin)["status"])'
+# DELIVERED
+```

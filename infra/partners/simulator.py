@@ -12,16 +12,22 @@ Control: POST /_control with a JSON object of any of
   is this many working days old), bonStatus, bonFactor (Bank of Namibia rate = ECB rate times this).
   GET /_control shows the current settings. Environment variables of the same names in upper snake case set them at
   start. Nothing here is persisted.
+Carrier (ADR 0037): carrier.py, under /carrier and /_control/carrier.
 GET /health answers 200.
 """
 
 import datetime
 import json
 import os
+import sys
 import threading
 from decimal import Decimal, ROUND_HALF_EVEN
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+
+# carrier.py sits next to this file; python -I leaves the script's directory off the path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import carrier  # noqa: E402
 
 RECORDED_ZAR = [Decimal("18.6073"), Decimal("18.8897"), Decimal("18.9948"), Decimal("19.1987"), Decimal("19.1513")]
 ECB_HEADER = "KEY,FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,OBS_VALUE"
@@ -89,16 +95,31 @@ class Handler(BaseHTTPRequestHandler):
             return self.ecb(url)
         if url.path == "/bon/ratestable/api/rates":
             return self.bon()
+        if url.path == "/carrier/v2/events":
+            return self.carrier_events(url)
+        if url.path == "/_control/carrier":
+            return self.answer(200, "application/json", json.dumps(carrier.control({})))
         return self.answer(404, "text/plain", "not simulated")
 
     def do_POST(self):
-        if urlparse(self.path).path != "/_control":
-            return self.answer(404, "text/plain", "not simulated")
+        path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length", "0"))
         try:
             change = json.loads(self.rfile.read(length) or b"{}")
         except json.JSONDecodeError as error:
             return self.answer(400, "text/plain", f"not JSON: {error}")
+        if path == "/_control/carrier/voyages":
+            if not isinstance(change, dict) or "containerNumber" not in change:
+                return self.answer(400, "text/plain", "containerNumber is required")
+            return self.answer(202, "application/json", json.dumps(carrier.start_voyage(change)))
+        if path == "/_control/carrier/forge":
+            return self.answer(200, "application/json", json.dumps(carrier.forge()))
+        if path == "/_control/carrier/replay":
+            return self.answer(200, "application/json", json.dumps(carrier.replay()))
+        if path == "/_control/carrier":
+            return self.answer(200, "application/json", json.dumps(carrier.control(change)))
+        if path != "/_control":
+            return self.answer(404, "text/plain", "not simulated")
         unknown = set(change) - set(settings)
         if unknown:
             return self.answer(400, "text/plain", f"unknown settings: {sorted(unknown)}")
@@ -134,6 +155,18 @@ class Handler(BaseHTTPRequestHandler):
         table = {"rateDollar": "17.4623", "rateDollarDate": date, "rateEuro": str(euro), "rateEuroDate": date,
                  "rateAng": "0.0189", "rateAngDate": date, "ratePound": "22.8978", "ratePoundDate": date}
         return self.answer(200, "application/json", json.dumps(table))
+
+    def carrier_events(self, url):
+        query = parse_qs(url.query)
+        after = query.get("eventCreatedDateTime:gte", [None])[0]
+        try:
+            created_after = datetime.datetime.fromisoformat(after) if after else None
+        except ValueError:
+            return self.answer(400, "text/plain", "eventCreatedDateTime:gte must be ISO 8601")
+        status, events = carrier.page(created_after, max(1, min(int(query.get("limit", ["100"])[0]), 100)))
+        if status != 200:
+            return self.answer(status, "text/plain", "simulated carrier failure")
+        return self.answer(200, "application/json", json.dumps(events))
 
     def answer(self, status, content_type, body):
         data = body.encode("utf-8")

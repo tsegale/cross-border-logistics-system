@@ -285,6 +285,24 @@ expect .indicative.currency NAD
 call 422 POST /api/v1/quotes \
   "{\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"mode\":\"SEA_LCL\",\"incoterm\":\"EXW\",\"payerRole\":\"SHIPPER\",\"packages\":${PACKAGES}}"
 expect .type https://freightflow.dev/problems/nothing-to-quote
+# Duties and import VAT into Hamburg (ADR 0035): Namibian hake with an approved exporter's origin declaration enters
+# duty-free under the EU-SADC EPA; without the proof it pays the third-country 7.5 %. VAT is 7 % either way.
+TODAY="$(date -u +%F)"
+HAKE="{\"hsCode\":\"0304741100\",\"description\":\"Frozen Cape hake fillets\",\"originCountry\":\"NA\",\"quantity\":1200,\"netWeightKg\":12000,\"customsValue\":48000.00,\"customsValueCurrency\":\"EUR\""
+LANE="\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"mode\":\"SEA_LCL\",\"incoterm\":\"FCA\",\"payerRole\":\"CONSIGNEE\",\"packages\":${PACKAGES}"
+call 201 POST /api/v1/quotes \
+  "{${LANE},\"goods\":[${HAKE},\"originProof\":{\"type\":\"ORIGIN_DECLARATION\",\"reference\":\"INV-2026-0412\",\"issuedOn\":\"${TODAY}\",\"approvedExporterNumber\":\"NA/AE/0042\"}}]}"
+expect .customs.market EU
+expect .customs.lines[0].preferenceApplied True
+expect .customs.estimatedDuties 0.00
+expect .customs.collectedWithFreight True
+echo "     with proof: CIF $(field .customs.lines[0].customsValue) EUR, duty $(field .customs.estimatedDuties), VAT $(field .customs.estimatedImportVat), freight $(field .totalAmount), due on booking $(field .amountDueOnBooking)"
+call 201 POST /api/v1/quotes "{${LANE},\"goods\":[${HAKE}}]}"
+expect .customs.lines[0].preferenceApplied False
+expect .customs.lines[0].dutyRate "7.5 %"
+echo "     without proof: duty $(field .customs.estimatedDuties), VAT $(field .customs.estimatedImportVat), due on booking $(field .amountDueOnBooking)"
+call 422 POST /api/v1/quotes "{${LANE},\"goods\":[${HAKE/0304741100/0304741990}}]}"
+expect .type https://freightflow.dev/problems/unknown-tariff-code
 
 PICKUP_DATE="$(date -u -d '+7 days' +%F 2>/dev/null || date -u -v+7d +%F)"  # GNU date, then BSD date
 SHIPMENT="{\"quoteId\":\"${QUOTE_ID}\",\"shipper\":{\"name\":\"Namib Fisheries\",\"address\":\"Walvis Bay\",\"contact\":\"exports@example.na\"},\"consignee\":{\"name\":\"Hanseatic Seafood\",\"address\":\"Hamburg\",\"contact\":\"imports@example.de\"},\"payerAccountNumber\":\"${EUR_ACC}\",\"goodsDescription\":\"Frozen hake fillets\",\"declaredValue\":18500.00,\"declaredValueCurrency\":\"EUR\",\"plannedPickupDate\":\"${PICKUP_DATE}\"}"
@@ -467,6 +485,29 @@ echo "ok   ${STEP}: the replayed booking event was dropped as a duplicate; still
 call 403 GET /api/v1/dead-letters
 as auditor
 call 200 GET /api/v1/dead-letters
+
+# ---------------------------------------------------------------- carrier events in DCSA Track and Trace (ADR 0037)
+# A second shipment, in container CSQU3054383, goes from booking to delivery on the carrier simulator's events: signed
+# notifications pushed through the gateway, verified, stored and turned into milestones by logistics.
+as customer-namib-exports
+call 201 POST /api/v1/quotes   "{\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"mode\":\"SEA_LCL\",\"incoterm\":\"FCA\",\"payerRole\":\"CONSIGNEE\",\"packages\":${PACKAGES}}"
+DCSA_QUOTE="$(field .id)"
+call 201 POST /api/v1/shipments "${SHIPMENT/${QUOTE_ID}/${DCSA_QUOTE}}" "Idempotency-Key: smoke-dcsa-ship-${RUN_ID}"
+DCSA_SHIP="$(field .id)"
+wait_for "/api/v1/shipments/${DCSA_SHIP}" .status BOOKED
+as operator
+call 400 PUT "/api/v1/shipments/${DCSA_SHIP}/carrier" '{"carrierId":"carrier-kalahari-freight","containerNumber":"CSQU3054384"}'
+expect .type https://freightflow.dev/problems/invalid-container-number
+call 200 PUT "/api/v1/shipments/${DCSA_SHIP}/carrier" '{"carrierId":"carrier-kalahari-freight","containerNumber":"CSQU3054383"}'
+# A notification nobody signed is refused at the public endpoint.
+as anonymous
+call 401 POST /api/v1/dcsa/notifications/carrier-kalahari-freight '[{"eventID":"3cecb101-7a1a-43a4-9d62-e88a131651e2"}]'   "Subscription-ID: 6f2d0a6e-1c1d-4f53-9a64-1c4e8f0b7a21" "Notification-Signature: sha256=00"
+expect .type https://freightflow.dev/problems/invalid-webhook-signature
+dc exec -T partner-simulator python -c "import urllib.request; urllib.request.urlopen(urllib.request.Request(
+  'http://127.0.0.1:8090/_control/carrier/voyages', method='POST', data=b'{\"containerNumber\":\"CSQU3054383\",\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"intervalSeconds\":1}'), timeout=10)" > /dev/null
+as customer-namib-exports
+wait_for "/api/v1/shipments/${DCSA_SHIP}" .status DELIVERED
+expect .payment.status CAPTURED
 
 # ---------------------------------------------------------------- reading back
 as auditor
