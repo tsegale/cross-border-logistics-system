@@ -56,11 +56,25 @@ public class PaymentCommands {
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(UUID shipmentId, PaymentCommandType command, BigDecimal amount, String currency,
                         String payerAccountNumber, UUID holdId, Instant expiresAt) {
-        if (command == PaymentCommandType.EXTEND || command == PaymentCommandType.REAUTHORISE) {
-            throw new IllegalArgumentException("Use enqueueExtension or enqueueReauthorisation for " + command);
+        if (command == PaymentCommandType.EXTEND || command == PaymentCommandType.REAUTHORISE
+                || command == PaymentCommandType.CUSTOMS_SETTLEMENT) {
+            throw new IllegalArgumentException("Use enqueueExtension, enqueueReauthorisation or "
+                    + "enqueueCustomsSettlement for " + command);
         }
         insert(shipmentId, command, amount, currency, payerAccountNumber, holdId, expiresAt,
-                idempotencyKey(shipmentId, command));
+                idempotencyKey(shipmentId, command), null);
+    }
+
+    /**
+     * The settlement of a confirmed customs assessment (ADR 0036): the assessed amount, which may be zero, for the
+     * shipment's captured hold. One per shipment, like a capture.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean enqueueCustomsSettlement(UUID shipmentId, UUID holdId, BigDecimal assessed, String currency,
+                                            String payerAccountNumber, String authorityReference) {
+        return insert(shipmentId, PaymentCommandType.CUSTOMS_SETTLEMENT, assessed, currency, payerAccountNumber,
+                holdId, null, idempotencyKey(shipmentId, PaymentCommandType.CUSTOMS_SETTLEMENT),
+                authorityReference) == 1;
     }
 
     /**
@@ -71,7 +85,7 @@ public class PaymentCommands {
     public boolean enqueueExtension(UUID shipmentId, UUID holdId, BigDecimal amount, String currency,
                                     String payerAccountNumber, Instant expiresAt) {
         return insert(shipmentId, PaymentCommandType.EXTEND, amount, currency, payerAccountNumber, holdId, expiresAt,
-                extensionKey(shipmentId, expiresAt)) == 1;
+                extensionKey(shipmentId, expiresAt), null) == 1;
     }
 
     /** The key of the re-authorisation after one expired hold: one per expiry, stable across redeliveries. */
@@ -87,26 +101,29 @@ public class PaymentCommands {
     public boolean enqueueReauthorisation(UUID shipmentId, UUID expiredHoldId, BigDecimal amount, String currency,
                                           String payerAccountNumber, Instant expiresAt) {
         return insert(shipmentId, PaymentCommandType.REAUTHORISE, amount, currency, payerAccountNumber, expiredHoldId,
-                expiresAt, reauthorisationKey(shipmentId, expiredHoldId)) == 1;
+                expiresAt, reauthorisationKey(shipmentId, expiredHoldId), null) == 1;
     }
 
     private int insert(UUID shipmentId, PaymentCommandType command, BigDecimal amount, String currency,
-                       String payerAccountNumber, UUID holdId, Instant expiresAt, String key) {
+                       String payerAccountNumber, UUID holdId, Instant expiresAt, String key,
+                       String authorityReference) {
         Instant now = clock.instant();
         // No conflict target: any of the unique indexes (one command per type, one open extension, the key) means
-        // the command already exists.
+        // the command already exists. A capture takes the shipment's disbursement part (ADR 0036) from its row.
         return jdbcTemplate.update("""
                 INSERT INTO shipment_payments (id, shipment_id, command, status, amount, currency, payer_account_number,
                                                idempotency_key, hold_id, expires_at, attempts, next_attempt_at,
                                                created_at, updated_at, payer_organization_id, on_behalf_of_subject,
-                                               traceparent)
-                SELECT ?, s.id, ?, 'PENDING', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, s.payer_organization_id, s.booked_by_subject, ?
+                                               traceparent, disbursement_amount, authority_reference)
+                SELECT ?, s.id, ?, 'PENDING', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, s.payer_organization_id, s.booked_by_subject, ?,
+                       CASE WHEN ? = 'CAPTURE' THEN s.customs_disbursement_amount END, ?
                 FROM shipments s WHERE s.id = ?
                 ON CONFLICT DO NOTHING
                 """,
                 UuidV7.next(clock), command.name(), amount, currency, payerAccountNumber, key, holdId,
                 expiresAt == null ? null : Timestamp.from(expiresAt),
-                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now), traces.current(), shipmentId);
+                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now), traces.current(), command.name(),
+                authorityReference, shipmentId);
     }
 
     /**

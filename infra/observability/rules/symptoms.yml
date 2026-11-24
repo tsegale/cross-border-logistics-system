@@ -61,6 +61,16 @@ groups:
           summary: "{{ $value }} reference rate(s) quarantined, waiting for two operators"
           description: "A rate failed a check (a large move, off the NAD/ZAR peg, a closing day) and prices nothing until confirmed or rejected."
           runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/fx-reference-rates.md
+      # Duties are estimated from a dated tariff subset (ADR 0035): past its review date it may be out of date.
+      - alert: CustomsTariffReviewOverdue
+        expr: min by (market) (freightflow_customs_tariff_days_to_review_days) < 0
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "The {{ $labels.market }} tariff subset is past its review date"
+          description: "Duty estimates use rates that may have changed: check the source and add a migration with the current rates."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/customs-tariff-review.md
 
   - name: events
     rules:

@@ -209,6 +209,11 @@ def money() -> Board:
             "newer rate is due.",
             [("sum by (outcome) (increase(freightflow_fx_reference_rates_refreshes_total[1h]))", "{{outcome}}")],
             "short", width=24, links=[logs_link("banking-service")])
+    b.row("Customs")
+    b.panel("Customs tariff review", "Days until each market's tariff subset must be checked against its source "
+            "again (ADR 0035); below zero the duty estimates may be out of date.",
+            [("min by (market) (freightflow_customs_tariff_days_to_review_days)", "{{market}}")], "d", kind="stat",
+            width=8, links=[logs_link("logistics-service")], thresholds=[(-1000000, "red"), (0, "green")])
     return b
 
 

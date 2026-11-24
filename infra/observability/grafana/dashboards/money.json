@@ -836,6 +836,89 @@
           "exemplar": false
         }
       ]
+    },
+    {
+      "type": "row",
+      "title": "Customs",
+      "collapsed": false,
+      "id": 15,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Customs tariff review",
+      "description": "Days until each market's tariff subset must be checked against its source again (ADR 0035); below zero the duty estimates may be out of date.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 51
+      },
+      "links": [
+        {
+          "title": "Logs of logistics-service in Loki",
+          "targetBlank": true,
+          "url": "/explore?schemaVersion=1&panes={\"l\":{\"datasource\":\"loki\",\"queries\":[{\"refId\":\"A\",\"datasource\":{\"type\":\"loki\",\"uid\":\"loki\"},\"expr\":\"{service_name=\\\"logistics-service\\\"}\"}],\"range\":{\"from\":\"${__from}\",\"to\":\"${__to}\"}}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": -1000000
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "min by (market) (freightflow_customs_tariff_days_to_review_days)",
+          "legendFormat": "{{market}}",
+          "exemplar": false
+        }
+      ]
     }
   ],
   "templating": {

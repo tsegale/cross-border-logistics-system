@@ -59,6 +59,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/shipments/*/tracking-events")
                                 .hasAnyRole(Caller.CARRIER, Caller.OPERATOR)
                         .requestMatchers(HttpMethod.PUT, "/api/v1/shipments/*/carrier").hasRole(Caller.OPERATOR)
+                        // Customs assessments (ADR 0036): operators record and confirm (four eyes), auditors read.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/shipments/*/customs-assessment",
+                                "/api/v1/shipments/*/customs-assessment/confirmation").hasRole(Caller.OPERATOR)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/shipments/*/customs-assessment")
+                                .hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
                         .requestMatchers(HttpMethod.POST, "/api/v1/payment-commands/*/retry").hasRole(Caller.OPERATOR)
                         // Dead letters (ADR 0026): operators redrive, auditors read.
                         .requestMatchers(HttpMethod.POST, "/api/v1/logistics/dead-letters/*/redrive")

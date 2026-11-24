@@ -53,6 +53,7 @@ a recording rule per window (`slo:<name>:error_ratio_rate<window>`).
 | `ApprovalsNearExpiry` | an approval expiring within the hour, for 5 min | ticket | [approvals-near-expiry](runbooks/approvals-near-expiry.md) |
 | `FxReferenceRateStale` | the pricing EUR/ZAR rate past its working-day limit, or none, for 5 min | page | [fx-reference-rates](runbooks/fx-reference-rates.md) |
 | `FxReferenceRateQuarantined` | a reference rate waiting for two operators, for 5 min | ticket | [fx-reference-rates](runbooks/fx-reference-rates.md) |
+| `CustomsTariffReviewOverdue` | a tariff subset past its review date, for 15 min | ticket | [customs-tariff-review](runbooks/customs-tariff-review.md) |
 | `OutboxStuck` | an outbox's oldest unsent row older than 60 s, for 2 min | page | [outbox-stuck](runbooks/outbox-stuck.md) |
 | `ConsumerLagHigh` | a group more than 100 records behind on a topic, for 5 min | ticket | [consumer-lag](runbooks/consumer-lag.md) |
 | `DeadLettersWaiting` | a dead letter not yet redriven, for 5 min | ticket | [dead-letters](runbooks/dead-letters.md) |

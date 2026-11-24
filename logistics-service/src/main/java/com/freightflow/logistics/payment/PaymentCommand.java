@@ -30,7 +30,7 @@ public class PaymentCommand {
     private UUID shipmentId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "command", length = 16, nullable = false, updatable = false)
+    @Column(name = "command", length = 32, nullable = false, updatable = false)
     private PaymentCommandType command;
 
     @Enumerated(EnumType.STRING)
@@ -72,6 +72,14 @@ public class PaymentCommand {
     /** The expiry an AUTHORISE or EXTEND asks for; null for other commands and for shipments booked before V7. */
     @Column(name = "expires_at", updatable = false)
     private Instant expiresAt;
+
+    /** CAPTURE: the part of the amount that is duties and taxes for customs (ADR 0036); null for other commands. */
+    @Column(name = "disbursement_amount", precision = 19, scale = 4, updatable = false)
+    private BigDecimal disbursementAmount;
+
+    /** CUSTOMS_SETTLEMENT: the authority's reference for the assessment. */
+    @Column(name = "authority_reference", length = 64, updatable = false)
+    private String authorityReference;
 
     @Column(name = "attempts", nullable = false)
     private int attempts;
@@ -206,6 +214,14 @@ public class PaymentCommand {
 
     public String getOnBehalfOfSubject() {
         return onBehalfOfSubject;
+    }
+
+    public BigDecimal roundedDisbursementAmount() {
+        return disbursementAmount == null ? null : MoneyRounding.roundToMinorUnits(disbursementAmount, currency);
+    }
+
+    public String getAuthorityReference() {
+        return authorityReference;
     }
 
     public String getRetriedBySubject() {

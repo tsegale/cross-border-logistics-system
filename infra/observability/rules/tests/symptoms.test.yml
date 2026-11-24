@@ -247,3 +247,24 @@ tests:
               summary: "The EUR/ZAR reference rate is +Inf working day(s) behind the one due"
               description: "Past the staleness limit: EUR quotes and cross-currency holds are refused with fx-rates-stale until a fresh rate is confirmed."
               runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/fx-reference-rates.md
+
+  - name: a tariff subset past its review date opens a ticket
+    interval: 1m
+    input_series:
+      # Due the next day for 20 minutes, then a day overdue.
+      - series: freightflow_customs_tariff_days_to_review_days{service="logistics-service",market="EU"}
+        values: 1x19 -1x80
+      - series: freightflow_customs_tariff_days_to_review_days{service="logistics-service",market="SACU"}
+        values: 80x99
+    alert_rule_test:
+      - eval_time: 34m
+        alertname: CustomsTariffReviewOverdue
+        exp_alerts: []
+      - eval_time: 36m
+        alertname: CustomsTariffReviewOverdue
+        exp_alerts:
+          - exp_labels: {severity: ticket, market: EU}
+            exp_annotations:
+              summary: "The EU tariff subset is past its review date"
+              description: "Duty estimates use rates that may have changed: check the source and add a migration with the current rates."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/customs-tariff-review.md

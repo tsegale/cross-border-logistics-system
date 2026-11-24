@@ -92,6 +92,13 @@ public class Shipment {
     @Column(name = "quoted_currency", length = 3, nullable = false, updatable = false)
     private String quotedCurrency;
 
+    /** The part of quotedTotalAmount that is duties and taxes collected for customs (ADR 0036); zero when none. */
+    @Column(name = "customs_disbursement_amount", precision = 19, scale = 4, nullable = false, updatable = false)
+    private BigDecimal customsDisbursementAmount;
+
+    @Column(name = "customs_settled_at")
+    private Instant customsSettledAt;
+
     @Column(name = "actual_weight_kg", precision = 12, scale = 3, nullable = false, updatable = false)
     private BigDecimal actualWeightKg;
 
@@ -201,7 +208,9 @@ public class Shipment {
         s.goodsDescription = goodsDescription.trim();
         s.declaredValue = MoneyRounding.toStorageScale(declaredValue);
         s.declaredValueCurrency = Objects.requireNonNull(declaredValueCurrency, "declaredValueCurrency");
-        s.quotedTotalAmount = quote.getTotalAmount();
+        // The hold covers the freight and, where FreightFlow collects them, the estimated duties and taxes.
+        s.customsDisbursementAmount = quote.collectedCustomsEstimate();
+        s.quotedTotalAmount = quote.getTotalAmount().add(s.customsDisbursementAmount);
         s.quotedCurrency = quote.getCurrency();
         s.actualWeightKg = quote.getActualWeightKg();
         s.volumeCbm = quote.getVolumeCbm();
@@ -288,6 +297,20 @@ public class Shipment {
     public void paymentCaptured(Instant now) {
         this.paymentStatus = PaymentStatus.CAPTURED;
         this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    /** banking paid customs what it assessed and settled the difference with the payer (ADR 0036). */
+    public void customsSettled(Instant now) {
+        this.customsSettledAt = Objects.requireNonNull(now, "now");
+        this.updatedAt = now;
+    }
+
+    public BigDecimal getCustomsDisbursementAmount() {
+        return customsDisbursementAmount;
+    }
+
+    public Instant getCustomsSettledAt() {
+        return customsSettledAt;
     }
 
     public void paymentReleased(Instant now) {

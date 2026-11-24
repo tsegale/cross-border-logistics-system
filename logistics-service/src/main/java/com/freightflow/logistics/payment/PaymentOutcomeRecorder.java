@@ -81,6 +81,7 @@ public class PaymentOutcomeRecorder {
             }
             case CAPTURE -> shipment.paymentCaptured(now);
             case RELEASE -> shipment.paymentReleased(now);
+            case CUSTOMS_SETTLEMENT -> shipment.customsSettled(now);
             case EXTEND -> {
                 if (ok.holdExpiresAt() != null) {
                     shipment.holdExtended(ok.holdExpiresAt(), now);
@@ -112,6 +113,13 @@ public class PaymentOutcomeRecorder {
         command.fail(no.problemType(), no.detail(), now);
         Shipment shipment = shipment(command);
         ShipmentStatus previous = shipment.getStatus();
+        if (command.getCommand() == PaymentCommandType.CUSTOMS_SETTLEMENT) {
+            // The freight is paid; only the customs difference is outstanding. The command is FAILED for an
+            // operator (the payer could not cover the shortfall, say), the shipment's payment is not.
+            log.warn("Customs settlement for shipment {} refused by banking: {} {}", shipment.getId(),
+                    no.problemType(), no.detail());
+            return "refused";
+        }
         if (command.getCommand() == PaymentCommandType.AUTHORISE) {
             shipment.paymentRefused(no.problemType(), no.detail(), now);
         } else {

@@ -22,6 +22,8 @@ fixes are the real ones: an operator's retry and an operator's resend, through t
               Bank of Namibia 5 % off the NAD/ZAR peg, so banking's first rate is quarantined and there is no usable one
               from the start (stale, quarantined). The drill puts both sources right, waits for a fresh confirmed rate,
               and has one operator request and a second reject each quarantined rate (four eyes, ADR 0021).
+           and the EU tariff subset is dated as if read ten days ago with its review due yesterday (simulated in the
+              database, like the parked command); the drill puts the dates back.
 
 Burn-rate alerts keep firing after the burn by design (a fast burn up to 30 minutes, a slow one for hours); the drill
 records that they fired, and their recovery is covered by promtool tests. Needs the stack with --profile observability,
@@ -58,7 +60,7 @@ EXPECTED = [
     "TransferAvailabilityBudgetBurnSlow", "PaymentCommandsParked", "ApprovalsNearExpiry", "OutboxStuck",
     "BookingAvailabilityBudgetBurnFast", "BookingAvailabilityBudgetBurnSlow", "BookingLatencyBudgetBurnFast",
     "BookingLatencyBudgetBurnSlow", "GatewayUpstreamErrors", "ContainerMemoryNearLimit", "FxReferenceRateStale",
-    "FxReferenceRateQuarantined",
+    "FxReferenceRateQuarantined", "CustomsTariffReviewOverdue",
 ]
 # Burn-rate alerts outlast the drill: a fast burn keeps firing up to 30 minutes after the outage (its 6 h and 30 m
 # pair), a slow burn for hours. They must fire here; that they clear is proved by the promtool recovery tests.
@@ -355,6 +357,15 @@ def phase4_rates(watch: Watch, run: str) -> None:
         harness.call("second-operator", "POST", f"/api/v1/approvals/{approval}/rejection",
                      {"comment": "fire drill: the simulator was lagging and off the peg"})
     log(f"rejected {len(quarantined)} quarantined reference rate(s) with four eyes")
+    original = sql("logistics", "SELECT reference_date || ',' || retrieved_on || ',' || review_by "
+                                "FROM customs_tariff_sources WHERE market = 'EU' ORDER BY reference_date DESC LIMIT 1")
+    reference, retrieved, review = original.split(",")
+    sql("logistics", "UPDATE customs_tariff_sources SET reference_date = current_date - 10, retrieved_on = "
+                     f"current_date - 10, review_by = current_date - 1 WHERE market = 'EU' AND reference_date = '{reference}'")
+    watch.wait_fired(["CustomsTariffReviewOverdue"], 20)
+    sql("logistics", f"UPDATE customs_tariff_sources SET reference_date = '{reference}', retrieved_on = '{retrieved}', "
+                     f"review_by = '{review}' WHERE market = 'EU' AND reference_date = current_date - 10")
+    log("EU tariff subset dates restored")
 
 
 def main() -> None:

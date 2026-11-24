@@ -78,6 +78,11 @@ class AuthorisationMatrixTest extends IntegrationTest {
         table.put("POST tracking event",     new int[] {403, 403, 201, 403, 201, 404, 401});
         table.put("POST cancellation",       new int[] {200, 404, 200, 403, 403, 403, 401});
         table.put("PUT carrier",             new int[] {403, 403, 200, 403, 403, 403, 401});
+        // Customs assessments (ADR 0036): the fixture's shipment had no duties collected, so recording one is a 409
+        // and there is none to read or confirm.
+        table.put("POST customs assessment", new int[] {403, 403, 409, 403, 403, 403, 401});
+        table.put("GET customs assessment",  new int[] {403, 403, 404, 404, 403, 403, 401});
+        table.put("POST customs confirmation", new int[] {403, 403, 404, 403, 403, 403, 401});
         table.put("GET payment commands",    new int[] {403, 403, 200, 200, 403, 403, 401});
         table.put("GET payment command",     new int[] {403, 403, 200, 200, 403, 403, 401});
         table.put("POST payment retry",      new int[] {403, 403, 200, 403, 403, 403, 401});
@@ -149,6 +154,12 @@ class AuthorisationMatrixTest extends IntegrationTest {
                             """.formatted(UUID.randomUUID(), Instant.now()));
             case "POST cancellation" -> post("/api/v1/shipments/{id}/cancellation", f.shipment())
                     .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Matrix\"}");
+            case "POST customs assessment" -> post("/api/v1/shipments/{id}/customs-assessment", f.shipment())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"duties\":1.00,\"importVat\":1.00,\"currency\":\"EUR\",\"authorityReference\":\"MATRIX\"}");
+            case "GET customs assessment" -> get("/api/v1/shipments/{id}/customs-assessment", f.shipment());
+            case "POST customs confirmation" -> post("/api/v1/shipments/{id}/customs-assessment/confirmation",
+                    f.shipment());
             case "PUT carrier" -> put("/api/v1/shipments/{id}/carrier", f.shipment())
                     .contentType(MediaType.APPLICATION_JSON).content("{\"carrierId\":\"carrier-kalahari-freight\"}");
             case "GET payment commands" -> get("/api/v1/payment-commands");

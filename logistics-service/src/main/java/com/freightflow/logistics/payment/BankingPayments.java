@@ -46,7 +46,12 @@ public class BankingPayments {
                         "SHIPMENT " + command.getShipmentId(), command.getExpiresAt(),
                         command.getPayerOrganizationId(), command.getOnBehalfOfSubject()));
                 case CAPTURE -> banking.capture(command.getHoldId(), command.getIdempotencyKey(),
-                        new Holds.CaptureHold(command.roundedAmount()));
+                        new Holds.CaptureHold(command.roundedAmount(), command.roundedDisbursementAmount()));
+                case CUSTOMS_SETTLEMENT -> {
+                    banking.settleCustoms(command.getHoldId(), command.getIdempotencyKey(),
+                            new Holds.CustomsSettlement(command.roundedAmount(), command.getAuthorityReference()));
+                    yield null;
+                }
                 case RELEASE -> banking.release(command.getHoldId(), command.getIdempotencyKey());
                 case EXTEND -> banking.extend(command.getHoldId(), command.getIdempotencyKey(),
                         new Holds.ExtendHold(command.getExpiresAt()));
@@ -78,13 +83,18 @@ public class BankingPayments {
         // A capture or release that already happened (its first response was lost and the idempotency record has
         // since expired) reports the hold as no longer active: that is the outcome we wanted. An extension of a
         // hold that was captured or released meanwhile has nothing left to do.
+        // A settlement whose first response was lost: customs is paid, which is what we wanted.
+        if (command.getCommand() == PaymentCommandType.CUSTOMS_SETTLEMENT
+                && (PROBLEMS + "customs-already-settled").equals(type)) {
+            return new PaymentOutcome.Succeeded(command.getHoldId(), null);
+        }
         if ((PROBLEMS + "hold-not-active").equals(type)) {
             String holdStatus = problem.path("holdStatus").asString("");
             boolean done = switch (command.getCommand()) {
                 case CAPTURE -> "CAPTURED".equals(holdStatus);
                 case RELEASE -> "RELEASED".equals(holdStatus) || "EXPIRED".equals(holdStatus);
                 case EXTEND -> "CAPTURED".equals(holdStatus) || "RELEASED".equals(holdStatus);
-                case AUTHORISE, REAUTHORISE -> false;
+                case AUTHORISE, REAUTHORISE, CUSTOMS_SETTLEMENT -> false;
             };
             if (done) {
                 log.info("{} for shipment {} was already applied or is moot (hold {})", command.getCommand(),

@@ -17,7 +17,15 @@ public final class Holds {
                              Instant expiresAt, UUID payerOrganizationId, String onBehalfOfSubject) {
     }
 
-    public record CaptureHold(BigDecimal amount) {
+    /** {@code disbursementAmount}: the part that is duties and taxes for customs (ADR 0036); null for none. */
+    public record CaptureHold(BigDecimal amount, BigDecimal disbursementAmount) {
+    }
+
+    public record CustomsSettlement(BigDecimal assessedAmount, String authorityReference) {
+    }
+
+    public record CustomsSettled(UUID id, UUID holdId, String currency, BigDecimal estimate, BigDecimal assessed,
+                                 BigDecimal difference, UUID journalEntryId) {
     }
 
     public record ExtendHold(Instant expiresAt) {

@@ -102,6 +102,30 @@ public final class BankingStubs {
             "application/problem+json", problem(422, "invalid-hold", "Invalid hold", null));
     public static final Interaction RELEASED = new Interaction("hold released", "POST",
             "/api/v1/holds/" + HOLD_ID + "/release", null, 200, "application/json", hold("RELEASED", "null"));
+    public static final Interaction CAPTURED_WITH_DISBURSEMENT = new Interaction("hold captured with duties",
+            "POST", "/api/v1/holds/" + HOLD_ID + "/capture", "{\"amount\":524.75,\"disbursementAmount\":120.00}", 200,
+            "application/json", hold("CAPTURED", "524.75"));
+    public static final Interaction CUSTOMS_SETTLED = new Interaction("customs settled", "POST",
+            "/api/v1/holds/" + HOLD_ID + "/customs-settlement",
+            "{\"assessedAmount\":130.00,\"authorityReference\":\"26DE470100123456E1\"}", 200, "application/json", """
+            {"id":"01a20d00-0000-7000-8000-000000000001","holdId":"%s","currency":"EUR","estimate":120.00,
+             "assessed":130.00,"difference":10.00,"payerDifference":10.00,"payerCurrency":"EUR",
+             "authorityReference":"26DE470100123456E1","journalEntryId":"01a20d00-0000-7000-8000-000000000002",
+             "createdAt":"2026-11-24T10:00:00Z"}
+            """.formatted(HOLD_ID));
+    public static final Interaction CUSTOMS_ALREADY_SETTLED = new Interaction("customs already settled", "POST",
+            "/api/v1/holds/" + HOLD_ID + "/customs-settlement",
+            "{\"assessedAmount\":130.00,\"authorityReference\":\"26DE470100123456E1\"}", 409,
+            "application/problem+json", problem(409, "customs-already-settled", "Customs already settled",
+                    "\"holdId\":\"" + HOLD_ID + "\""));
+    public static final Interaction FX_RATES_EUR = new Interaction("indicative rates from EUR", "GET",
+            "/api/v1/fx-rates?base=EUR", null, 200, "application/json", """
+            {"base":"EUR","asOf":"2026-11-24T09:00:00Z","source":"ecb","rates":[
+              {"currency":"NAD","midRate":19.15130000,"spread":0.005000,"customerRate":19.05554350,
+               "source":"ecb+cma-peg","valueDate":"2026-11-23"},
+              {"currency":"ZAR","midRate":19.15130000,"spread":0.005000,"customerRate":19.05554350,
+               "source":"ecb","valueDate":"2026-11-23"}],"unavailable":[]}
+            """);
     public static final Interaction FX_RATES_NAD = new Interaction("indicative rates from NAD", "GET",
             "/api/v1/fx-rates?base=NAD", null, 200, "application/json", """
             {"base":"NAD","asOf":"2026-11-10T09:00:00Z","source":"static-configuration","rates":[
@@ -112,7 +136,8 @@ public final class BankingStubs {
     public static List<Interaction> all() {
         return List.of(HOLD_CREATED, HOLD_INSUFFICIENT_FUNDS, HOLD_ACCOUNT_NOT_FOUND, HOLD_IN_FLIGHT,
                 BANKING_UNAVAILABLE, CAPTURED, CAPTURE_ALREADY_DONE, CAPTURE_HOLD_EXPIRED, EXTENDED,
-                EXTEND_AFTER_CAPTURE, EXTEND_BEYOND_LIFETIME, RELEASED, FX_RATES_NAD);
+                EXTEND_AFTER_CAPTURE, EXTEND_BEYOND_LIFETIME, RELEASED, FX_RATES_NAD, CAPTURED_WITH_DISBURSEMENT,
+                CUSTOMS_SETTLED, CUSTOMS_ALREADY_SETTLED, FX_RATES_EUR);
     }
 
     // ------------------------------------------------------------------ WireMock mappings
@@ -141,6 +166,12 @@ public final class BankingStubs {
     public static MappingBuilder capture() {
         return post(urlPathMatching("/api/v1/holds/[0-9a-f-]+/capture"))
                 .withHeader("Idempotency-Key", matching("shipment-.+-capture"));
+    }
+
+    public static MappingBuilder customsSettlement() {
+        return post(urlPathMatching("/api/v1/holds/[0-9a-f-]+/customs-settlement"))
+                .withHeader("Idempotency-Key", matching("shipment-.+-customs_settlement"))
+                .withHeader("Content-Type", matching("application/json.*"));
     }
 
     public static MappingBuilder extend() {

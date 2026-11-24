@@ -28,6 +28,11 @@ public interface BankingApi {
     Holds.Hold capture(@PathVariable("id") UUID holdId, @RequestHeader("Idempotency-Key") String idempotencyKey,
                        @RequestBody Holds.CaptureHold body);
 
+    @PostExchange(url = "/holds/{id}/customs-settlement", contentType = "application/json")
+    Holds.CustomsSettled settleCustoms(@PathVariable("id") UUID holdId,
+                                       @RequestHeader("Idempotency-Key") String idempotencyKey,
+                                       @RequestBody Holds.CustomsSettlement body);
+
     @PostExchange(url = "/holds/{id}/extension", contentType = "application/json")
     Holds.Hold extend(@PathVariable("id") UUID holdId, @RequestHeader("Idempotency-Key") String idempotencyKey,
                       @RequestBody Holds.ExtendHold body);
