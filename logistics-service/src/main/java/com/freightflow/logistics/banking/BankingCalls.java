@@ -109,7 +109,7 @@ public class BankingCalls {
     }
 
     static boolean safeToRetry(Throwable ex) {
-        if (ex instanceof CallNotPermittedException || ex instanceof BulkheadFullException) {
+        if (ex instanceof CallNotPermittedException || ex instanceof BulkheadFullException || FxRatesStale.is(ex)) {
             return false;
         }
         return ex instanceof ResourceAccessException || ex instanceof HttpServerErrorException;

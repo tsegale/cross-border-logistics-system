@@ -185,6 +185,8 @@ resilience4j:
         ignore-exceptions:
           - org.springframework.web.client.HttpClientErrorException
           - io.github.resilience4j.bulkhead.BulkheadFullException
+        # Neither is banking refusing to price on a stale reference rate (ADR 0034).
+        ignore-exception-predicate: com.freightflow.logistics.banking.FxRatesStale
   bulkhead:
     instances:
       banking-payments:
