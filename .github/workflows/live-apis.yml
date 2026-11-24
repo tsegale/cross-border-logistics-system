@@ -1,0 +1,39 @@
+# The outside APIs still answer the way the recorded fixtures say (ADR 0034, 0035, 0037). No other workflow calls a
+# live API; this one runs weekly, and opens one issue (or comments on the open one) when a check fails.
+name: Live API check
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: ECB, Bank of Namibia, TARIC and DCSA answer as recorded
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the live APIs
+        id: check
+        run: python3 scripts/check_live_apis.py --json live-apis.json | tee live-apis.txt
+        continue-on-error: true
+      - name: Open or update the issue
+        if: steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Live API check failed: an outside API no longer answers as recorded"
+          body="$(printf 'The scheduled check of %s found a difference (run %s):\n\n```\n%s\n```\n\nUpdate the recorded fixtures, the parser or the tariff subset, as the runbook of the source says.' \
+            "$(date -u +%F)" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" "$(cat live-apis.txt)")"
+          existing="$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+          exit 1
