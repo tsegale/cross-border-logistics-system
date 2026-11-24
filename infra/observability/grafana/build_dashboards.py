@@ -160,6 +160,17 @@ def flow() -> Board:
             [("max by (status) (freightflow_emails)", "{{status}}"),
              ("sum(rate(freightflow_emails_sent_total[$__rate_interval])) * 60", "sent per minute")], "short",
             links=[logs_link("notification-service")])
+    b.row("Carriers")
+    b.panel("Carrier notifications", "DCSA notifications per minute by outcome: accepted, or refused for a bad "
+            "signature or as a replay (ADR 0037).",
+            [("sum by (outcome) (rate(freightflow_dcsa_notifications_total[$__rate_interval])) * 60", "{{outcome}}")],
+            "short", width=8, links=[logs_link("logistics-service", ' |= "DCSA"')])
+    b.panel("Carrier events processed", "Stored DCSA events turned into milestones per minute, by outcome.",
+            [("sum by (outcome) (rate(freightflow_dcsa_events_processed_total[$__rate_interval])) * 60",
+              "{{outcome}}")], "short", width=8, links=[traces_link("logistics-service")])
+    b.panel("Carrier poll age", "Seconds since each polled carrier last answered.",
+            [("max by (carrier) (freightflow_dcsa_poll_age_seconds)", "{{carrier}}")], "s", kind="stat", width=8,
+            links=[logs_link("logistics-service", ' |= "Polling DCSA"')], thresholds=[(300, "red")])
     return b
 
 

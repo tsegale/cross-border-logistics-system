@@ -26,6 +26,8 @@ env:
   SIMULATOR_ECB_LAG_WORKING_DAYS: "3"
   SIMULATOR_BON_FACTOR: "1.05"
   FX_REFRESH_INTERVAL: 1m
+  # Phase 5 (carriers): the simulator's carrier is polled as well, so its events API can fall behind.
+  DCSA_KALAHARI_MODE: POLL
   COMPOSE: docker compose --env-file .env --env-file infra/observability/observability.env -f docker-compose.yml -f benchmarks/compose.bench.yml --profile observability
 
 jobs:

@@ -268,3 +268,36 @@ tests:
               summary: "The EU tariff subset is past its review date"
               description: "Duty estimates use rates that may have changed: check the source and add a migration with the current rates."
               runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/customs-tariff-review.md
+
+  - name: refused carrier notifications open a ticket at once, a polled carrier behind after two minutes
+    interval: 1m
+    input_series:
+      - series: freightflow_dcsa_notifications_total{service="logistics-service",carrier="carrier-kalahari-freight",outcome="accepted"}
+        values: 0+5x20
+      - series: freightflow_dcsa_notifications_total{service="logistics-service",carrier="carrier-kalahari-freight",outcome="signature-invalid"}
+        values: 0x5 1x15
+      - series: freightflow_dcsa_poll_age_seconds{service="logistics-service",carrier="carrier-namib-lines"}
+        values: 30 60 90 30 60 90 400 460 520 580 640 700
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CarrierWebhookSignaturesFailing
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: CarrierWebhookSignaturesFailing
+        exp_alerts:
+          - exp_labels: {severity: ticket, carrier: carrier-kalahari-freight}
+            exp_annotations:
+              summary: "1 carrier notification(s) refused for carrier-kalahari-freight in 10 minutes"
+              description: "A bad signature, an unknown subscription or a replayed notification: a misconfigured carrier, a rotated secret, or someone forging tracking events."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/carrier-tracking.md
+      - eval_time: 7m
+        alertname: CarrierPollingBehind
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: CarrierPollingBehind
+        exp_alerts:
+          - exp_labels: {severity: ticket, carrier: carrier-namib-lines}
+            exp_annotations:
+              summary: "carrier-namib-lines has not been polled successfully for 9m 40s"
+              description: "The carrier's DCSA events API does not answer; its shipments' tracking is behind."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/carrier-tracking.md

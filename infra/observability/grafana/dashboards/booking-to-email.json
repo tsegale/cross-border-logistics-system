@@ -720,6 +720,207 @@
           "exemplar": false
         }
       ]
+    },
+    {
+      "type": "row",
+      "title": "Carriers",
+      "collapsed": false,
+      "id": 12,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Carrier notifications",
+      "description": "DCSA notifications per minute by outcome: accepted, or refused for a bad signature or as a replay (ADR 0037).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 42
+      },
+      "links": [
+        {
+          "title": "Logs of logistics-service in Loki",
+          "targetBlank": true,
+          "url": "/explore?schemaVersion=1&panes={\"l\":{\"datasource\":\"loki\",\"queries\":[{\"refId\":\"A\",\"datasource\":{\"type\":\"loki\",\"uid\":\"loki\"},\"expr\":\"{service_name=\\\"logistics-service\\\"} |= \\\"DCSA\\\"\"}],\"range\":{\"from\":\"${__from}\",\"to\":\"${__to}\"}}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (outcome) (rate(freightflow_dcsa_notifications_total[$__rate_interval])) * 60",
+          "legendFormat": "{{outcome}}",
+          "exemplar": false
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Carrier events processed",
+      "description": "Stored DCSA events turned into milestones per minute, by outcome.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 42
+      },
+      "links": [
+        {
+          "title": "Traces of logistics-service in Tempo",
+          "targetBlank": true,
+          "url": "/explore?schemaVersion=1&panes={\"t\":{\"datasource\":\"tempo\",\"queries\":[{\"refId\":\"A\",\"datasource\":{\"type\":\"tempo\",\"uid\":\"tempo\"},\"queryType\":\"traceql\",\"query\":\"{resource.service.name=\\\"logistics-service\\\"}\"}],\"range\":{\"from\":\"${__from}\",\"to\":\"${__to}\"}}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (outcome) (rate(freightflow_dcsa_events_processed_total[$__rate_interval])) * 60",
+          "legendFormat": "{{outcome}}",
+          "exemplar": false
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Carrier poll age",
+      "description": "Seconds since each polled carrier last answered.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 42
+      },
+      "links": [
+        {
+          "title": "Logs of logistics-service in Loki",
+          "targetBlank": true,
+          "url": "/explore?schemaVersion=1&panes={\"l\":{\"datasource\":\"loki\",\"queries\":[{\"refId\":\"A\",\"datasource\":{\"type\":\"loki\",\"uid\":\"loki\"},\"expr\":\"{service_name=\\\"logistics-service\\\"} |= \\\"Polling DCSA\\\"\"}],\"range\":{\"from\":\"${__from}\",\"to\":\"${__to}\"}}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (carrier) (freightflow_dcsa_poll_age_seconds)",
+          "legendFormat": "{{carrier}}",
+          "exemplar": false
+        }
+      ]
     }
   ],
   "templating": {

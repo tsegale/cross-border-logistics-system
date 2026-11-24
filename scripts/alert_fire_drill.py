@@ -24,6 +24,8 @@ fixes are the real ones: an operator's retry and an operator's resend, through t
               and has one operator request and a second reject each quarantined rate (four eyes, ADR 0021).
            and the EU tariff subset is dated as if read ten days ago with its review due yesterday (simulated in the
               database, like the parked command); the drill puts the dates back.
+    phase  5  carriers (ADR 0037): the simulator sends a notification signed with the wrong key, and its events API
+              stops answering the poller (the workflow runs the carrier in POLL mode) until the drill restores it.
 
 Burn-rate alerts keep firing after the burn by design (a fast burn up to 30 minutes, a slow one for hours); the drill
 records that they fired, and their recovery is covered by promtool tests. Needs the stack with --profile observability,
@@ -60,7 +62,8 @@ EXPECTED = [
     "TransferAvailabilityBudgetBurnSlow", "PaymentCommandsParked", "ApprovalsNearExpiry", "OutboxStuck",
     "BookingAvailabilityBudgetBurnFast", "BookingAvailabilityBudgetBurnSlow", "BookingLatencyBudgetBurnFast",
     "BookingLatencyBudgetBurnSlow", "GatewayUpstreamErrors", "ContainerMemoryNearLimit", "FxReferenceRateStale",
-    "FxReferenceRateQuarantined", "CustomsTariffReviewOverdue",
+    "FxReferenceRateQuarantined", "CustomsTariffReviewOverdue", "CarrierWebhookSignaturesFailing",
+    "CarrierPollingBehind",
 ]
 # Burn-rate alerts outlast the drill: a fast burn keeps firing up to 30 minutes after the outage (its 6 h and 30 m
 # pair), a slow burn for hours. They must fire here; that they clear is proved by the promtool recovery tests.
@@ -368,6 +371,22 @@ def phase4_rates(watch: Watch, run: str) -> None:
     log("EU tariff subset dates restored")
 
 
+def carrier(path: str, settings: dict) -> None:
+    compose("exec", "-T", "partner-simulator", "python", "-c",
+            "import sys, urllib.request; urllib.request.urlopen(urllib.request.Request("
+            f"'http://127.0.0.1:8090{path}', data=sys.argv[1].encode(), method='POST'), timeout=15)",
+            json.dumps(settings))
+
+
+def phase5_carriers(watch: Watch) -> None:
+    log("phase 5: a forged carrier notification, and the carrier's events API down")
+    carrier("/_control/carrier/forge", {})
+    carrier("/_control/carrier", {"pollStatus": 503})
+    watch.wait_fired(["CarrierWebhookSignaturesFailing", "CarrierPollingBehind"], 12)
+    carrier("/_control/carrier", {"pollStatus": 200})
+    log("carrier events API answering again")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--json", help="write the evidence here")
@@ -387,6 +406,7 @@ def main() -> None:
         phase2_money(watch, account, run, second)
         phase3_bookings(watch, account, run)
         phase4_rates(watch, run)
+        phase5_carriers(watch)
         watch.wait_fired(["ReconciliationNotRunning"], 15)
         compose("up", "-d", "--wait", "--no-deps", "banking-service")
         log("banking-service back with its scheduled reconciliation")

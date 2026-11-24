@@ -72,6 +72,27 @@ groups:
           description: "Duty estimates use rates that may have changed: check the source and add a migration with the current rates."
           runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/customs-tariff-review.md
 
+  # Carrier events in DCSA Track and Trace (ADR 0037).
+  - name: carriers
+    rules:
+      - alert: CarrierWebhookSignaturesFailing
+        expr: sum by (carrier) (increase(freightflow_dcsa_notifications_total{outcome=~"signature-invalid|replay-rejected"}[10m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value | humanize }} carrier notification(s) refused for {{ $labels.carrier }} in 10 minutes"
+          description: "A bad signature, an unknown subscription or a replayed notification: a misconfigured carrier, a rotated secret, or someone forging tracking events."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/carrier-tracking.md
+      - alert: CarrierPollingBehind
+        expr: max by (carrier) (freightflow_dcsa_poll_age_seconds) > 300
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.carrier }} has not been polled successfully for {{ $value | humanizeDuration }}"
+          description: "The carrier's DCSA events API does not answer; its shipments' tracking is behind."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/carrier-tracking.md
+
   - name: events
     rules:
       - alert: OutboxStuck
