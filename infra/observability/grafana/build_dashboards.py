@@ -193,6 +193,22 @@ def money() -> Board:
     b.panel("Parked payment commands", "Commands out of attempts, waiting for an operator.",
             [("max(freightflow_payment_commands_parked)", "parked")], "short", kind="stat", width=8,
             links=[logs_link("logistics-service")], thresholds=[(1, "red")])
+    b.row("Reference rates")
+    b.panel("Reference rate age", "Working days the confirmed EUR/ZAR rate that prices is behind the one due, against "
+            "the limit past which FX is refused (ADR 0034). +Inf: no rate at all.",
+            [("max(freightflow_fx_reference_rate_age)", "age"),
+             ("max(freightflow_fx_reference_rate_max_age)", "limit")], "short", kind="stat", width=8,
+            links=[logs_link("banking-service", ' |= "Reference rate"')], thresholds=[(3, "red")])
+    b.panel("Quarantined rates", "Rates that failed a check and wait for two operators (RATE_CONFIRMATION).",
+            [("max(freightflow_fx_reference_rates_quarantined)", "quarantined")], "short", kind="stat", width=8,
+            links=[logs_link("banking-service", ' |= "quarantined"')], thresholds=[(1, "orange")])
+    b.panel("Rate source breakers", "1 while a source's breaker is open (ecb, bank-of-namibia): refreshes fail at once.",
+            [("max by (name) (resilience4j_circuitbreaker_state{service=\"banking-service\",state=\"open\"})",
+              "{{name}} open")], "short", kind="stat", width=8, links=[logs_link("banking-service")])
+    b.panel("Refreshes by outcome", "Stored, unchanged, empty or failed, per hour; a refresh only calls the ECB when a "
+            "newer rate is due.",
+            [("sum by (outcome) (increase(freightflow_fx_reference_rates_refreshes_total[1h]))", "{{outcome}}")],
+            "short", width=24, links=[logs_link("banking-service")])
     return b
 
 

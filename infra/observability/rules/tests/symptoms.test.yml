@@ -196,3 +196,54 @@ tests:
               summary: "freightflow-keycloak-1 uses 92.39% of its memory limit"
               description: "The limits are sized from measured peaks (ADR 0029); this one is close to being OOM-killed."
               runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/container-memory.md
+
+  - name: a stale reference rate pages, a quarantined one opens a ticket
+    interval: 1m
+    input_series:
+      # Fresh for 3 minutes, then 3 working days behind against a limit of 2; no rate at all reads +Inf.
+      - series: freightflow_fx_reference_rate_age{service="banking-service",pair="EUR/ZAR"}
+        values: 0 0 0 3 3 3 3 3 3 3 3 3
+      - series: freightflow_fx_reference_rate_max_age{service="banking-service"}
+        values: 2 2 2 2 2 2 2 2 2 2 2 2
+      - series: freightflow_fx_reference_rates_quarantined{service="banking-service"}
+        values: 0 1 1 1 1 1 1 1 1 1 1 1
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: FxReferenceRateStale
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: FxReferenceRateStale
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "The EUR/ZAR reference rate is 3 working day(s) behind the one due"
+              description: "Past the staleness limit: EUR quotes and cross-currency holds are refused with fx-rates-stale until a fresh rate is confirmed."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/fx-reference-rates.md
+      - eval_time: 5m
+        alertname: FxReferenceRateQuarantined
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: FxReferenceRateQuarantined
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: "1 reference rate(s) quarantined, waiting for two operators"
+              description: "A rate failed a check (a large move, off the NAD/ZAR peg, a closing day) and prices nothing until confirmed or rejected."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/fx-reference-rates.md
+
+  - name: no reference rate at all is stale too
+    interval: 1m
+    input_series:
+      - series: freightflow_fx_reference_rate_age{service="banking-service",pair="EUR/ZAR"}
+        values: +Inf +Inf +Inf +Inf +Inf +Inf +Inf
+      - series: freightflow_fx_reference_rate_max_age{service="banking-service"}
+        values: 2 2 2 2 2 2 2
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: FxReferenceRateStale
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "The EUR/ZAR reference rate is +Inf working day(s) behind the one due"
+              description: "Past the staleness limit: EUR quotes and cross-currency holds are refused with fx-rates-stale until a fresh rate is confirmed."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/fx-reference-rates.md

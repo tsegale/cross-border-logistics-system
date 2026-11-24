@@ -13,6 +13,7 @@ profile.
 | [ledger-drift](ledger-drift.md) | LedgerDrift, ReconciliationNotRunning |
 | [payment-commands-parked](payment-commands-parked.md) | PaymentCommandsParked |
 | [approvals-near-expiry](approvals-near-expiry.md) | ApprovalsNearExpiry |
+| [fx-reference-rates](fx-reference-rates.md) | FxReferenceRateStale, FxReferenceRateQuarantined |
 | [outbox-stuck](outbox-stuck.md) | OutboxStuck |
 | [consumer-lag](consumer-lag.md) | ConsumerLagHigh |
 | [dead-letters](dead-letters.md) | DeadLettersWaiting |

@@ -40,6 +40,28 @@ groups:
           description: "A deposit or reversal waits for a second operator and will expire undecided (ADR 0021)."
           runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/approvals-near-expiry.md
 
+  # Daily ECB reference rates (ADR 0034). Stale: FX quotes and cross-currency holds are being refused.
+  - name: fx
+    rules:
+      - alert: FxReferenceRateStale
+        expr: max(freightflow_fx_reference_rate_age) > max(freightflow_fx_reference_rate_max_age)
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "The EUR/ZAR reference rate is {{ $value }} working day(s) behind the one due"
+          description: "Past the staleness limit: EUR quotes and cross-currency holds are refused with fx-rates-stale until a fresh rate is confirmed."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/fx-reference-rates.md
+      - alert: FxReferenceRateQuarantined
+        expr: max(freightflow_fx_reference_rates_quarantined) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value }} reference rate(s) quarantined, waiting for two operators"
+          description: "A rate failed a check (a large move, off the NAD/ZAR peg, a closing day) and prices nothing until confirmed or rejected."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/fx-reference-rates.md
+
   - name: events
     rules:
       - alert: OutboxStuck

@@ -18,10 +18,15 @@ fixes are the real ones: an operator's retry and an operator's resend, through t
               (outbox stuck).
     phase  3  bookings: logistics' database stopped, then paused, while bookings continue (booking availability and
               latency budgets, gateway upstream errors), and a container filled to 92 % of its memory limit (container memory).
+    phase  4  reference rates (ADR 0034): the workflow starts the partner simulator three working days behind and the
+              Bank of Namibia 5 % off the NAD/ZAR peg, so banking's first rate is quarantined and there is no usable one
+              from the start (stale, quarantined). The drill puts both sources right, waits for a fresh confirmed rate,
+              and has one operator request and a second reject each quarantined rate (four eyes, ADR 0021).
 
 Burn-rate alerts keep firing after the burn by design (a fast burn up to 30 minutes, a slow one for hours); the drill
 records that they fired, and their recovery is covered by promtool tests. Needs the stack with --profile observability,
-infra/observability/observability.env and benchmarks/compose.bench.yml (Mailpit's API). About 40 minutes.
+infra/observability/observability.env and benchmarks/compose.bench.yml (Mailpit's API), and the partner simulator
+started lagging and off the peg (SIMULATOR_* in .github/workflows/fire-drill.yml). About 45 minutes.
 
     python3 scripts/alert_fire_drill.py --json drill.json
 """
@@ -52,7 +57,8 @@ EXPECTED = [
     "EmailsUnknown", "EmailDeliveryBudgetBurnFast", "EmailDeliveryBudgetBurnSlow", "TransferAvailabilityBudgetBurnFast",
     "TransferAvailabilityBudgetBurnSlow", "PaymentCommandsParked", "ApprovalsNearExpiry", "OutboxStuck",
     "BookingAvailabilityBudgetBurnFast", "BookingAvailabilityBudgetBurnSlow", "BookingLatencyBudgetBurnFast",
-    "BookingLatencyBudgetBurnSlow", "GatewayUpstreamErrors", "ContainerMemoryNearLimit",
+    "BookingLatencyBudgetBurnSlow", "GatewayUpstreamErrors", "ContainerMemoryNearLimit", "FxReferenceRateStale",
+    "FxReferenceRateQuarantined",
 ]
 # Burn-rate alerts outlast the drill: a fast burn keeps firing up to 30 minutes after the outage (its 6 h and 30 m
 # pair), a slow burn for hours. They must fire here; that they clear is proved by the promtool recovery tests.
@@ -321,6 +327,36 @@ def phase3_bookings(watch: Watch, account: str, run: str) -> None:
     subprocess.run(["docker", "rm", "-f", hog], capture_output=True)
 
 
+def simulator(settings: dict) -> None:
+    """Changes the partner simulator's behaviour through its control endpoint, inside the compose network."""
+    compose("exec", "-T", "partner-simulator", "python", "-c",
+            "import sys, urllib.request; urllib.request.urlopen(urllib.request.Request("
+            "'http://127.0.0.1:8090/_control', data=sys.argv[1].encode(), method='POST'), timeout=5)",
+            json.dumps(settings))
+
+
+def phase4_rates(watch: Watch, run: str) -> None:
+    log("phase 4: reference rates three working days old and off the peg since the start")
+    watch.wait_fired(["FxReferenceRateStale", "FxReferenceRateQuarantined"], 8)
+    simulator({"ecbLagWorkingDays": 0, "bonFactor": "1.0016"})
+    # banking checks every minute in the drill (FX_REFRESH_INTERVAL); a fresh day is backed by the Bank of Namibia.
+    deadline = time.monotonic() + 5 * 60
+    while time.monotonic() < deadline:
+        confirmed = harness.call("operator", "GET", "/api/v1/reference-rates?status=CONFIRMED&limit=1")["items"]
+        if confirmed:
+            log(f"reference rate for {confirmed[0]['valueDate']} confirmed")
+            break
+        time.sleep(10)
+    quarantined = harness.call("operator", "GET", "/api/v1/reference-rates?status=QUARANTINED&limit=100")["items"]
+    for index, rate in enumerate(quarantined):
+        approval = harness.call("operator", "POST", "/api/v1/approvals", {
+            "kind": "RATE_CONFIRMATION", "referenceRateId": rate["id"], "reason": "fire drill: checked, wrong"},
+            headers={"Idempotency-Key": f"drill-rate-{run}-{index}"}, expect=201)["id"]
+        harness.call("second-operator", "POST", f"/api/v1/approvals/{approval}/rejection",
+                     {"comment": "fire drill: the simulator was lagging and off the peg"})
+    log(f"rejected {len(quarantined)} quarantined reference rate(s) with four eyes")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--json", help="write the evidence here")
@@ -339,6 +375,7 @@ def main() -> None:
         phase1_emails(watch, account, run)
         phase2_money(watch, account, run, second)
         phase3_bookings(watch, account, run)
+        phase4_rates(watch, run)
         watch.wait_fired(["ReconciliationNotRunning"], 15)
         compose("up", "-d", "--wait", "--no-deps", "banking-service")
         log("banking-service back with its scheduled reconciliation")
