@@ -10,7 +10,7 @@ ENV RETRY_RESOLVER_1="-Daether.connector.http.retryHandler.count=3 -Daether.conn
 ENV MAVEN_ARGS="$RETRY_RESOLVER_1 -Daether.transport.http.retryHandler.count=3 -Daether.transport.http.retryHandler.interval=3000"
 # Maven Central's CDN has answered 404 for artifacts it holds (spring-boot-starter-parent 4.1.2, several CI runs), and
 # a 404 is never retried. Google's mirror of Maven Central is a second repository, asked for what Central does not
-# return; Central stays first.
+# return; Central stays first. A checksum mismatch fails the build on both (Maven's default only warns).
 COPY <<'SETTINGS' /usr/share/maven/conf/settings.xml
 <settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
   <profiles>
@@ -18,15 +18,29 @@ COPY <<'SETTINGS' /usr/share/maven/conf/settings.xml
       <id>central-fallback</id>
       <repositories>
         <repository>
+          <id>central</id>
+          <url>https://repo.maven.apache.org/maven2</url>
+          <releases><enabled>true</enabled><checksumPolicy>fail</checksumPolicy></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+        <repository>
           <id>google-maven-central</id>
           <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+          <releases><enabled>true</enabled><checksumPolicy>fail</checksumPolicy></releases>
           <snapshots><enabled>false</enabled></snapshots>
         </repository>
       </repositories>
       <pluginRepositories>
         <pluginRepository>
+          <id>central</id>
+          <url>https://repo.maven.apache.org/maven2</url>
+          <releases><enabled>true</enabled><checksumPolicy>fail</checksumPolicy></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </pluginRepository>
+        <pluginRepository>
           <id>google-maven-central</id>
           <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+          <releases><enabled>true</enabled><checksumPolicy>fail</checksumPolicy></releases>
           <snapshots><enabled>false</enabled></snapshots>
         </pluginRepository>
       </pluginRepositories>
