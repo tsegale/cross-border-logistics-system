@@ -101,6 +101,9 @@ class BankingFaultInjectionTest {
     static final GenericContainer<?> BANKING = new GenericContainer<>(DockerImageName.parse(BANKING_IMAGE))
             .withNetwork(NETWORK)
             .withNetworkAliases("banking-service")
+            // The internal CA's root where compose mounts it: banking's SSL bundle reads it at start (ADR 0039).
+            .withCopyToContainer(org.testcontainers.images.builder.Transferable.of(
+                    com.freightflow.logistics.support.TestCertificates.caPem(), 0644), "/tls/ca.pem")
             .withExposedPorts(8081)
             .waitingFor(Wait.forHttp("/actuator/health/readiness").forPort(8081)
                     .withStartupTimeout(Duration.ofMinutes(5)));

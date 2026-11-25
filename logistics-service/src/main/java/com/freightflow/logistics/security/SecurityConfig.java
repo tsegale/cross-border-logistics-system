@@ -104,15 +104,20 @@ public class SecurityConfig {
 
     @Bean
     JwtDecoder jwtDecoder(TokenProperties properties, org.springframework.beans.factory.ObjectProvider<Clock> clocks,
-                          SslBundles bundles) {
+                          org.springframework.beans.factory.ObjectProvider<SslBundles> bundles) {
         Clock clock = clocks.getIfAvailable(Clock::systemUTC);
         // A hung key endpoint must not hold requests: a key fetch is bounded like any other outbound call. Keycloak
-        // answers over HTTPS, verified by name against the internal CA's root (ADR 0039).
+        // answers over HTTPS, verified by name against the internal CA's root (ADR 0039). A test slice has no SSL
+        // auto-configuration and no bundles; its decoder never fetches keys.
+        HttpClientSettings settings = HttpClientSettings.defaults()
+                .withTimeouts(properties.jwksTimeout(), properties.jwksTimeout());
+        SslBundles available = bundles.getIfAvailable();
+        if (available != null) {
+            settings = settings.withSslBundle(available.getBundle("internal"));
+        }
         RestTemplate keys = new RestTemplate(ClientHttpRequestFactoryBuilder.jdk()
                 .withHttpClientCustomizer(client -> client.version(java.net.http.HttpClient.Version.HTTP_1_1))
-                .build(HttpClientSettings.defaults()
-                        .withTimeouts(properties.jwksTimeout(), properties.jwksTimeout())
-                        .withSslBundle(bundles.getBundle("internal"))));
+                .build(settings));
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(properties.jwkSetUri())
                 .jwsAlgorithm(SignatureAlgorithm.RS256)
                 .restOperations(keys)
