@@ -25,7 +25,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * another CA each get. The server runs with its real connector, its certificate from the test CA.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"freightflow.warm-up.enabled=false", "freightflow.banking.fx.reference.provider=static"})
+        properties = {"freightflow.warm-up.enabled=false", "freightflow.banking.fx.reference.provider=static",
+                // One more cached context beside the others: a small pool, the database's connections are shared.
+                "spring.datasource.hikari.maximum-pool-size=2", "spring.datasource.hikari.minimum-idle=1"})
 class CallerCertificateIntegrationTest extends IntegrationTest {
 
     static final String PATH = "/api/v1/accounts";

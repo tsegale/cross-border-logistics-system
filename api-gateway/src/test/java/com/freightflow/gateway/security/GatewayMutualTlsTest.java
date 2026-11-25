@@ -65,7 +65,10 @@ class GatewayMutualTlsTest {
             server.setHttpsConfigurator(new HttpsConfigurator(tls) {
                 @Override
                 public void configure(HttpsParameters parameters) {
-                    parameters.setNeedClientAuth(true);
+                    // Through SSLParameters: Java 21's server took setNeedClientAuth alone as a request it never sent.
+                    javax.net.ssl.SSLParameters ssl = tls.getDefaultSSLParameters();
+                    ssl.setNeedClientAuth(true);
+                    parameters.setSSLParameters(ssl);
                 }
             });
             server.createContext("/", exchange -> {

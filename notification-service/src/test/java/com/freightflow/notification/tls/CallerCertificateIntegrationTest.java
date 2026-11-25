@@ -24,7 +24,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * and in addition to it: what an expected caller, an unexpected one, a client without a certificate and one from
  * another CA each get. The server runs with its real connector, its certificate from the test CA.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        // One more cached context beside the others: a small pool, the database's connections are shared.
+        "spring.datasource.hikari.maximum-pool-size=2", "spring.datasource.hikari.minimum-idle=1"})
 class CallerCertificateIntegrationTest extends IntegrationTest {
 
     static final String PATH = "/api/v1/notifications";
