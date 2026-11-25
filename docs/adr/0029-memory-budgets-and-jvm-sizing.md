@@ -31,11 +31,14 @@ and the benchmarks, with headroom; **every JVM sizes its heap from its own limit
 | redis | 32m | 8 | 4 | 8 | |
 | partner-simulator | 48m | | | | Python, stdlib only; 14.7 MiB after the laptop's cold start and smoke test (ADR 0034) |
 | kafka-init | 256m | 137 | (exits first) | 84 | `KAFKA_HEAP_OPTS=-Xmx128m` |
+| ca | 64m | | | | step-ca (ADR 0039); 53.7 MiB on the laptop after the stack's cold start |
+| cert-agent | 32m | | | | step CLI and sh (ADR 0039); 13.1 MiB between checks on the laptop |
 | debug-ports (profile debug) | 32m | | | | socat |
 
 MiB throughout; smoke-test peaks from CI run 44887512287, benchmark peaks (payment flow at 16 VUs, the events suite
 with a broker outage) from run 44899628552 (Intel Xeon 6975P-C, 4 vCPUs); docs/benchmarks/memory.md. **The running default stack's limits
-add up to 3,776 MiB** (3,728 before the partner simulator), inside the 3,784 MiB of a 3.7 GiB VM; its measured peaks add up to 2,558 MiB under the smoke
+add up to 3,872 MiB** (3,776 before the CA and its agent, 3,728 before the partner simulator), 88 MiB past the 3,784 MiB
+of a 3.7 GiB VM: limits are ceilings, not reservations, and no two containers peak at once; its measured peaks add up to 2,558 MiB under the smoke
 test and about 2,840 MiB under the benchmarks.
 
 **On the laptop** (Intel Core i5-1135G7, 8 threads, 7.7 GiB; Docker Desktop's VM 3,784 MiB) the default stack

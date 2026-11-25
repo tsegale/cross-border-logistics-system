@@ -60,7 +60,8 @@ RUN --mount=type=cache,id=m2-banking-service,target=/root/.m2 mvn -B -q package 
 
 # ---- runtime ----
 FROM eclipse-temurin:21-jre-alpine
-RUN addgroup -S app && adduser -S app -G app
+# A fixed uid and gid (10001): the certificate agent gives this group its key (ADR 0039).
+RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
 WORKDIR /app
 # Layered jar: dependencies change rarely, so they get their own cached image layers.
 COPY --from=build /src/target/extracted/dependencies/ ./
