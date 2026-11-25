@@ -74,7 +74,14 @@ class HoldTraceIntegrationTest extends IntegrationTest {
         assertThat(jdbcTemplate.queryForObject("SELECT traceparent FROM event_outbox WHERE aggregate_id = ? "
                 + "AND event_type = 'hold.authorised'", String.class, hold)).contains(traceId);
 
-        relay.relayOnce();
+        // Test classes share this database and run in random order: another may have left more unpublished events
+        // than one relay batch claims, so relay until this hold's event is out or nothing is left to claim.
+        for (int round = 0; round < 100 && unpublished(hold) > 0; round++) {
+            if (relay.relayOnce() == 0) {
+                break;
+            }
+        }
+        assertThat(unpublished(hold)).as("the hold's event was relayed").isZero();
 
         List<SpanData> spans = TestSpans.trace(traceId, found -> TestSpans.names(found).contains("event-outbox relay"));
         assertThat(spans).filteredOn(span -> span.getName().equals("http post /api/v1/holds")).singleElement()
@@ -85,5 +92,11 @@ class HoldTraceIntegrationTest extends IntegrationTest {
                         .contains("freightflow.event.type=hold.authorised"));
         assertThat(TelemetryLeaks.in(spans)).isEmpty();
         assertThat(TelemetryLeaks.in(output.getAll())).isEmpty();
+    }
+
+    private int unpublished(UUID hold) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM event_outbox WHERE aggregate_id = ? AND published_at IS NULL", Integer.class, hold);
+        return count == null ? 0 : count;
     }
 }

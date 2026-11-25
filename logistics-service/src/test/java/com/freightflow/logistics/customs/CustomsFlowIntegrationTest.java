@@ -1,5 +1,7 @@
 package com.freightflow.logistics.customs;
 
+import com.freightflow.logistics.support.Relays;
+import java.time.Clock;
 import com.freightflow.logistics.payment.PaymentCommandRelay;
 import com.freightflow.logistics.security.Caller;
 import com.freightflow.logistics.support.BankingStub;
@@ -52,6 +54,9 @@ class CustomsFlowIntegrationTest extends IntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private Clock clock;
 
     @Test
     void namibianHakeWithAnApprovedExportersDeclarationIsQuotedDutyFreeAndTheVatIsCollected() throws Exception {
@@ -132,11 +137,11 @@ class CustomsFlowIntegrationTest extends IntegrationTest {
                 .isEqualByComparingTo(due);
 
         BankingStub.SERVER.stubFor(BankingStubs.holdFor(shipment).willReturn(respond(BankingStubs.HOLD_CREATED)));
-        relay.relayOnce();
+        relayFor(shipment);
         BankingStub.SERVER.stubFor(BankingStubs.capture().willReturn(respond(BankingStubs.CAPTURED)));
         mockMvc.perform(LogisticsFixtures.eventRequest(shipment.toString(), "PICKUP-" + shipment, "PICKED_UP",
                 "2026-04-19T08:00:00Z")).andExpect(status().isCreated());
-        relay.relayOnce();
+        relayFor(shipment);
         BankingStub.SERVER.verify(1, postRequestedFor(urlPathMatching("/api/v1/holds/.+/capture"))
                 .withRequestBody(equalToJson("{\"amount\":" + due.toPlainString() + ",\"disbursementAmount\":"
                         + estimate.toPlainString() + "}")));
@@ -160,7 +165,7 @@ class CustomsFlowIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.status").value("CONFIRMED"));
 
         BankingStub.SERVER.stubFor(BankingStubs.customsSettlement().willReturn(respond(BankingStubs.CUSTOMS_SETTLED)));
-        relay.relayOnce();
+        relayFor(shipment);
         BankingStub.SERVER.verify(1, postRequestedFor(urlPathMatching("/api/v1/holds/.+/customs-settlement"))
                 .withRequestBody(equalToJson("{\"assessedAmount\":" + assessedVat.toPlainString()
                         + ",\"authorityReference\":\"26DE470100123456E1\"}")));
@@ -205,5 +210,10 @@ class CustomsFlowIntegrationTest extends IntegrationTest {
         return """
                 {"type":"ORIGIN_DECLARATION","reference":"INV-2026-0412","issuedOn":"%s","approvedExporterNumber":"NA/AE/0042"}
                 """.formatted(LocalDate.now(ZoneOffset.UTC));
+    }
+
+    /** One relay run for these shipments' commands, however many other tests left due (see {@link Relays}). */
+    private void relayFor(Object... shipments) {
+        Relays.payments(relay::relayOnce, jdbcTemplate, clock, shipments);
     }
 }

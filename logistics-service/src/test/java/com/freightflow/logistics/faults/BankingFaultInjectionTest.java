@@ -1,5 +1,7 @@
 package com.freightflow.logistics.faults;
 
+import com.freightflow.logistics.support.Relays;
+import java.time.Clock;
 import com.freightflow.logistics.banking.BankingTokenCache;
 import com.freightflow.logistics.payment.PaymentCommandRelay;
 import com.freightflow.logistics.support.SharedContainers;
@@ -61,6 +63,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "spring.datasource.hikari.minimum-idle=2",
         "freightflow.logistics.payments.relay-enabled=false",
+        "freightflow.logistics.dcsa.processing-enabled=false",
         "spring.http.serviceclient.banking.connect-timeout=500ms",
         "spring.http.serviceclient.banking.read-timeout=3s",
         "freightflow.logistics.banking.retry.max-retries=2",
@@ -160,6 +163,9 @@ class BankingFaultInjectionTest {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
+    private Clock clock;
+
+    @Autowired
     private CircuitBreakerRegistry breakers;
 
     @Autowired
@@ -227,13 +233,13 @@ class BankingFaultInjectionTest {
         // Requests reach banking at once; its answers take longer than logistics waits. Banking commits the hold.
         proxy.toxics().latency("slow-answers", ToxicDirection.DOWNSTREAM, 4_000);
 
-        relay.relayOnce();
+        relayFor(shipment);
         assertThat(shipmentStatus(shipment)).isEqualTo("AWAITING_PAYMENT");
         assertThat(commandStatus(shipment)).isEqualTo("PENDING");
 
         proxy.toxics().get("slow-answers").remove();
         makeDue(shipment);
-        relay.relayOnce();
+        relayFor(shipment);
 
         assertThat(shipmentStatus(shipment)).isEqualTo("BOOKED");
         assertExactlyOneHoldAndACleanLedger(shipment);
@@ -244,13 +250,13 @@ class BankingFaultInjectionTest {
         String shipment = book();
         proxy.disable();
 
-        relay.relayOnce();
+        relayFor(shipment);
         assertThat(commandStatus(shipment)).isEqualTo("PENDING");
         assertThat(holds(shipment)).isEmpty();
 
         proxy.enable();
         makeDue(shipment);
-        relay.relayOnce();
+        relayFor(shipment);
 
         assertThat(shipmentStatus(shipment)).isEqualTo("BOOKED");
         assertExactlyOneHoldAndACleanLedger(shipment);
@@ -262,13 +268,13 @@ class BankingFaultInjectionTest {
         // Banking reads the request, commits the hold and answers; the proxy cuts the answer after one byte.
         proxy.toxics().limitData("lose-the-answer", ToxicDirection.DOWNSTREAM, 1);
 
-        relay.relayOnce();
+        relayFor(shipment);
         assertThat(shipmentStatus(shipment)).isEqualTo("AWAITING_PAYMENT");
         assertThat(holds(shipment)).as("banking committed the hold before the answer was lost").hasSize(1);
 
         proxy.toxics().get("lose-the-answer").remove();
         makeDue(shipment);
-        relay.relayOnce();
+        relayFor(shipment);
 
         assertThat(shipmentStatus(shipment)).isEqualTo("BOOKED");
         String holdId = jdbcTemplate.queryForObject("SELECT hold_id::text FROM shipments WHERE id = ?::uuid",
@@ -282,7 +288,7 @@ class BankingFaultInjectionTest {
         String shipment = book();
         BANKING_DB.getDockerClient().pauseContainerCmd(BANKING_DB.getContainerId()).exec();
         try {
-            relay.relayOnce();
+            relayFor(shipment);
         } finally {
             BANKING_DB.getDockerClient().unpauseContainerCmd(BANKING_DB.getContainerId()).exec();
         }
@@ -290,7 +296,7 @@ class BankingFaultInjectionTest {
         assertThat(lastError(shipment)).containsAnyOf("503", "ResourceAccessException");
 
         makeDue(shipment);
-        relay.relayOnce();
+        relayFor(shipment);
 
         assertThat(shipmentStatus(shipment)).isEqualTo("BOOKED");
         assertExactlyOneHoldAndACleanLedger(shipment);
@@ -305,7 +311,7 @@ class BankingFaultInjectionTest {
         CircuitBreaker breaker = breakers.circuitBreaker("banking");
         proxy.disable();
 
-        relay.relayOnce();
+        relayFor(shipments.toArray());
         assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
         // Calls refused by the open breaker never reached banking and did not use up an attempt.
         Integer attempts = jdbcTemplate.queryForObject(
@@ -326,7 +332,7 @@ class BankingFaultInjectionTest {
             for (String shipment : shipments) {
                 makeDue(shipment);
             }
-            relay.relayOnce();
+            relayFor(shipments.toArray());
         }
 
         assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
@@ -348,7 +354,7 @@ class BankingFaultInjectionTest {
         try {
             for (int run = 0; run < 3; run++) {
                 makeDue(shipment);
-                relay.relayOnce();
+                relayFor(shipment);
             }
             // No token, so nothing was sent: still pending, and no attempt used up (ADR 0019).
             assertThat(commandStatus(shipment)).isEqualTo("PENDING");
@@ -361,13 +367,18 @@ class BankingFaultInjectionTest {
         }
         breakers.circuitBreaker("banking").reset();
         makeDue(shipment);
-        relay.relayOnce();
+        relayFor(shipment);
 
         assertThat(shipmentStatus(shipment)).isEqualTo("BOOKED");
         assertExactlyOneHoldAndACleanLedger(shipment);
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** One relay run for these shipments' commands, however many other tests left due (see {@link Relays}). */
+    private void relayFor(Object... shipments) {
+        Relays.payments(relay::relayOnce, jdbcTemplate, clock, shipments);
+    }
 
     /** Books a shipment paid from the funded payer: its AUTHORISE command is the only one this test adds. */
     private String book() throws Exception {

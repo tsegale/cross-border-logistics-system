@@ -1,5 +1,6 @@
 package com.freightflow.logistics.payment;
 
+import com.freightflow.logistics.support.Relays;
 import com.freightflow.logistics.support.BankingStub;
 import com.freightflow.logistics.support.BankingStubs;
 import com.freightflow.logistics.support.IntegrationTest;
@@ -91,7 +92,7 @@ class HoldRenewalIntegrationTest extends IntegrationTest {
         Instant target = pickup.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().plus(Duration.ofDays(3));
         String shipment = fixtures.bookShipment(pickup).get("id").asString();
 
-        relay.relayOnce();
+        relayFor(shipment);
         Instant first = holdExpiry(shipment);
         assertThat(first).isEqualTo(clock.instant().plus(Duration.ofDays(29)));
         assertThat(requestedExpiries("/api/v1/holds")).containsExactly(first.toString());
@@ -104,14 +105,14 @@ class HoldRenewalIntegrationTest extends IntegrationTest {
         clock.advance(Duration.ofDays(2));
         assertThat(renewals.renewDue()).isEqualTo(1);
         assertThat(renewals.renewDue()).as("one open extension per shipment").isZero();
-        relay.relayOnce();
+        relayFor(shipment);
         Instant second = holdExpiry(shipment);
         assertThat(second).isEqualTo(clock.instant().plus(Duration.ofDays(29)));
 
         // The next extension reaches the pickup target, and after that nothing more is needed.
         clock.advance(Duration.ofDays(27));
         assertThat(renewals.renewDue()).isEqualTo(1);
-        relay.relayOnce();
+        relayFor(shipment);
         assertThat(holdExpiry(shipment)).isEqualTo(target);
         clock.advance(Duration.ofDays(4));
         assertThat(renewals.renewDue()).isZero();
@@ -128,7 +129,7 @@ class HoldRenewalIntegrationTest extends IntegrationTest {
         // Picked up on the planned day: the hold is still active and is captured.
         mockMvc.perform(eventRequest(shipment, "PICKUP-1", "PICKED_UP", clock.instant().toString()))
                 .andExpect(status().isCreated());
-        relay.relayOnce();
+        relayFor(shipment);
         assertThat(paymentOf(shipment).get("status").asString()).isEqualTo("CAPTURED");
     }
 
@@ -136,13 +137,13 @@ class HoldRenewalIntegrationTest extends IntegrationTest {
     void anExtensionLosingTheRaceToTheCaptureIsMoot() throws Exception {
         LocalDate pickup = LocalDate.ofInstant(clock.instant(), ZoneOffset.UTC).plusDays(40);
         String shipment = fixtures.bookShipment(pickup).get("id").asString();
-        relay.relayOnce();
+        relayFor(shipment);
         Instant first = holdExpiry(shipment);
 
         clock.advance(Duration.ofDays(27));
         assertThat(renewals.renewDue()).isEqualTo(1);
         BankingStub.SERVER.stubFor(BankingStubs.extend().willReturn(respond(BankingStubs.EXTEND_AFTER_CAPTURE)));
-        relay.relayOnce();
+        relayFor(shipment);
 
         PaymentCommand extension = commands.findByShipmentIdOrderByCreatedAtAsc(UUID.fromString(shipment)).stream()
                 .filter(c -> c.getCommand() == PaymentCommandType.EXTEND).findFirst().orElseThrow();
@@ -155,12 +156,12 @@ class HoldRenewalIntegrationTest extends IntegrationTest {
     void anExtensionBankingRefusesFlagsThePaymentForAnOperator() throws Exception {
         LocalDate pickup = LocalDate.ofInstant(clock.instant(), ZoneOffset.UTC).plusDays(40);
         String shipment = fixtures.bookShipment(pickup).get("id").asString();
-        relay.relayOnce();
+        relayFor(shipment);
 
         clock.advance(Duration.ofDays(27));
         renewals.renewDue();
         BankingStub.SERVER.stubFor(BankingStubs.extend().willReturn(respond(BankingStubs.EXTEND_BEYOND_LIFETIME)));
-        relay.relayOnce();
+        relayFor(shipment);
 
         JsonNode payment = paymentOf(shipment);
         assertThat(payment.get("status").asString()).isEqualTo("FAILED");
@@ -171,7 +172,7 @@ class HoldRenewalIntegrationTest extends IntegrationTest {
     void shipmentsThatAreNotWaitingForPickupAreLeftAlone() throws Exception {
         LocalDate pickup = LocalDate.ofInstant(clock.instant(), ZoneOffset.UTC).plusDays(40);
         String pickedUp = fixtures.bookShipment(pickup).get("id").asString();
-        relay.relayOnce();
+        relayFor(pickedUp);
         mockMvc.perform(eventRequest(pickedUp, "PICKUP-2", "PICKED_UP", clock.instant().toString()))
                 .andExpect(status().isCreated());
 
@@ -180,6 +181,11 @@ class HoldRenewalIntegrationTest extends IntegrationTest {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** One relay run for these shipments' commands, however many other tests left due (see {@link Relays}). */
+    private void relayFor(Object... shipments) {
+        Relays.payments(relay::relayOnce, jdbcTemplate, clock, shipments);
+    }
 
     /** Responds with the hold, its expiry set to the one the request asked for. */
     private static com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder echoExpiry(int status) {

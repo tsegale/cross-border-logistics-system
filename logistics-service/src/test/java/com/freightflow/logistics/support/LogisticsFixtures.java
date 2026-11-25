@@ -122,8 +122,16 @@ public final class LogisticsFixtures {
         JsonNode shipment = bookShipment();
         UUID id = UUID.fromString(shipment.get("id").asString());
         BankingStub.SERVER.stubFor(BankingStubs.holdFor(id).willReturn(BankingStubs.respond(BankingStubs.HOLD_CREATED)));
-        relay.relayOnce();
-        JsonNode booked = json(mockMvc.perform(get("/api/v1/shipments/{id}", id)).andExpect(status().isOk()).andReturn());
+        // Other test classes may have left more due commands than one relay batch claims (see Relays): relay until
+        // this shipment is booked or nothing is left to claim.
+        JsonNode booked = shipment;
+        for (int round = 0; round < 100 && !"BOOKED".equals(booked.get("status").asString()); round++) {
+            int claimed = relay.relayOnce();
+            booked = json(mockMvc.perform(get("/api/v1/shipments/{id}", id)).andExpect(status().isOk()).andReturn());
+            if (claimed == 0) {
+                break;
+            }
+        }
         if (!"BOOKED".equals(booked.get("status").asString())) {
             throw new IllegalStateException("shipment " + id + " was not booked: " + booked);
         }

@@ -1,5 +1,7 @@
 package com.freightflow.logistics.events;
 
+import com.freightflow.logistics.support.Relays;
+import java.time.Clock;
 import com.freightflow.logistics.payment.PaymentCommandRelay;
 import com.freightflow.logistics.support.BankingStub;
 import com.freightflow.logistics.support.BankingStubs;
@@ -46,6 +48,9 @@ class EventContractIntegrationTest extends IntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private Clock clock;
+
     private LogisticsFixtures fixtures;
 
     @BeforeEach
@@ -61,7 +66,7 @@ class EventContractIntegrationTest extends IntegrationTest {
         UUID refused = UUID.fromString(fixtures.bookShipment().get("id").asString());
         BankingStub.SERVER.stubFor(BankingStubs.holdFor(refused)
                 .willReturn(respond(BankingStubs.HOLD_INSUFFICIENT_FUNDS)));
-        relay.relayOnce();
+        relayFor(refused, paid);
 
         UUID cancelled = UUID.fromString(fixtures.bookShipment().get("id").asString());
         mockMvc.perform(post("/api/v1/shipments/{id}/cancellation", cancelled).header(HttpHeaders.IF_MATCH, "\"0\"")
@@ -129,5 +134,10 @@ class EventContractIntegrationTest extends IntegrationTest {
     private java.util.Set<String> types(UUID... aggregates) {
         return Arrays.stream(aggregates).flatMap(id -> envelopes(id).stream())
                 .map(event -> event.path("type").asString()).collect(java.util.stream.Collectors.toSet());
+    }
+
+    /** One relay run for these shipments' commands, however many other tests left due (see {@link Relays}). */
+    private void relayFor(Object... shipments) {
+        Relays.payments(relay::relayOnce, jdbcTemplate, clock, shipments);
     }
 }

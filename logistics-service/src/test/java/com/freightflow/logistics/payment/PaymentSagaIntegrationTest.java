@@ -1,5 +1,7 @@
 package com.freightflow.logistics.payment;
 
+import com.freightflow.logistics.support.Relays;
+import java.time.Clock;
 import com.freightflow.logistics.support.BankingStub;
 import com.freightflow.logistics.support.BankingStubs;
 import com.freightflow.logistics.support.IntegrationTest;
@@ -50,6 +52,9 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private Clock clock;
+
     private LogisticsFixtures fixtures;
 
     @BeforeEach
@@ -73,7 +78,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         String shipment = fixtures.bookShipment().get("id").asString();
         BankingStub.SERVER.stubFor(BankingStubs.createHold().willReturn(respond(BankingStubs.HOLD_CREATED)));
 
-        relay.relayOnce();
+        relayFor(shipment);
 
         mockMvc.perform(get("/api/v1/shipments/{id}", shipment))
                 .andExpect(jsonPath("$.status").value("BOOKED"))
@@ -88,8 +93,8 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         String shipment = fixtures.bookShipment().get("id").asString();
         BankingStub.SERVER.stubFor(BankingStubs.createHold().willReturn(respond(BankingStubs.HOLD_INSUFFICIENT_FUNDS)));
 
-        relay.relayOnce();
-        relay.relayOnce();
+        relayFor(shipment);
+        relayFor(shipment);
 
         mockMvc.perform(get("/api/v1/shipments/{id}", shipment))
                 .andExpect(jsonPath("$.status").value("PAYMENT_FAILED"))
@@ -105,7 +110,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         String shipment = fixtures.bookShipment().get("id").asString();
         BankingStub.SERVER.stubFor(BankingStubs.createHold().willReturn(respond(BankingStubs.BANKING_UNAVAILABLE)));
 
-        relay.relayOnce();
+        relayFor(shipment);
         mockMvc.perform(get("/api/v1/shipments/{id}", shipment)).andExpect(jsonPath("$.status").value("AWAITING_PAYMENT"));
         PaymentCommand pending = command(shipment, PaymentCommandType.AUTHORISE);
         assertThat(pending.getStatus()).isEqualTo(PaymentCommandStatus.PENDING);
@@ -114,7 +119,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         BankingStub.SERVER.resetAll();
         BankingStub.SERVER.stubFor(BankingStubs.createHold().willReturn(respond(BankingStubs.HOLD_CREATED)));
         makeDue(shipment);
-        relay.relayOnce();
+        relayFor(shipment);
 
         mockMvc.perform(get("/api/v1/shipments/{id}", shipment)).andExpect(jsonPath("$.status").value("BOOKED"));
         BankingStub.SERVER.verify(postRequestedFor(urlPathEqualTo("/api/v1/holds"))
@@ -127,7 +132,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         BankingStub.SERVER.stubFor(BankingStubs.createHold()
                 .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
 
-        relay.relayOnce();
+        relayFor(shipment);
 
         PaymentCommand pending = command(shipment, PaymentCommandType.AUTHORISE);
         assertThat(pending.getStatus()).isEqualTo(PaymentCommandStatus.PENDING);
@@ -139,7 +144,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         String shipment = fixtures.bookShipment().get("id").asString();
         BankingStub.SERVER.stubFor(BankingStubs.createHold().willReturn(respond(BankingStubs.HOLD_IN_FLIGHT)));
 
-        relay.relayOnce();
+        relayFor(shipment);
 
         assertThat(command(shipment, PaymentCommandType.AUTHORISE).getStatus()).isEqualTo(PaymentCommandStatus.PENDING);
     }
@@ -150,7 +155,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         BankingStub.SERVER.stubFor(BankingStubs.createHold().willReturn(respond(BankingStubs.BANKING_UNAVAILABLE)));
         for (int i = 0; i < 8; i++) {
             makeDue(shipment);
-            relay.relayOnce();
+            relayFor(shipment);
         }
         PaymentCommand parked = command(shipment, PaymentCommandType.AUTHORISE);
         assertThat(parked.getStatus()).isEqualTo(PaymentCommandStatus.PARKED);
@@ -169,7 +174,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.attempts").value(0));
         BankingStub.SERVER.resetAll();
         BankingStub.SERVER.stubFor(BankingStubs.createHold().willReturn(respond(BankingStubs.HOLD_CREATED)));
-        relay.relayOnce();
+        relayFor(shipment);
 
         mockMvc.perform(get("/api/v1/shipments/{id}", shipment)).andExpect(jsonPath("$.status").value("BOOKED"));
         mockMvc.perform(post("/api/v1/payment-commands/{id}/retry", parked.getId()))
@@ -184,7 +189,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
 
         fixtures.recordEvent(shipment, "PICKUP", "PICKED_UP", "2026-04-19T08:00:00Z");
         assertThat(paymentStatus(shipment)).isEqualTo("CAPTURE_PENDING");
-        relay.relayOnce();
+        relayFor(shipment);
 
         assertThat(paymentStatus(shipment)).isEqualTo("CAPTURED");
         BankingStub.SERVER.verify(1, postRequestedFor(urlPathMatching("/api/v1/holds/.+/capture"))
@@ -197,7 +202,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         BankingStub.SERVER.stubFor(BankingStubs.capture().willReturn(respond(BankingStubs.CAPTURED)));
 
         fixtures.recordEvent(shipment, "DEPARTED", "IN_TRANSIT", "2026-04-21T06:00:00Z");
-        relay.relayOnce();
+        relayFor(shipment);
 
         assertThat(paymentStatus(shipment)).isEqualTo("CAPTURED");
     }
@@ -208,7 +213,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         BankingStub.SERVER.stubFor(BankingStubs.capture().willReturn(respond(BankingStubs.CAPTURE_ALREADY_DONE)));
 
         fixtures.recordEvent(shipment, "PICKUP", "PICKED_UP", "2026-04-19T08:00:00Z");
-        relay.relayOnce();
+        relayFor(shipment);
 
         assertThat(paymentStatus(shipment)).isEqualTo("CAPTURED");
     }
@@ -219,7 +224,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         BankingStub.SERVER.stubFor(BankingStubs.capture().willReturn(respond(BankingStubs.CAPTURE_HOLD_EXPIRED)));
 
         fixtures.recordEvent(shipment, "PICKUP", "PICKED_UP", "2026-04-19T08:00:00Z");
-        relay.relayOnce();
+        relayFor(shipment);
 
         mockMvc.perform(get("/api/v1/shipments/{id}", shipment))
                 .andExpect(jsonPath("$.status").value("PICKED_UP"))
@@ -234,7 +239,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
 
         cancel(shipment);
         assertThat(paymentStatus(shipment)).isEqualTo("RELEASE_PENDING");
-        relay.relayOnce();
+        relayFor(shipment);
 
         assertThat(paymentStatus(shipment)).isEqualTo("RELEASED");
         BankingStub.SERVER.verify(1, postRequestedFor(urlPathMatching("/api/v1/holds/.+/release"))
@@ -248,8 +253,8 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
         BankingStub.SERVER.stubFor(BankingStubs.createHold().willReturn(respond(BankingStubs.HOLD_CREATED)));
         BankingStub.SERVER.stubFor(BankingStubs.release().willReturn(respond(BankingStubs.RELEASED)));
 
-        relay.relayOnce();
-        relay.relayOnce();
+        relayFor(shipment);
+        relayFor(shipment);
 
         mockMvc.perform(get("/api/v1/shipments/{id}", shipment))
                 .andExpect(jsonPath("$.status").value("CANCELLED"))
@@ -268,6 +273,11 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** One relay run for these shipments' commands, however many other tests left due (see {@link Relays}). */
+    private void relayFor(Object... shipments) {
+        Relays.payments(relay::relayOnce, jdbcTemplate, clock, shipments);
+    }
 
     private void cancel(String shipment) throws Exception {
         mockMvc.perform(post("/api/v1/shipments/{id}/cancellation", shipment)

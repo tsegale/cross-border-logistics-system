@@ -1,5 +1,7 @@
 package com.freightflow.logistics.events;
 
+import com.freightflow.logistics.support.Relays;
+import java.time.Clock;
 import com.freightflow.logistics.payment.PaymentCommand;
 import com.freightflow.logistics.payment.PaymentCommandRelay;
 import com.freightflow.logistics.payment.PaymentCommandRepository;
@@ -77,6 +79,9 @@ class HoldEventConsumerIntegrationTest extends IntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
+    private Clock clock;
+
+    @Autowired
     private MeterRegistry meters;
 
     private LogisticsFixtures fixtures;
@@ -104,7 +109,7 @@ class HoldEventConsumerIntegrationTest extends IntegrationTest {
                 .withHeader("Idempotency-Key", equalTo(reauthorise.getIdempotencyKey()))
                 .willReturn(aResponse().withStatus(201).withHeader("Content-Type", "application/json")
                         .withBody(BankingStubs.hold("ACTIVE", "null").replace(BankingStubs.HOLD_ID, newHold))));
-        relay.relayOnce();
+        relayFor(shipment);
 
         Shipment paidAgain = shipments.findById(shipment).orElseThrow();
         assertThat(paidAgain.getStatus()).isEqualTo(ShipmentStatus.BOOKED);
@@ -233,6 +238,11 @@ class HoldEventConsumerIntegrationTest extends IntegrationTest {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** One relay run for these shipments' commands, however many other tests left due (see {@link Relays}). */
+    private void relayFor(Object... shipments) {
+        Relays.payments(relay::relayOnce, jdbcTemplate, clock, shipments);
+    }
 
     /** The schema's example, made about this shipment and hold; it still matches the schema. */
     private static String holdEvent(String type, UUID shipment, UUID hold, UUID eventId) {
