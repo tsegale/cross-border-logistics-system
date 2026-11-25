@@ -84,6 +84,9 @@ class DcsaTrackingIntegrationTest extends IntegrationTest {
 
     private LogisticsFixtures fixtures;
 
+    @Autowired
+    private io.micrometer.core.instrument.MeterRegistry meters;
+
     @BeforeEach
     void fixtures() {
         fixtures = new LogisticsFixtures(mockMvc, relay);
@@ -153,6 +156,15 @@ class DcsaTrackingIntegrationTest extends IntegrationTest {
         String future = notification(equipment("GTIN", container, "NAWVB", Instant.now().plus(Duration.ofHours(1))));
         mockMvc.perform(push(CARRIER, SUBSCRIPTION, future, null)).andExpect(status().isBadRequest());
         assertThat(count("SELECT count(*) FROM dcsa_events WHERE equipment_reference = ?", container)).isEqualTo(1);
+    }
+
+    @Test
+    void everyCarriersRefusalSeriesExistsBeforeItsFirstRefusal() {
+        // increase() needs two samples: a series born with the first refusal would never show as an increase.
+        for (String outcome : List.of("accepted", "signature-invalid", "replay-rejected")) {
+            assertThat(meters.find("freightflow.dcsa.notifications").tag("carrier", "carrier-namib-lines")
+                    .tag("outcome", outcome).counter()).as(outcome).isNotNull();
+        }
     }
 
     @Test

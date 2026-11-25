@@ -52,7 +52,16 @@ public class DcsaWebhookController {
         this.inbox = inbox;
         this.meters = meters;
         this.clock = clock;
+        // Every series exists from the start, at zero. A counter that first appears with its first refusal reads as no
+        // increase to Prometheus (increase() needs two samples), and CarrierWebhookSignaturesFailing would miss a single
+        // forged notification, as the Phase 7 fire drill found.
+        java.util.stream.Stream.concat(properties.carriers().keySet().stream(), java.util.stream.Stream.of("unknown"))
+                .forEach(carrier -> java.util.List.of(OUTCOMES).forEach(outcome ->
+                        meters.counter(METRIC, "carrier", carrier, "outcome", outcome)));
     }
+
+    private static final String METRIC = "freightflow.dcsa.notifications";
+    private static final String[] OUTCOMES = {"accepted", "signature-invalid", "replay-rejected"};
 
     @PostMapping("/{carrierId}")
     @Operation(summary = "Receive a carrier's signed DCSA event notification (an array of events)")
@@ -126,6 +135,6 @@ public class DcsaWebhookController {
     private void count(String carrierId, String outcome) {
         // Only configured carrier ids become label values: a caller cannot create series by typing paths.
         String carrier = properties.carriers().containsKey(carrierId) ? carrierId : "unknown";
-        meters.counter("freightflow.dcsa.notifications", "carrier", carrier, "outcome", outcome).increment();
+        meters.counter(METRIC, "carrier", carrier, "outcome", outcome).increment();
     }
 }
