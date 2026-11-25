@@ -112,6 +112,13 @@ jobs:
             -v "$RUNNER_TEMP/untrusted:/untrusted:ro" -v "$PWD/tls-probe:/out" python:3.15.2-alpine \
             python -I /probe/tls_probe.py --json /out/tls-probe.json | tee tls-probe/tls-probe.txt
           { echo "## Transport security (ADR 0040)"; echo; echo '```'; cat tls-probe/tls-probe.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # ADR 0039 and 0040: every certificate renewed at once while customers book; each endpoint must serve its new one
+      # without a restart, no request may fail, and every booking's email must arrive.
+      - name: Every certificate renewed under traffic
+        run: |
+          set -o pipefail
+          python3 scripts/rotation_test.py --json tls-probe/rotation.json | tee tls-probe/rotation.txt
+          { echo "## Certificate rotation under traffic"; echo; echo '```'; cat tls-probe/rotation.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Memory peaks
         if: always()
         run: |

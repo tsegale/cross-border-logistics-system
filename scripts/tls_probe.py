@@ -157,13 +157,35 @@ def reachable(host: str, port: int) -> bool:
         return False
 
 
+def served_serial(host: str, port: int, protocol: str) -> str:
+    """The serial of the certificate the endpoint presents now, from a verified handshake. A service's port asks for a
+    client certificate after it has sent its own, so its serial is known even when the handshake is then refused."""
+    tls = context().wrap_socket(connect(host, port, protocol), server_hostname=host, do_handshake_on_connect=False)
+    try:
+        tls.do_handshake()
+        return tls.getpeercert()["serialNumber"]
+    finally:
+        tls.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--untrusted-cert", default="/untrusted/cert.pem")
     parser.add_argument("--untrusted-key", default="/untrusted/key.pem")
     parser.add_argument("--json", help="write the results here")
+    parser.add_argument("--serials", action="store_true",
+                        help="only print the serial each endpoint presents, as JSON (scripts/rotation_test.py)")
     args = parser.parse_args()
     untrusted = (args.untrusted_cert, args.untrusted_key)
+    if args.serials:
+        serials = {}
+        for host, port, protocol, _ in ENDPOINTS + [e for e in OPTIONAL if reachable(e[0], e[1])]:
+            try:
+                serials[f"{host}:{port}"] = served_serial(host, port, protocol)
+            except (OSError, ssl.SSLError, RuntimeError) as error:
+                serials[f"{host}:{port}"] = f"error: {error}"
+        print(json.dumps(serials))
+        return
 
     rows, failed = [], 0
     endpoints = ENDPOINTS + [e for e in OPTIONAL if reachable(e[0], e[1])]

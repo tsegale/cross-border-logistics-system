@@ -126,6 +126,15 @@ check_all() {
   date -u +%s > "$OUT/.checked"
 }
 
+# Every certificate renewed now, as each would be at two thirds of its life: agent.sh renew-all. CI's rotation test
+# runs it under traffic.
+if [ "${1:-}" = renew-all ]; then
+  RENEW_WITHIN=24h
+  wait_for_ca
+  check_all
+  exit
+fi
+
 # One identity, now: agent.sh issue <identity>.
 if [ "${1:-}" = issue ]; then
   line="$(grep -v '^[[:space:]]*#' "$IDENTITIES" | awk -v id="${2:-}" '$1 == id' | head -n 1)"
