@@ -1,7 +1,10 @@
 server:
   port: ${SERVER_PORT:8083}
   shutdown: graceful
-  forward-headers-strategy: framework
+  request:
+    header:
+      forwarded:
+        strategy: framework
 
 spring:
   # Compose secrets are files under /run/secrets; each file name becomes a property (ADR 0019).

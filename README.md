@@ -4,7 +4,7 @@ A microservices backend for a freight forwarder on the Walvis Bay (`NAWVB`, Nami
 Customers get freight quotes, book shipments and follow them through ports and customs, and every charge
 settles through an internal double-entry ledger with accounts in `NAD`, `ZAR` and `EUR`.
 
-Java 21, Spring Boot 4.1, Spring Cloud Gateway, PostgreSQL 17, Kafka, Docker. Built in phases; each phase ships
+Java 21, Spring Boot 4.2, Spring Cloud Gateway, PostgreSQL 17, Kafka, Docker. Built in phases; each phase ships
 with tests, CI, architecture decision records and measured numbers.
 
 > **Status:** Phase 6 (real-world data): FX is priced from the ECB's daily reference rates, with NAD under the CMA peg, a Bank of Namibia cross-check, a staleness rule and four-eyes quarantine. Quotes estimate duties and import VAT from dated TARIC and SACU subsets, with the EU-SADC EPA preference, and the ledger keeps them out of revenue. Carriers report container events in DCSA Track and Trace 2.2 through signed webhooks or polling, with a carrier simulator in compose. Phase 5 made the system observable; Phase 4 added events; Phase 3 identity; Phase 2 the payment saga; Phase 1 the ledger and shipments.
@@ -416,7 +416,7 @@ The full walkthrough is `scripts/smoke_test.sh` (49 calls, run in CI against the
 
 | Area | Technology |
 | --- | --- |
-| Language, framework | Java 21, Spring Boot 4.1 |
+| Language, framework | Java 21, Spring Boot 4.2 |
 | Edge | Spring Cloud Gateway 5 (WebFlux) |
 | Persistence | PostgreSQL 17, Spring Data JPA, Flyway |
 | Messaging | Apache Kafka 4 in KRaft mode (Phase 4) |

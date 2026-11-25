@@ -12,6 +12,10 @@ updates:
       # Boot manages (ADR 0030): #8's 2.33.1-alpha needed a newer API and failed with ClassNotFoundException
       # (io.opentelemetry.api.incubator.common.ExtendedAttributes). It moves with a Spring Boot upgrade, by hand.
       - dependency-name: "io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0"
+      # springdoc 3.2.1 brings swagger-core 3 (Jackson 3), which logistics' contract-test validator (swagger-parser
+      # 2.1.x, swagger-core 2, Jackson 2) cannot load. Logistics holds springdoc at 3.2.0 until swagger-parser moves.
+      - dependency-name: "org.springdoc:*"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
 
   - package-ecosystem: docker
     directories: ["/api-gateway", "/banking-service", "/logistics-service", "/notification-service"]
