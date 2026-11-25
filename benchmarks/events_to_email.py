@@ -239,8 +239,10 @@ def backlog() -> float:
                                                                     'outbox="events"')
 
 
-# A client config for the broker's admin, written inside the broker's container from its secret.
+# A client config for the broker's admin, written inside the broker's container from its secret. The tools run
+# inside the broker's 512m limit, next to the broker: a small heap, not the broker's own KAFKA_HEAP_OPTS.
 KAFKA_CLIENT = (
+    'export KAFKA_HEAP_OPTS=-Xmx64m KAFKA_JVM_PERFORMANCE_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1" && '
     'printf "security.protocol=SASL_SSL\nssl.truststore.type=PEM\nssl.truststore.location=/tls/ca.pem\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config='
     'org.apache.kafka.common.security.scram.ScramLoginModule required username=\\"admin\\" password=\\"%s\\";\n" '
     '"$(cat /run/secrets/kafka_admin_password)" > /tmp/bench-client.properties'

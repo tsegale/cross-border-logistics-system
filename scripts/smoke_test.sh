@@ -481,7 +481,9 @@ BOOKED_EVENT="$(dc exec -T logistics-db psql -U "${LOGISTICS_DB_USER:-logistics}
   "SELECT envelope::text FROM event_outbox WHERE aggregate_id = '${HAN_SHIP}' AND sequence = 1")"
 [[ -n "$BOOKED_EVENT" ]] || { echo "FAIL: no booking event for ${HAN_SHIP} in logistics' outbox" >&2; exit 1; }
 DUPLICATES_BEFORE="$(consumed shipment.booked duplicate)"
+# The tool runs inside the broker's 512m limit, next to the broker: a small heap, not the broker's KAFKA_HEAP_OPTS.
 printf '%s|%s\n' "$HAN_SHIP" "$BOOKED_EVENT" | dc exec -T kafka bash -c '
+  export KAFKA_HEAP_OPTS=-Xmx64m KAFKA_JVM_PERFORMANCE_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1"
   printf "security.protocol=SASL_SSL\nssl.truststore.type=PEM\nssl.truststore.location=/tls/ca.pem\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"admin\" password=\"%s\";\n" \
     "$(cat /run/secrets/kafka_admin_password)" > /tmp/smoke-admin.properties
   /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:29092 --producer.config /tmp/smoke-admin.properties \
