@@ -3,6 +3,7 @@ package com.freightflow.gateway.security;
 import com.freightflow.gateway.edge.Problems;
 import io.netty.channel.ChannelOption;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.ssl.SslBundles;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -34,8 +35,10 @@ import org.springframework.security.web.server.authorization.ServerAccessDeniedH
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.netty.http.Http11SslContextSpec;
 import reactor.netty.http.client.HttpClient;
 
+import javax.net.ssl.TrustManagerFactory;
 import java.time.Clock;
 import java.util.List;
 
@@ -115,10 +118,14 @@ public class SecurityConfig {
      * and be within its lifetime. Keys are cached with a bounded refresh ({@link CachingJwkSource}).
      */
     @Bean
-    ReactiveJwtDecoder jwtDecoder(SecurityProperties properties, Clock clock) {
+    ReactiveJwtDecoder jwtDecoder(SecurityProperties properties, Clock clock, SslBundles bundles) {
+        // Keycloak over HTTPS, verified by name against the internal CA's root (ADR 0039).
+        TrustManagerFactory internalRoot = bundles.getBundle("internal").getManagers().getTrustManagerFactory();
         HttpClient http = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) properties.jwksTimeout().toMillis())
-                .responseTimeout(properties.jwksTimeout());
+                .responseTimeout(properties.jwksTimeout())
+                .secure(tls -> tls.sslContext(Http11SslContextSpec.forClient()
+                        .configure(builder -> builder.trustManager(internalRoot))));
         WebClient keys = WebClient.builder().clientConnector(new ReactorClientHttpConnector(http)).build();
         CachingJwkSource source = new CachingJwkSource(keys, properties.jwkSetUri(), properties.jwksTimeout(),
                 properties.jwksMinRefresh(), properties.jwksMaxAge(), clock);

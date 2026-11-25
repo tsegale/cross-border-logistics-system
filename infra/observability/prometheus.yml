@@ -34,6 +34,11 @@ scrape_configs:
   # Keycloak's own metrics, on its management port (KC_METRICS_ENABLED, infra/keycloak/Dockerfile).
   - job_name: keycloak
     metrics_path: /metrics
+    # HTTPS only since Phase 7, verified against the internal CA's root (ADR 0039).
+    scheme: https
+    tls_config:
+      ca_file: /tls/ca.pem
+      min_version: TLS12
     static_configs:
       - targets: [keycloak:9000]
         labels: {service: keycloak}

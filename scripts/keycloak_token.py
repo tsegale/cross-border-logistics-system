@@ -31,8 +31,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_secrets import read_env_file, read_secret  # noqa: E402
+from internal_ca import ssl_context  # noqa: E402
 
-BASE_URL = os.environ.get("KEYCLOAK_URL", "http://127.0.0.1:8180")
+# HTTPS, verified against the internal CA's root (ADR 0039).
+BASE_URL = os.environ.get("KEYCLOAK_URL", "https://127.0.0.1:8180")
 REALM_URL = f"{BASE_URL}/realms/freightflow/protocol/openid-connect"
 PUBLIC_CLIENT = "freightflow-web"
 REDIRECT_URI = os.environ.get("KEYCLOAK_WEB_ORIGIN", "http://127.0.0.1:3000") + "/callback"
@@ -64,7 +66,7 @@ def _b64url(data: bytes) -> str:
 def _token_request(form: dict[str, str]) -> str:
     request = urllib.request.Request(f"{REALM_URL}/token", data=urllib.parse.urlencode(form).encode())
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=30, context=ssl_context()) as response:
             return json.load(response)["access_token"]
     except urllib.error.HTTPError as error:
         raise SystemExit(f"token request failed: {error.code} {error.read().decode(errors='replace')}") from error
@@ -81,12 +83,9 @@ def user_token(username: str, password: str) -> str:
         "code_challenge": _b64url(hashlib.sha256(verifier.encode()).digest()),
         "code_challenge_method": "S256",
     })
-    # Keycloak marks its login cookies Secure. Browsers send those to a local host over plain HTTP; cookiejar has to
-    # be told to, and only for a local Keycloak: anywhere else that URL is HTTPS anyway.
-    local = urllib.parse.urlparse(BASE_URL).hostname in ("localhost", "127.0.0.1")
-    policy = http.cookiejar.DefaultCookiePolicy(secure_protocols=("https", "wss", "http") if local else ("https", "wss"))
     opener = urllib.request.build_opener(
-        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar(policy)), _NoRedirect())
+        urllib.request.HTTPSHandler(context=ssl_context()),
+        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), _NoRedirect())
     with opener.open(f"{REALM_URL}/auth?{query}", timeout=30) as response:
         page = response.read().decode()
     form_action = re.search(r'<form[^>]*action="([^"]+)"', page)
@@ -135,7 +134,7 @@ def wait_until_serving(timeout_s: float = 300) -> None:
     url = f"{BASE_URL}/realms/freightflow/.well-known/openid-configuration"
     while True:
         try:
-            with urllib.request.urlopen(url, timeout=10):
+            with urllib.request.urlopen(url, timeout=10, context=ssl_context()):
                 return
         except (urllib.error.URLError, ConnectionError, TimeoutError) as error:
             if time.time() > deadline:

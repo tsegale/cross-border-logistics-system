@@ -37,3 +37,6 @@ local/
 
 # Python bytecode from the scripts
 __pycache__/
+
+# The internal CA's root, copied out of the stack by scripts/internal_ca.py
+.tls/

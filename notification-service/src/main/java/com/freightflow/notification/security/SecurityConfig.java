@@ -1,6 +1,9 @@
 package com.freightflow.notification.security;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.HttpClientSettings;
+import org.springframework.boot.ssl.SslBundles;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -23,7 +26,6 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -82,13 +84,16 @@ public class SecurityConfig {
     }
 
     @Bean
-    JwtDecoder jwtDecoder(TokenProperties properties, org.springframework.beans.factory.ObjectProvider<Clock> clocks) {
+    JwtDecoder jwtDecoder(TokenProperties properties, org.springframework.beans.factory.ObjectProvider<Clock> clocks,
+                          SslBundles bundles) {
         Clock clock = clocks.getIfAvailable(Clock::systemUTC);
-        // A hung key endpoint must not hold requests: a key fetch is bounded like any other outbound call.
-        SimpleClientHttpRequestFactory timeouts = new SimpleClientHttpRequestFactory();
-        timeouts.setConnectTimeout(properties.jwksTimeout());
-        timeouts.setReadTimeout(properties.jwksTimeout());
-        RestTemplate keys = new RestTemplate(timeouts);
+        // A hung key endpoint must not hold requests: a key fetch is bounded like any other outbound call. Keycloak
+        // answers over HTTPS, verified by name against the internal CA's root (ADR 0039).
+        RestTemplate keys = new RestTemplate(ClientHttpRequestFactoryBuilder.jdk()
+                .withHttpClientCustomizer(client -> client.version(java.net.http.HttpClient.Version.HTTP_1_1))
+                .build(HttpClientSettings.defaults()
+                        .withTimeouts(properties.jwksTimeout(), properties.jwksTimeout())
+                        .withSslBundle(bundles.getBundle("internal"))));
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(properties.jwkSetUri())
                 .jwsAlgorithm(SignatureAlgorithm.RS256)
                 .restOperations(keys)

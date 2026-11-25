@@ -3,7 +3,10 @@ package com.freightflow.logistics.banking;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.HttpClientSettings;
+import org.springframework.boot.ssl.SslBundles;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.security.oauth2.client.AuthorizedClientServiceOAuth2AuthorizedClientManager;
 import org.springframework.security.oauth2.client.ClientCredentialsOAuth2AuthorizedClientProvider;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
@@ -46,10 +49,13 @@ public class BankingCredentials {
     /** Works outside an HTTP request: the payment relay calls banking from its own threads. */
     @Bean
     OAuth2AuthorizedClientManager bankingClientManager(ClientRegistrationRepository registrations, TokenSettings settings,
-                                                       BankingTokenCache bankingTokenCache) {
-        SimpleClientHttpRequestFactory timeouts = new SimpleClientHttpRequestFactory();
-        timeouts.setConnectTimeout(settings.timeout());
-        timeouts.setReadTimeout(settings.timeout());
+                                                       BankingTokenCache bankingTokenCache, SslBundles bundles) {
+        // Keycloak's token endpoint over HTTPS, verified against the internal CA's root (ADR 0039).
+        ClientHttpRequestFactory timeouts = ClientHttpRequestFactoryBuilder.jdk()
+                .withHttpClientCustomizer(client -> client.version(java.net.http.HttpClient.Version.HTTP_1_1))
+                .build(HttpClientSettings.defaults()
+                        .withTimeouts(settings.timeout(), settings.timeout())
+                        .withSslBundle(bundles.getBundle("internal")));
         RestClientClientCredentialsTokenResponseClient tokens = new RestClientClientCredentialsTokenResponseClient();
         tokens.setRestClient(RestClient.builder()
                 .messageConverters(converters -> {

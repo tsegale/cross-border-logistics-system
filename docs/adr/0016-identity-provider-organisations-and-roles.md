@@ -58,7 +58,9 @@ Testcontainers.
 - **Organizations make the login identifier-first**: the username, then a page asking for the password. The token
   script handles both pages.
 - **The issuer URL is part of the contract.** `iss` is the public URL (`KC_HOSTNAME`, `http://127.0.0.1:8180`); the
-  services fetch keys from `keycloak:8080` on the compose network and must still expect the public `iss`.
+  services fetch keys from `keycloak:8080` on the compose network and must still expect the public `iss`. Since
+  Phase 7 Keycloak takes HTTPS only (ADR 0039): `iss` is `https://127.0.0.1:8180/realms/freightflow` and the keys
+  come from `https://keycloak:8443`, both verified against the internal CA's root.
 - **The realm file applies on first import only.** Keycloak skips a realm that exists, so a change to the file means
   recreating Keycloak's database locally; a live realm in production needs the admin API or a migration tool.
 - Keycloak's 621 MiB is under its documented 2 GB for small production deployments; that is sized for a laptop.

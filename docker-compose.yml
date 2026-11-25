@@ -207,12 +207,18 @@ services:
       # TLS to its database, verified against the internal root (ADR 0039).
       KC_DB_URL_PROPERTIES: "?sslmode=verify-full&sslrootcert=/opt/keycloak/tls/ca.pem"
       KC_DB_USERNAME: keycloak
-      # The public URL becomes the iss of every token, so clients and services must use exactly this. TLS belongs in
-      # front of it in production (docs/threat-model.md).
-      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}
-      # Services fetch keys from keycloak:8080 on the compose network; the tokens still say the public issuer.
+      # The public URL becomes the iss of every token, so clients and services must use exactly this.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}
+      # Services fetch keys from keycloak:8443 on the compose network; the tokens still say the public issuer.
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
-      KC_HTTP_ENABLED: "true"
+      # HTTPS only, TLS 1.3 or 1.2 (Keycloak's default protocols), with the agent's certificate, re-read every hour:
+      # a renewal leaves 8 h, so the new one is served well before the old expires (ADR 0039). The management port
+      # (health, metrics) inherits the same TLS.
+      KC_HTTP_ENABLED: "false"
+      KC_HTTPS_PORT: "8443"
+      KC_HTTPS_CERTIFICATE_FILE: /opt/keycloak/tls/cert.pem
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /opt/keycloak/tls/key.pem
+      KC_HTTPS_CERTIFICATE_RELOAD_PERIOD: 1h
       # kc.sh's default is 70% of the limit for the heap (MaxRAMPercentage=70); half leaves its metaspace (up to
       # 256m in kc.sh) and native memory room inside the limit (ADR 0029). kc.sh keeps its G1.
       JAVA_OPTS_KC_HEAP: -XX:MaxRAMPercentage=50 -XX:InitialRAMPercentage=25
@@ -226,21 +232,22 @@ services:
         volume:
           subpath: keycloak
     ports:
-      - "127.0.0.1:8180:8080"
+      - "127.0.0.1:8180:8443"
     depends_on:
+      cert-agent:
+        condition: service_healthy
       keycloak-db:
         condition: service_healthy
     healthcheck:
-      # The image has no curl or wget. Health is on the management port, not the public one.
-      test:
-        - CMD-SHELL
-        - >-
-          exec 3<>/dev/tcp/127.0.0.1/9000 &&
-          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
-          grep -q '"status": "UP"' <&3
-      interval: 10s
+      # Health is on the management port, over HTTPS. The image has no curl and no TLS-capable shell tool: a small
+      # Java client compiled into the image (infra/keycloak/HealthCheck.java), with a heap to match.
+      test: ["CMD", "java", "-Xmx16m", "-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-cp", "/opt/freightflow",
+             "HealthCheck", "https://localhost:9000/health/ready", "/opt/keycloak/tls/ca.pem"]
+      # Each probe is a JVM for 0.6 s inside Keycloak's limit (519.5 MiB anonymous at rest on the laptop): every 3 s
+      # while it starts, every 30 s after.
+      interval: 30s
       timeout: 5s
-      retries: 30
+      retries: 10
       start_period: 60s
       start_interval: 3s
 
@@ -268,8 +275,8 @@ services:
       # The scheduled ledger reconciliation (ADR 0031); the alert fire drill turns it off to see it noticed.
       FREIGHTFLOW_BANKING_RECONCILIATION_ENABLED: ${FREIGHTFLOW_BANKING_RECONCILIATION_ENABLED:-true}
       # banking validates the relayed token itself, for its own audience (ADR 0017).
-      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
-      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
       # Its own SCRAM user; the password is its own secret only, mounted as kafka_password (ADR 0022).
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_USERNAME: banking
@@ -327,10 +334,10 @@ services:
       # Its database password and its client secret for Keycloak are secret files (ADR 0019).
       # Internal network only: holds and captures are not routed by the gateway.
       BANKING_SERVICE_URI: http://banking-service:8081
-      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
-      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
       # Its own client-credentials token for banking, from Keycloak on the compose network (ADR 0019).
-      KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/token
+      KEYCLOAK_TOKEN_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/token
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_USERNAME: logistics
       # The carrier simulator's T&T API, polled when DCSA_KALAHARI_MODE=POLL (ADR 0037); it pushes by default.
@@ -413,8 +420,8 @@ services:
       LOGISTICS_SERVICE_URI: http://logistics-service:8082
       NOTIFICATION_SERVICE_URI: http://notification-service:8083
       # The iss in every token is Keycloak's public URL; keys come from inside the network (ADR 0017).
-      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
-      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
       REDIS_HOST: redis
       RATE_LIMIT_MONEY_RPS: ${RATE_LIMIT_MONEY_RPS:-5}
       RATE_LIMIT_MONEY_BURST: ${RATE_LIMIT_MONEY_BURST:-20}
@@ -592,8 +599,8 @@ services:
         -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
       NOTIFICATION_DB_URL: jdbc:postgresql://notification-db:5432/notification?sslmode=verify-full&sslrootcert=/tls/ca.pem
       NOTIFICATION_DB_USER: ${NOTIFICATION_DB_USER:?set in .env}
-      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
-      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_USERNAME: notification
       SMTP_HOST: mailpit
@@ -716,6 +723,13 @@ services:
       - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infra/observability/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
+      # The internal CA's root, for the targets that answer over TLS (ADR 0039).
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: trust
     ports:
       - "127.0.0.1:9090:9090"
 

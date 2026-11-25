@@ -7,11 +7,12 @@ server:
         strategy: framework
 
 spring:
-  # The internal CA's root (ADR 0039): /tls/ca.pem in the container, a test CA's file in the tests.
+  # The internal CA's root (ADR 0039): /tls/ca.pem in the container, a test CA's in the tests. Kafka, Keycloak
+  # and every other internal TLS peer is verified against it.
   ssl:
     bundle:
       pem:
-        kafka:
+        internal:
           truststore:
             certificate: ${TLS_TRUST_CERTIFICATE:file:/tls/ca.pem}
   # Compose secrets are files under /run/secrets; each file name becomes a property (ADR 0019).
@@ -31,7 +32,7 @@ spring:
             scope: banking.holds
         provider:
           keycloak:
-            token-uri: ${KEYCLOAK_TOKEN_URI:http://127.0.0.1:8180/realms/freightflow/protocol/openid-connect/token}
+            token-uri: ${KEYCLOAK_TOKEN_URI:https://127.0.0.1:8180/realms/freightflow/protocol/openid-connect/token}
   application:
     name: logistics-service
   datasource:
@@ -59,7 +60,7 @@ spring:
     security:
       protocol: SASL_SSL
     ssl:
-      bundle: kafka
+      bundle: internal
     properties:
       sasl.mechanism: SCRAM-SHA-512
       sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_USERNAME:logistics}" password="${freightflow.kafka.password}";
