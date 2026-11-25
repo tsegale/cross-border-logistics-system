@@ -31,13 +31,13 @@ and the benchmarks, with headroom; **every JVM sizes its heap from its own limit
 | redis | 32m | 8 | 4 | 8 | |
 | partner-simulator | 48m | | | | Python, stdlib only; 14.7 MiB after the laptop's cold start and smoke test (ADR 0034) |
 | kafka-init | 256m | 137 | (exits first) | 84 | `KAFKA_HEAP_OPTS=-Xmx128m` |
-| ca | 64m | | | | step-ca (ADR 0039); 53.7 MiB on the laptop after the stack's cold start |
-| cert-agent | 32m | | | | step CLI and sh (ADR 0039); 13.1 MiB between checks on the laptop |
+| ca | 96m | | | | step-ca (ADR 0039). 64m until the Kafka TLS commit: `memory.peak` 67.2 MiB on the laptop, the 54 MB binary's pages counted against the limit |
+| cert-agent | 48m | | | | step CLI and sh (ADR 0039). 32m until the Kafka TLS commit: `memory.peak` 35.2 MiB renewing all 14 certificates on the laptop; at 32m the 44 MB `step` binary was paged out between calls and each certificate took 48 s |
 | debug-ports (profile debug) | 32m | | | | socat |
 
 MiB throughout; smoke-test peaks from CI run 44887512287, benchmark peaks (payment flow at 16 VUs, the events suite
 with a broker outage) from run 44899628552 (Intel Xeon 6975P-C, 4 vCPUs); docs/benchmarks/memory.md. **The running default stack's limits
-add up to 3,872 MiB** (3,776 before the CA and its agent, 3,728 before the partner simulator), 88 MiB past the 3,784 MiB
+add up to 3,920 MiB** (3,776 before the CA and its agent, 3,728 before the partner simulator), 136 MiB past the 3,784 MiB
 of a 3.7 GiB VM: limits are ceilings, not reservations, and no two containers peak at once; its measured peaks add up to 2,558 MiB under the smoke
 test and about 2,840 MiB under the benchmarks.
 

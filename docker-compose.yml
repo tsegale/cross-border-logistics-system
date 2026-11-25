@@ -16,7 +16,8 @@ services:
   # The internal CA: step-ca, initialised on its first start from the ca_password secret. It issues 24 h certificates
   # to the agent's provisioner and renews them over mTLS. Not published; its keys stay in its volume.
   ca:
-    mem_limit: 64m
+    # Peak 67.2 MiB (memory.peak, laptop): the 54 MB step-ca binary's pages count against the limit (ADR 0029).
+    mem_limit: 96m
     image: smallstep/step-ca:0.30.2
     environment:
       DOCKER_STEPCA_INIT_NAME: FreightFlow Internal CA
@@ -35,7 +36,9 @@ services:
   # Issues every identity in infra/tls/identities.conf a certificate and renews it (infra/tls/agent.sh). Each
   # container mounts its own directory of the certs volume, read-only; the agent reads the root from the CA's volume.
   cert-agent:
-    mem_limit: 32m
+    # Peak 35.2 MiB renewing all 14 (memory.peak, laptop); at 32m the 44 MB step binary was paged out and back in
+    # on every call, and each certificate took 48 s (ADR 0029).
+    mem_limit: 48m
     image: smallstep/step-cli:0.31.0
     entrypoint: ["/bin/sh", "/etc/freightflow/tls/agent.sh"]
     environment:
