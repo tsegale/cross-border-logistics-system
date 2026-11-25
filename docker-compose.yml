@@ -618,6 +618,12 @@ services:
     volumes:
       - ./infra/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: otel-collector
     depends_on:
       # The monitoring user exists only once kafka-init has run; a first login that fails is not retried by the
       # kafka_metrics receiver's client.
