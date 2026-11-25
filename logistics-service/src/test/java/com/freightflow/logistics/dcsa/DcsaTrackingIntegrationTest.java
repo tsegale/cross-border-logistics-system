@@ -82,6 +82,9 @@ class DcsaTrackingIntegrationTest extends IntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private java.time.Clock clock;
+
     private LogisticsFixtures fixtures;
 
     @Autowired
@@ -273,10 +276,12 @@ class DcsaTrackingIntegrationTest extends IntegrationTest {
         // Its LOAD may still be on the way: it waits, with a backoff, rather than being written off at once.
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM dcsa_events WHERE id = ?", String.class, id))
                 .isEqualTo("PENDING");
-        assertThat(jdbcTemplate.queryForObject("SELECT next_attempt_at > now() FROM dcsa_events WHERE id = ?",
-                Boolean.class, id)).isTrue();
+        assertThat(jdbcTemplate.queryForObject("SELECT next_attempt_at > ? FROM dcsa_events WHERE id = ?",
+                Boolean.class, java.sql.Timestamp.from(clock.instant()), id)).isTrue();
 
-        jdbcTemplate.update("UPDATE dcsa_events SET attempts = 7, next_attempt_at = now() WHERE id = ?", id);
+        // Due by the service's clock (see dueEvents), not the database's.
+        jdbcTemplate.update("UPDATE dcsa_events SET attempts = 7, next_attempt_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(clock.instant()), id);
         drain();
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM dcsa_events WHERE id = ?", String.class, id))
                 .isEqualTo("UNMATCHED");
@@ -338,15 +343,28 @@ class DcsaTrackingIntegrationTest extends IntegrationTest {
     }
 
     /** Processes every due event, as the scheduled processor does: claimed, so attempts count. */
+    /**
+     * Processes every due event, this test's and any other's. Test classes share the database and run in random
+     * order, and those whose contexts do not process DCSA events leave theirs pending: a local run of the whole suite
+     * left more than the ten batches this used to stop at, and this test's own events were never reached. A processed
+     * event is applied, unmatched or retried later, never due again at once, so this ends; the bound only stops a bug
+     * from spinning.
+     */
     private void drain() {
-        for (int round = 0; round < 10 && dueEvents() > 0; round++) {
+        for (int round = 0; round < 500 && dueEvents() > 0; round++) {
             processor.processDue();
         }
     }
 
+    /**
+     * Due by the service's clock, which stamps and claims the events, not the database's: on Docker Desktop the VM's
+     * clock can be a little behind the host's, and an event pushed a moment ago was then not yet due by now(), so the
+     * last event before each drain was left pending.
+     */
     private long dueEvents() {
         Long n = jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM dcsa_events WHERE status = 'PENDING' AND next_attempt_at <= now()", Long.class);
+                "SELECT count(*) FROM dcsa_events WHERE status = 'PENDING' AND next_attempt_at <= ?", Long.class,
+                java.sql.Timestamp.from(clock.instant()));
         return n == null ? 0 : n;
     }
 

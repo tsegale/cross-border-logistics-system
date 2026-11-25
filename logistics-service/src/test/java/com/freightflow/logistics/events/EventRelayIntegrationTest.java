@@ -318,8 +318,9 @@ class EventRelayIntegrationTest extends IntegrationTest {
 
     /** As if every lease and backoff had run out. */
     private void makeDue(UUID aggregate) {
-        jdbcTemplate.update("UPDATE event_outbox SET next_attempt_at = now() WHERE aggregate_id = ? "
-                + "AND published_at IS NULL", aggregate);
+        // A minute back: due by the service's clock too, which can be behind the database's on Docker Desktop.
+        jdbcTemplate.update("UPDATE event_outbox SET next_attempt_at = now() - interval '1 minute' "
+                + "WHERE aggregate_id = ? AND published_at IS NULL", aggregate);
     }
 
     /** Reads the topic from the start as admin (logistics may only write it) until {@code count} records match. */

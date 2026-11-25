@@ -295,7 +295,7 @@ class PaymentSagaIntegrationTest extends IntegrationTest {
 
     /** The test does not wait for the backoff: it moves the retry time into the past. */
     private void makeDue(String shipment) {
-        jdbcTemplate.update("UPDATE shipment_payments SET next_attempt_at = now() - interval '1 second' "
+        jdbcTemplate.update("UPDATE shipment_payments SET next_attempt_at = now() - interval '1 minute' "
                 + "WHERE shipment_id = ?::uuid AND status = 'PENDING'", shipment);
     }
 }

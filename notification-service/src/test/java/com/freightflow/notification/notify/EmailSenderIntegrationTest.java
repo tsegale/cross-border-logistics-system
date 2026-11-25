@@ -98,7 +98,7 @@ class EmailSenderIntegrationTest extends IntegrationTest {
         UUID eventId = queue(recipient);
         // A sender claims it (SENDING, leased) and dies before it can say whether SMTP took it.
         jdbcTemplate.update("UPDATE notifications SET status = 'SENDING', attempts = 1, "
-                + "next_attempt_at = now() - interval '1 second' WHERE event_id = ?", eventId);
+                + "next_attempt_at = now() - interval '1 minute' WHERE event_id = ?", eventId);
 
         sender(realSmtp, 5, Duration.ofMinutes(1)).sendDue();
 
@@ -111,7 +111,7 @@ class EmailSenderIntegrationTest extends IntegrationTest {
         String recipient = "resend-" + UUID.randomUUID() + "@example.org";
         UUID eventId = queue(recipient);
         jdbcTemplate.update("UPDATE notifications SET status = 'SENDING', attempts = 1, "
-                + "next_attempt_at = now() - interval '1 second' WHERE event_id = ?", eventId);
+                + "next_attempt_at = now() - interval '1 minute' WHERE event_id = ?", eventId);
         EmailSender sender = sender(realSmtp, 5, Duration.ofMinutes(1));
         sender.sendDue();
         UUID id = jdbcTemplate.queryForObject("SELECT id FROM notifications WHERE event_id = ?", UUID.class, eventId);
@@ -170,7 +170,7 @@ class EmailSenderIntegrationTest extends IntegrationTest {
     }
 
     private void makeDue(UUID eventId) {
-        jdbcTemplate.update("UPDATE notifications SET next_attempt_at = now() WHERE event_id = ? "
+        jdbcTemplate.update("UPDATE notifications SET next_attempt_at = now() - interval '1 minute' WHERE event_id = ? "
                 + "AND status = 'PENDING'", eventId);
     }
 

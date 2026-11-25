@@ -425,7 +425,7 @@ class BankingFaultInjectionTest {
     }
 
     private void makeDue(String shipment) {
-        jdbcTemplate.update("UPDATE shipment_payments SET next_attempt_at = now() - interval '1 second' "
+        jdbcTemplate.update("UPDATE shipment_payments SET next_attempt_at = now() - interval '1 minute' "
                 + "WHERE shipment_id = ?::uuid AND status = 'PENDING'", shipment);
     }
 
