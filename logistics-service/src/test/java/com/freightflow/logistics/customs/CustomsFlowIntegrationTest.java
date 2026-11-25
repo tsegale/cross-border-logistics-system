@@ -1,6 +1,8 @@
 package com.freightflow.logistics.customs;
 
 import com.freightflow.logistics.support.Relays;
+import java.util.List;
+import java.time.Instant;
 import java.time.Clock;
 import com.freightflow.logistics.payment.PaymentCommandRelay;
 import com.freightflow.logistics.security.Caller;
@@ -122,6 +124,97 @@ class CustomsFlowIntegrationTest extends IntegrationTest {
         assertThat(customs.get("estimatedDuties").decimalValue()).isEqualByComparingTo("0.00");
         assertThat(customs.get("estimatedImportVat").decimalValue()).isEqualByComparingTo("31599.64");
         assertThat(customs.get("collectedWithFreight").asBoolean()).as("NAD duties, EUR freight").isFalse();
+        assertThat(customs.get("collectedInOwnHold").asBoolean()).as("held in NAD, ADR 0038").isTrue();
+    }
+
+    @Test
+    void namibianDutiesAreHeldInNadOnTheirOwnCapturedAtPickupAndSettledWithNamra() throws Exception {
+        JsonNode quote = quote("DEHAM", "NAWVB", fridges());
+        BigDecimal duties = quote.get("customs").get("estimatedTotal").decimalValue();
+        BigDecimal freight = quote.get("amountDueOnBooking").decimalValue();
+        UUID shipment = book(quote);
+
+        // The NAD duty hold goes first; the EUR freight hold only once it stands.
+        assertThat(commands(shipment)).containsExactly("DUTIES AUTHORISE " + duties.setScale(4) + " NAD");
+        BankingStub.SERVER.stubFor(BankingStubs.dutyHoldFor(shipment).willReturn(BankingStubs.holdCreated(DUTY_HOLD)));
+        BankingStub.SERVER.stubFor(BankingStubs.holdFor(shipment).willReturn(respond(BankingStubs.HOLD_CREATED)));
+        relayFor(shipment);
+        assertThat(commands(shipment)).containsExactly("DUTIES AUTHORISE " + duties.setScale(4) + " NAD",
+                "FREIGHT AUTHORISE " + freight.setScale(4) + " EUR");
+        relayFor(shipment);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/shipments/{id}", shipment).with(TestCallers.operator()))
+                .andExpect(jsonPath("$.status").value("BOOKED"))
+                .andExpect(jsonPath("$.payment.status").value("AUTHORISED"))
+                .andExpect(jsonPath("$.payment.amount").value(freight.doubleValue()))
+                .andExpect(jsonPath("$.payment.dutyHold.status").value("AUTHORISED"))
+                .andExpect(jsonPath("$.payment.dutyHold.holdId").value(DUTY_HOLD))
+                .andExpect(jsonPath("$.payment.dutyHold.currency").value("NAD"));
+
+        // Picked up: both holds are captured, the duty hold wholly as a disbursement.
+        BankingStub.SERVER.stubFor(BankingStubs.capture().willReturn(respond(BankingStubs.CAPTURED)));
+        mockMvc.perform(LogisticsFixtures.eventRequest(shipment.toString(), "PICKUP-" + shipment, "PICKED_UP",
+                Instant.now().minusSeconds(60).toString())).andExpect(status().isCreated());
+        relayFor(shipment);
+        BankingStub.SERVER.verify(1, postRequestedFor(urlPathEqualTo("/api/v1/holds/" + DUTY_HOLD + "/capture"))
+                .withRequestBody(equalToJson("{\"amount\":" + duties.toPlainString() + ",\"disbursementAmount\":"
+                        + duties.toPlainString() + "}")));
+        BankingStub.SERVER.verify(1, postRequestedFor(urlPathEqualTo("/api/v1/holds/" + BankingStubs.HOLD_ID
+                + "/capture")).withRequestBody(equalToJson("{\"amount\":" + freight.toPlainString()
+                + ",\"disbursementAmount\":0.00}")).withHeader("Idempotency-Key",
+                com.github.tomakehurst.wiremock.client.WireMock.equalTo("shipment-" + shipment + "-capture")));
+
+        // NamRA's notice, in NAD, four eyes; banking settles against the duty hold.
+        BigDecimal assessed = duties.add(new BigDecimal("150.00"));
+        mockMvc.perform(post("/api/v1/shipments/{id}/customs-assessment", shipment).with(TestCallers.operator())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"duties":0.00,"importVat":%s,"currency":"EUR","authorityReference":"NAMRA-26-0001"}
+                                """.formatted(assessed.toPlainString())))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/api/v1/shipments/{id}/customs-assessment", shipment).with(TestCallers.operator())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"duties":0.00,"importVat":%s,"currency":"NAD","authorityReference":"NAMRA-26-0001"}
+                                """.formatted(assessed.toPlainString())))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.difference").value(150.00));
+        mockMvc.perform(post("/api/v1/shipments/{id}/customs-assessment/confirmation", shipment)
+                        .with(TestCallers.as(SECOND_OPERATOR)))
+                .andExpect(status().isOk());
+        BankingStub.SERVER.stubFor(BankingStubs.customsSettlement().willReturn(respond(BankingStubs.CUSTOMS_SETTLED)));
+        relayFor(shipment);
+        BankingStub.SERVER.verify(1, postRequestedFor(urlPathEqualTo("/api/v1/holds/" + DUTY_HOLD
+                + "/customs-settlement")).withHeader("Idempotency-Key",
+                com.github.tomakehurst.wiremock.client.WireMock.equalTo("shipment-" + shipment + "-duties-customs_settlement")));
+        assertThat(jdbcTemplate.queryForObject("SELECT customs_settled_at IS NOT NULL FROM shipments WHERE id = ?",
+                Boolean.class, shipment)).isTrue();
+    }
+
+    @Test
+    void aRefusedDutyHoldFailsTheBookingAndNothingElseIsAskedFor() throws Exception {
+        UUID shipment = book(quote("DEHAM", "NAWVB", fridges()));
+        BankingStub.SERVER.stubFor(BankingStubs.dutyHoldFor(shipment)
+                .willReturn(respond(BankingStubs.HOLD_INSUFFICIENT_FUNDS)));
+
+        relayFor(shipment);
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status || ' ' || duty_hold_status FROM shipments WHERE id = ?",
+                String.class, shipment)).isEqualTo("PAYMENT_FAILED FAILED");
+        assertThat(commands(shipment)).hasSize(1);
+    }
+
+    @Test
+    void aRefusedFreightHoldReleasesTheDutyHold() throws Exception {
+        UUID shipment = book(quote("DEHAM", "NAWVB", fridges()));
+        BankingStub.SERVER.stubFor(BankingStubs.dutyHoldFor(shipment).willReturn(BankingStubs.holdCreated(DUTY_HOLD)));
+        BankingStub.SERVER.stubFor(BankingStubs.holdFor(shipment).willReturn(respond(BankingStubs.HOLD_INSUFFICIENT_FUNDS)));
+        BankingStub.SERVER.stubFor(BankingStubs.release().willReturn(respond(BankingStubs.RELEASED)));
+
+        relayFor(shipment);
+        relayFor(shipment);
+        relayFor(shipment);
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status || ' ' || duty_hold_status FROM shipments WHERE id = ?",
+                String.class, shipment)).isEqualTo("PAYMENT_FAILED RELEASED");
+        BankingStub.SERVER.verify(1, postRequestedFor(urlPathEqualTo("/api/v1/holds/" + DUTY_HOLD + "/release")));
     }
 
     @Test
@@ -184,6 +277,30 @@ class CustomsFlowIntegrationTest extends IntegrationTest {
                                 {"duties":1.00,"importVat":1.00,"currency":"EUR","authorityReference":"X"}"""))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/customs-assessment-conflict"));
+    }
+
+    private static final String DUTY_HOLD = "01a1c900-0000-7000-8000-00000000d0d0";
+
+    /** German fridge-freezers into Walvis Bay: NAD 31,599.64 of Namibian VAT, at banking's stubbed rate. */
+    private String fridges() {
+        BankingStub.SERVER.stubFor(get(urlPathEqualTo("/api/v1/fx-rates")).withQueryParam("base",
+                com.github.tomakehurst.wiremock.client.WireMock.equalTo("EUR")).willReturn(respond(BankingStubs.FX_RATES_EUR)));
+        return """
+                {"hsCode":"84181020","description":"Fridge-freezers, 350 l","originCountry":"DE","quantity":40,
+                 "netWeightKg":2400,"customsValue":10000.00,"customsValueCurrency":"EUR",
+                 "originProof":{"type":"EUR1","reference":"DE 0099123","issuedOn":"%s"}}
+                """.formatted(LocalDate.now(ZoneOffset.UTC));
+    }
+
+    private UUID book(JsonNode quote) throws Exception {
+        return UUID.fromString(json(mockMvc.perform(LogisticsFixtures.bookShipmentRequest(quote.get("id").asString(),
+                "customs-" + UUID.randomUUID())).andExpect(status().isCreated()).andReturn()).get("id").asString());
+    }
+
+    /** The shipment's payment commands, oldest first: hold, command, amount, currency. */
+    private List<String> commands(UUID shipment) {
+        return jdbcTemplate.queryForList("SELECT hold_kind || ' ' || command || ' ' || amount || ' ' || currency "
+                + "FROM shipment_payments WHERE shipment_id = ? ORDER BY created_at", String.class, shipment);
     }
 
     private JsonNode quote(String origin, String destination, String goods) throws Exception {

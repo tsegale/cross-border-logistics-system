@@ -42,5 +42,5 @@ takes the settlement only from logistics' own token, like every hold command.
 - The estimate and the assessment can differ, and the customer sees the difference as a separate charge or refund.
 - Paying customs is modelled as a CLEARING posting: the outgoing bank payment itself is outside the system, as
   deposits are.
-- Duties in a currency other than the freight's (NAD into Namibia while freight is priced in EUR) are not collected
-  with the hold: the quote shows them, and the consignee's broker pays NamRA (ADR 0035).
+- Duties in a currency other than the freight's (NAD into Namibia while freight is priced in EUR) are collected in a
+  hold of their own, in their currency, and settled against it (ADR 0038).

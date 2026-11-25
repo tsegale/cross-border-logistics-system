@@ -81,13 +81,17 @@ public class CustomsAssessmentService {
     @Transactional
     public AssessmentResponse record(Caller caller, UUID shipmentId, AssessmentRequest request) {
         Shipment shipment = shipments.findById(shipmentId).orElseThrow(() -> new ShipmentNotFoundException(shipmentId.toString()));
-        if (shipment.getCustomsDisbursementAmount().signum() == 0) {
+        if (shipment.getCustomsDisbursementAmount().signum() == 0 && !shipment.hasDutyHold()) {
             throw new CustomsAssessmentConflictException(shipmentId,
                     "FreightFlow did not collect duties with this shipment; its payer settles them with customs");
         }
-        if (!request.currency().equals(shipment.getQuotedCurrency())) {
+        // In the freight hold, in the quote currency (ADR 0036), or in the duty hold, in its own (ADR 0038).
+        String collectedIn = shipment.hasDutyHold() ? shipment.getDutyHoldCurrency() : shipment.getQuotedCurrency();
+        BigDecimal estimate = shipment.hasDutyHold() ? shipment.getDutyHoldAmount()
+                : shipment.getCustomsDisbursementAmount();
+        if (!request.currency().equals(collectedIn)) {
             throw new CustomsAssessmentConflictException(shipmentId, "the duties were collected in "
-                    + shipment.getQuotedCurrency() + ", not " + request.currency());
+                    + collectedIn + ", not " + request.currency());
         }
         String currency = request.currency();
         BigDecimal duties = MoneyRounding.normalizeCustomerAmount(request.duties(), currency);
@@ -100,7 +104,7 @@ public class CustomsAssessmentService {
                                                  recorded_at)
                 VALUES (?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (shipment_id) DO NOTHING
-                """, UuidV7.next(clock), shipmentId, currency, duties, vat, shipment.getCustomsDisbursementAmount(),
+                """, UuidV7.next(clock), shipmentId, currency, duties, vat, estimate,
                 request.authorityReference().trim(), maker.subject(), maker.clientId(), Timestamp.from(now));
         if (inserted == 0) {
             throw new CustomsAssessmentConflictException(shipmentId, "an assessment is already recorded");
@@ -126,9 +130,12 @@ public class CustomsAssessmentService {
             throw new CustomsFourEyesException(shipmentId);
         }
         Shipment shipment = shipments.findById(shipmentId).orElseThrow(() -> new ShipmentNotFoundException(shipmentId.toString()));
-        if (shipment.getPaymentStatus() != PaymentStatus.CAPTURED || shipment.getHoldId() == null) {
-            throw new CustomsAssessmentConflictException(shipmentId,
-                    "the payment is " + shipment.getPaymentStatus() + "; customs is settled after the capture");
+        boolean dutyHold = shipment.hasDutyHold();
+        PaymentStatus collected = dutyHold ? shipment.getDutyHoldStatus() : shipment.getPaymentStatus();
+        UUID hold = dutyHold ? shipment.getDutyHoldId() : shipment.getHoldId();
+        if (collected != PaymentStatus.CAPTURED || hold == null) {
+            throw new CustomsAssessmentConflictException(shipmentId, "the " + (dutyHold ? "duty hold" : "payment")
+                    + " is " + collected + "; customs is settled after the capture");
         }
         AssessmentResponse assessment = get(shipmentId);
         jdbcTemplate.update("""
@@ -136,8 +143,11 @@ public class CustomsAssessmentService {
                        confirmed_by_client_id = ?, confirmed_at = ?
                 WHERE shipment_id = ? AND status = 'PENDING'
                 """, checker.subject(), checker.clientId(), Timestamp.from(clock.instant()), shipmentId);
-        paymentCommands.enqueueCustomsSettlement(shipmentId, shipment.getHoldId(), assessment.assessed(),
-                assessment.currency(), shipment.getPayerAccountNumber(), assessment.authorityReference());
+        paymentCommands.enqueueCustomsSettlement(shipmentId,
+                dutyHold ? com.freightflow.logistics.payment.HoldKind.DUTIES
+                        : com.freightflow.logistics.payment.HoldKind.FREIGHT,
+                hold, assessment.assessed(), assessment.currency(), shipment.getPayerAccountNumber(),
+                assessment.authorityReference());
         log.info("Customs assessment of shipment {} confirmed by {}: settlement queued", shipmentId, checker.subject());
         return get(shipmentId);
     }

@@ -85,6 +85,7 @@ public interface ShipmentRepository extends JpaRepository<Shipment, UUID> {
               AND NOT EXISTS (
                   SELECT 1 FROM PaymentCommand c
                   WHERE c.shipmentId = s.id
+                    AND c.holdKind = com.freightflow.logistics.payment.HoldKind.FREIGHT
                     AND c.command = com.freightflow.logistics.payment.PaymentCommandType.EXTEND
                     AND c.status IN (com.freightflow.logistics.payment.PaymentCommandStatus.PENDING,
                                      com.freightflow.logistics.payment.PaymentCommandStatus.PARKED))

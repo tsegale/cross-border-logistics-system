@@ -99,9 +99,11 @@ public record QuoteResponse(
     public static final String DUTIES_COLLECTED =
             "The estimated duties and import VAT are collected with the freight and held for customs as a "
                     + "disbursement: they are not part of the freight charge.";
+    public static final String DUTIES_IN_OWN_HOLD =
+            "The estimated duties and import VAT are in another currency than the freight: the booking holds them in "
+                    + "that currency, in a hold of their own, for customs as a disbursement.";
     public static final String DUTIES_NOT_COLLECTED =
-            "The estimated duties and import VAT are shown for information: their payer settles them with customs, "
-                    + "or they are in another currency than the freight.";
+            "The estimated duties and import VAT are shown for information: their payer settles them with customs.";
 
     public static final String INDICATIVE_ONLY =
             "The indicative total is for information only. You are charged in the quote currency; the exchange "
@@ -119,8 +121,11 @@ public record QuoteResponse(
             BigDecimal estimatedImportVat,
             BigDecimal estimatedTotal,
             @Schema(description = "Who owes them: the shipper under DDP, the consignee otherwise") PayerRole paidBy,
-            @Schema(description = "Whether the booking holds them with the freight; otherwise the payer settles them "
-                    + "with customs directly") boolean collectedWithFreight,
+            @Schema(description = "Whether the booking holds them with the freight, in its currency") boolean
+                    collectedWithFreight,
+            @Schema(description = "Whether the booking holds them in a hold of their own, in their currency (NAD into "
+                    + "Namibia, ADR 0038); if neither, the payer settles them with customs directly") boolean
+                    collectedInOwnHold,
             String tariffSource,
             LocalDate tariffDate,
             LocalDate tariffReviewBy,
@@ -135,7 +140,8 @@ public record QuoteResponse(
             BigDecimal duties = MoneyRounding.roundToMinorUnits(quote.getEstimatedDuties(), ccy);
             BigDecimal vat = MoneyRounding.roundToMinorUnits(quote.getEstimatedImportVat(), ccy);
             return new CustomsDto(quote.getCustomsMarket(), LABEL, ccy, duties, vat, duties.add(vat),
-                    quote.getDutiesPaidBy(), Boolean.TRUE.equals(quote.getDutiesCollected()), source.name(),
+                    quote.getDutiesPaidBy(), Boolean.TRUE.equals(quote.getDutiesCollected()) && quote.getCurrency().equals(ccy),
+                    quote.dutiesInOwnHold(), source.name(),
                     source.referenceDate(), source.reviewBy(), lines.stream().map(line -> new GoodsLineDto(
                             line.lineNumber(), line.hsCode(), line.description(), line.originCountry(),
                             line.netWeightKg(), line.declaredValue(), line.declaredCurrency(), line.originProofType(),
@@ -215,7 +221,8 @@ public record QuoteResponse(
             notes.add(incoterm.importDutiesPaidBy() == PayerRole.SHIPPER ? DUTIES_AS_DISBURSEMENT : DUTIES_EXCLUDED);
         } else {
             notes.add(CustomsDto.LABEL);
-            notes.add(customs.collectedWithFreight() ? DUTIES_COLLECTED : DUTIES_NOT_COLLECTED);
+            notes.add(customs.collectedWithFreight() ? DUTIES_COLLECTED
+                    : customs.collectedInOwnHold() ? DUTIES_IN_OWN_HOLD : DUTIES_NOT_COLLECTED);
         }
         IndicativeDto indicative = null;
         if (quote.getIndicativeCurrency() != null && quote.getIndicativeTotalAmount() != null) {

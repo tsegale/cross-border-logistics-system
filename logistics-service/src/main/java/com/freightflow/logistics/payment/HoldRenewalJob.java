@@ -58,6 +58,12 @@ public class HoldRenewalJob {
                 enqueued++;
                 log.info("Hold {} of shipment {} expires at {}; extension to {} queued", shipment.getHoldId(),
                         shipment.getId(), shipment.getHoldExpiresAt(), target.get());
+                // The duty hold lasts as long as the freight hold (ADR 0038).
+                if (shipment.getDutyHoldStatus() == com.freightflow.logistics.shipment.PaymentStatus.AUTHORISED) {
+                    outbox.enqueueExtension(shipment.getId(), HoldKind.DUTIES, shipment.getDutyHoldId(),
+                            shipment.getDutyHoldAmount(), shipment.getDutyHoldCurrency(),
+                            shipment.getPayerAccountNumber(), target.get());
+                }
             }
         }
         return enqueued;

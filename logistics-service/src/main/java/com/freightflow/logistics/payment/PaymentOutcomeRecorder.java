@@ -71,12 +71,20 @@ public class PaymentOutcomeRecorder {
         command.succeed(ok.holdId(), now);
         Shipment shipment = shipment(command);
         ShipmentStatus previous = shipment.getStatus();
+        if (command.getHoldKind() == HoldKind.DUTIES) {
+            dutyHoldSucceeded(command, ok, shipment, now);
+            shipments.flush();
+            log.info("{} of the duty hold of shipment {} succeeded (hold {}, attempt {})", command.getCommand(),
+                    shipment.getId(), ok.holdId(), command.getAttempts());
+            return "succeeded";
+        }
         switch (command.getCommand()) {
             case AUTHORISE -> {
                 if (shipment.paymentAuthorised(ok.holdId(), ok.holdExpiresAt(), now)) {
                     // Cancelled while the hold was in flight: give the money back.
                     outbox.enqueue(shipment.getId(), PaymentCommandType.RELEASE, command.getAmount(),
                             command.getCurrency(), command.getPayerAccountNumber(), ok.holdId(), null);
+                    releaseDutyHold(shipment, now);
                 }
             }
             case CAPTURE -> shipment.paymentCaptured(now);
@@ -109,10 +117,70 @@ public class PaymentOutcomeRecorder {
         return "succeeded";
     }
 
+    /**
+     * The duty hold's commands (ADR 0038). Its acceptance asks for the freight hold, with the expiry the duty hold was
+     * asked for; it is captured and released with the freight hold, and settled with customs on its own.
+     */
+    private void dutyHoldSucceeded(PaymentCommand command, PaymentOutcome.Succeeded ok, Shipment shipment,
+                                   Instant now) {
+        switch (command.getCommand()) {
+            case AUTHORISE -> {
+                switch (shipment.dutyHoldAuthorised(ok.holdId(), ok.holdExpiresAt(), now)) {
+                    case AUTHORISE_FREIGHT -> outbox.enqueue(shipment.getId(), PaymentCommandType.AUTHORISE,
+                            shipment.getQuotedTotalAmount(), shipment.getQuotedCurrency(),
+                            shipment.getPayerAccountNumber(), null, command.getExpiresAt());
+                    case RELEASE_DUTIES -> outbox.enqueue(shipment.getId(), HoldKind.DUTIES, PaymentCommandType.RELEASE,
+                            command.getAmount(), command.getCurrency(), command.getPayerAccountNumber(), ok.holdId(),
+                            null);
+                }
+            }
+            case CAPTURE -> shipment.dutyHoldCaptured(now);
+            case RELEASE -> shipment.dutyHoldReleased(now);
+            case CUSTOMS_SETTLEMENT -> shipment.customsSettled(now);
+            case EXTEND -> {
+                if (ok.holdExpiresAt() != null) {
+                    shipment.dutyHoldExtended(ok.holdExpiresAt(), now);
+                }
+            }
+            case REAUTHORISE -> {
+                shipment.dutyHoldReauthorised(ok.holdId(), ok.holdExpiresAt(), now);
+                switch (shipment.settleDutyHoldAfterStatusChange()) {
+                    case CAPTURE -> outbox.enqueue(shipment.getId(), HoldKind.DUTIES, PaymentCommandType.CAPTURE,
+                            command.getAmount(), command.getCurrency(), command.getPayerAccountNumber(), ok.holdId(),
+                            null);
+                    case RELEASE -> outbox.enqueue(shipment.getId(), HoldKind.DUTIES, PaymentCommandType.RELEASE,
+                            command.getAmount(), command.getCurrency(), command.getPayerAccountNumber(), ok.holdId(),
+                            null);
+                    case NONE -> {
+                        // still waiting for pickup
+                    }
+                }
+            }
+        }
+    }
+
+    /** The freight hold was refused or released before use: the duty hold, if held, goes back too. */
+    private void releaseDutyHold(Shipment shipment, Instant now) {
+        if (shipment.releaseDutyHoldIfHeld(now)) {
+            outbox.enqueue(shipment.getId(), HoldKind.DUTIES, PaymentCommandType.RELEASE, shipment.getDutyHoldAmount(),
+                    shipment.getDutyHoldCurrency(), shipment.getPayerAccountNumber(), shipment.getDutyHoldId(), null);
+        }
+    }
+
     private String refused(PaymentCommand command, PaymentOutcome.Refused no, Instant now) {
         command.fail(no.problemType(), no.detail(), now);
         Shipment shipment = shipment(command);
         ShipmentStatus previous = shipment.getStatus();
+        if (command.getHoldKind() == HoldKind.DUTIES && command.getCommand() != PaymentCommandType.AUTHORISE
+                && command.getCommand() != PaymentCommandType.CUSTOMS_SETTLEMENT) {
+            // The duty hold's capture, release, extension or re-authorisation: an operator looks at it (the command is
+            // FAILED); the freight's payment stands.
+            shipment.dutyHoldSettlementFailed(now);
+            shipments.flush();
+            log.warn("{} of the duty hold of shipment {} refused by banking: {} {}", command.getCommand(),
+                    shipment.getId(), no.problemType(), no.detail());
+            return "refused";
+        }
         if (command.getCommand() == PaymentCommandType.CUSTOMS_SETTLEMENT) {
             // The freight is paid; only the customs difference is outstanding. The command is FAILED for an
             // operator (the payer could not cover the shortfall, say), the shipment's payment is not.
@@ -120,8 +188,11 @@ public class PaymentOutcomeRecorder {
                     no.problemType(), no.detail());
             return "refused";
         }
-        if (command.getCommand() == PaymentCommandType.AUTHORISE) {
+        if (command.getCommand() == PaymentCommandType.AUTHORISE && command.getHoldKind() == HoldKind.DUTIES) {
+            shipment.dutyHoldRefused(no.problemType(), no.detail(), now);
+        } else if (command.getCommand() == PaymentCommandType.AUTHORISE) {
             shipment.paymentRefused(no.problemType(), no.detail(), now);
+            releaseDutyHold(shipment, now);
         } else {
             shipment.paymentSettlementFailed(no.problemType(), no.detail(), now);
         }

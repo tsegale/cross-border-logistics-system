@@ -94,5 +94,5 @@ Each rule below was read in its primary source on 2026-11-24.
 - Not modelled: quotas, entry prices and other conditional measures (TARIC lists them per code; the subset records
   them in its evidence file), anti-dumping duties, excise (wine into Namibia), the open market value, and insurance in
   the CIF value (none is declared).
-- Duties into Namibia are in NAD while the corridor's freight is priced in EUR, so they are quoted but not collected:
-  the consignee's broker pays NamRA. Collecting them would need a second hold in NAD.
+- Duties into Namibia are in NAD while the corridor's freight is priced in EUR. Since Phase 7 they are collected in a
+  hold of their own, in NAD (ADR 0038).

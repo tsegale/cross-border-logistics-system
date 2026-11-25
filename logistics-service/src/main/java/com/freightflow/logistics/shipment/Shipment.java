@@ -135,6 +135,23 @@ public class Shipment {
     @Column(name = "hold_expires_at")
     private Instant holdExpiresAt;
 
+    // The duty hold (ADR 0038): duties in another currency than the freight, held on their own. Null: none.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "duty_hold_status", length = 24)
+    private PaymentStatus dutyHoldStatus;
+
+    @Column(name = "duty_hold_id")
+    private UUID dutyHoldId;
+
+    @Column(name = "duty_hold_amount", precision = 19, scale = 4, updatable = false)
+    private BigDecimal dutyHoldAmount;
+
+    @Column(name = "duty_hold_currency", length = 3, updatable = false)
+    private String dutyHoldCurrency;
+
+    @Column(name = "duty_hold_expires_at")
+    private Instant dutyHoldExpiresAt;
+
     // Ownership (ADR 0018): who booked, who pays, which carrier reports its tracking events.
     @Column(name = "booking_organization_id", nullable = false, updatable = false)
     private UUID bookingOrganizationId;
@@ -218,6 +235,12 @@ public class Shipment {
         s.customsDisbursementAmount = quote.collectedCustomsEstimate();
         s.quotedTotalAmount = quote.getTotalAmount().add(s.customsDisbursementAmount);
         s.quotedCurrency = quote.getCurrency();
+        if (quote.dutiesInOwnHold()) {
+            // Owed in another currency than the freight: held on their own, authorised before the freight (ADR 0038).
+            s.dutyHoldStatus = PaymentStatus.AUTHORISATION_PENDING;
+            s.dutyHoldAmount = MoneyRounding.toStorageScale(quote.dutyHoldEstimate());
+            s.dutyHoldCurrency = quote.getCustomsCurrency();
+        }
         s.actualWeightKg = quote.getActualWeightKg();
         s.volumeCbm = quote.getVolumeCbm();
         s.chargeableWeightKg = quote.getChargeableWeightKg();
@@ -322,6 +345,124 @@ public class Shipment {
     public void paymentReleased(Instant now) {
         this.paymentStatus = PaymentStatus.RELEASED;
         this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    // ---------------------------------------------------------------- the duty hold (ADR 0038)
+
+    public boolean hasDutyHold() {
+        return dutyHoldStatus != null;
+    }
+
+    /** What the duty hold's acceptance asks for next: the freight hold, or (cancelled meanwhile) its own release. */
+    public enum AfterDutyHold { AUTHORISE_FREIGHT, RELEASE_DUTIES }
+
+    /** banking accepted the duty hold. A shipment still awaiting payment now needs its freight hold. */
+    public AfterDutyHold dutyHoldAuthorised(UUID holdId, Instant expiresAt, Instant now) {
+        this.dutyHoldId = Objects.requireNonNull(holdId, "holdId");
+        this.dutyHoldExpiresAt = expiresAt;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+        if (this.status == ShipmentStatus.AWAITING_PAYMENT) {
+            this.dutyHoldStatus = PaymentStatus.AUTHORISED;
+            return AfterDutyHold.AUTHORISE_FREIGHT;
+        }
+        this.dutyHoldStatus = PaymentStatus.RELEASE_PENDING;
+        return AfterDutyHold.RELEASE_DUTIES;
+    }
+
+    /** banking refused the duty hold: like a refused freight hold, the booking cannot be paid for. */
+    public void dutyHoldRefused(String problemType, String detail, Instant now) {
+        this.dutyHoldStatus = PaymentStatus.FAILED;
+        paymentRefused(problemType, detail, now);
+    }
+
+    /**
+     * The duty hold is no longer needed (the freight hold was refused, or the shipment cancelled while the freight
+     * hold was in flight). True if it is held and must now be released.
+     */
+    public boolean releaseDutyHoldIfHeld(Instant now) {
+        if (this.dutyHoldStatus != PaymentStatus.AUTHORISED) {
+            return false;
+        }
+        this.dutyHoldStatus = PaymentStatus.RELEASE_PENDING;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+        return true;
+    }
+
+    /** Capture at pickup, release after cancellation, as {@link #settleAfterStatusChange()} for the freight hold. */
+    public PaymentCommandNeeded settleDutyHoldAfterStatusChange() {
+        if (this.dutyHoldStatus != PaymentStatus.AUTHORISED) {
+            return PaymentCommandNeeded.NONE;
+        }
+        if (this.status == ShipmentStatus.CANCELLED) {
+            this.dutyHoldStatus = PaymentStatus.RELEASE_PENDING;
+            return PaymentCommandNeeded.RELEASE;
+        }
+        if (this.status.milestoneRank() >= ShipmentStatus.PICKED_UP.milestoneRank()) {
+            this.dutyHoldStatus = PaymentStatus.CAPTURE_PENDING;
+            return PaymentCommandNeeded.CAPTURE;
+        }
+        return PaymentCommandNeeded.NONE;
+    }
+
+    /** banking expired the duty hold before pickup: like {@link #holdExpiredByBanking}, it needs a new one. */
+    public boolean dutyHoldExpiredByBanking(UUID expiredHoldId, Instant now) {
+        if (this.status != ShipmentStatus.BOOKED || this.dutyHoldStatus != PaymentStatus.AUTHORISED
+                || !expiredHoldId.equals(this.dutyHoldId)) {
+            return false;
+        }
+        this.dutyHoldStatus = PaymentStatus.AUTHORISATION_PENDING;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+        return true;
+    }
+
+    public void dutyHoldReauthorised(UUID holdId, Instant expiresAt, Instant now) {
+        this.dutyHoldId = Objects.requireNonNull(holdId, "holdId");
+        this.dutyHoldExpiresAt = expiresAt;
+        this.dutyHoldStatus = PaymentStatus.AUTHORISED;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    public void dutyHoldExtended(Instant expiresAt, Instant now) {
+        if (this.dutyHoldExpiresAt == null || expiresAt.isAfter(this.dutyHoldExpiresAt)) {
+            this.dutyHoldExpiresAt = expiresAt;
+            this.updatedAt = Objects.requireNonNull(now, "now");
+        }
+    }
+
+    public void dutyHoldCaptured(Instant now) {
+        this.dutyHoldStatus = PaymentStatus.CAPTURED;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    public void dutyHoldReleased(Instant now) {
+        this.dutyHoldStatus = PaymentStatus.RELEASED;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    /** A duty hold's capture or release was refused: an operator looks at it; the freight's payment stands. */
+    public void dutyHoldSettlementFailed(Instant now) {
+        this.dutyHoldStatus = PaymentStatus.FAILED;
+        this.updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    public PaymentStatus getDutyHoldStatus() {
+        return dutyHoldStatus;
+    }
+
+    public UUID getDutyHoldId() {
+        return dutyHoldId;
+    }
+
+    public BigDecimal getDutyHoldAmount() {
+        return dutyHoldAmount;
+    }
+
+    public String getDutyHoldCurrency() {
+        return dutyHoldCurrency;
+    }
+
+    public Instant getDutyHoldExpiresAt() {
+        return dutyHoldExpiresAt;
     }
 
     /**

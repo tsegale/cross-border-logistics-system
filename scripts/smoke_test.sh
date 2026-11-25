@@ -363,6 +363,27 @@ wait_for "/api/v1/shipments/${SHIP2_ID}" .payment.status RELEASED
 call 200 GET "/api/v1/accounts/${EUR_ACC}"
 expect .availableBalance 4475.25
 
+# 3b. Into Walvis Bay the duties are owed to NamRA in NAD while the freight is in EUR: the booking holds them in NAD,
+# on their own, before the freight hold, and a cancellation releases both (ADR 0038).
+FRIDGES="{\"hsCode\":\"84181020\",\"description\":\"Fridge-freezers, 350 l\",\"originCountry\":\"DE\",\"quantity\":40,\"netWeightKg\":2400,\"customsValue\":10000.00,\"customsValueCurrency\":\"EUR\",\"originProof\":{\"type\":\"EUR1\",\"reference\":\"DE 0099123\",\"issuedOn\":\"${TODAY}\"}}"
+call 201 POST /api/v1/quotes "{\"origin\":\"DEHAM\",\"destination\":\"NAWVB\",\"mode\":\"SEA_LCL\",\"incoterm\":\"FCA\",\"payerRole\":\"CONSIGNEE\",\"packages\":${PACKAGES},\"goods\":[${FRIDGES}]}"
+expect .customs.market SACU
+expect .customs.currency NAD
+expect .customs.collectedWithFreight False
+expect .customs.collectedInOwnHold True
+QUOTE_NA="$(field .id)"; NA_DUTIES="$(field .customs.estimatedTotal)"
+NA_SHIPMENT="${SHIPMENT/${QUOTE_ID}/${QUOTE_NA}}"
+call 201 POST /api/v1/shipments "${NA_SHIPMENT/${EUR_ACC}/${NAD_ACC}}" "Idempotency-Key: smoke-ship-na-${RUN_ID}"
+SHIP_NA="$(field .id)"
+wait_for "/api/v1/shipments/${SHIP_NA}" .status BOOKED
+expect .payment.dutyHold.status AUTHORISED
+expect .payment.dutyHold.currency NAD
+expect .payment.dutyHold.amount "$NA_DUTIES"
+echo "     duties into Walvis Bay held in NAD on their own: ${NA_DUTIES} NAD, freight $(field .payment.amount) $(field .payment.currency)"
+call 200 POST "/api/v1/shipments/${SHIP_NA}/cancellation" '{"reason":"Smoke test cancellation"}'
+wait_for "/api/v1/shipments/${SHIP_NA}" .payment.dutyHold.status RELEASED
+expect .payment.status RELEASED
+
 # 4. A shipment whose payer cannot cover the freight fails its payment and is never booked.
 as operator
 call 201 POST /api/v1/accounts "{\"currency\":\"EUR\",\"organizationId\":\"${NAMIB}\"}"

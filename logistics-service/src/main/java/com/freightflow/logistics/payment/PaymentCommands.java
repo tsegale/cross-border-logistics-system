@@ -44,12 +44,25 @@ public class PaymentCommands {
     }
 
     public static String idempotencyKey(UUID shipmentId, PaymentCommandType command) {
-        return "shipment-" + shipmentId + "-" + command.name().toLowerCase(java.util.Locale.ROOT);
+        return idempotencyKey(shipmentId, command, HoldKind.FREIGHT);
+    }
+
+    /** The duty hold's commands say so in their key: a shipment's two holds are two sets of banking requests. */
+    public static String idempotencyKey(UUID shipmentId, PaymentCommandType command, HoldKind kind) {
+        return "shipment-" + shipmentId + kindPart(kind) + "-" + command.name().toLowerCase(java.util.Locale.ROOT);
     }
 
     /** The key of one extension: the target expiry makes it unique per extension and stable across retries. */
     public static String extensionKey(UUID shipmentId, Instant expiresAt) {
-        return "shipment-" + shipmentId + "-extend-" + expiresAt.getEpochSecond();
+        return extensionKey(shipmentId, expiresAt, HoldKind.FREIGHT);
+    }
+
+    public static String extensionKey(UUID shipmentId, Instant expiresAt, HoldKind kind) {
+        return "shipment-" + shipmentId + kindPart(kind) + "-extend-" + expiresAt.getEpochSecond();
+    }
+
+    private static String kindPart(HoldKind kind) {
+        return kind == HoldKind.DUTIES ? "-duties" : "";
     }
 
     /** AUTHORISE, CAPTURE or RELEASE; {@code expiresAt} only for AUTHORISE (null leaves banking's default). */
@@ -61,8 +74,23 @@ public class PaymentCommands {
             throw new IllegalArgumentException("Use enqueueExtension, enqueueReauthorisation or "
                     + "enqueueCustomsSettlement for " + command);
         }
-        insert(shipmentId, command, amount, currency, payerAccountNumber, holdId, expiresAt,
-                idempotencyKey(shipmentId, command), null);
+        enqueue(shipmentId, HoldKind.FREIGHT, command, amount, currency, payerAccountNumber, holdId, expiresAt);
+    }
+
+    /**
+     * AUTHORISE, CAPTURE or RELEASE of one of the shipment's holds. A duty hold's capture is all disbursement
+     * (ADR 0038); a freight hold's takes the shipment's disbursement part (ADR 0036).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void enqueue(UUID shipmentId, HoldKind kind, PaymentCommandType command, BigDecimal amount, String currency,
+                        String payerAccountNumber, UUID holdId, Instant expiresAt) {
+        if (command == PaymentCommandType.EXTEND || command == PaymentCommandType.REAUTHORISE
+                || command == PaymentCommandType.CUSTOMS_SETTLEMENT) {
+            throw new IllegalArgumentException("Use enqueueExtension, enqueueReauthorisation or "
+                    + "enqueueCustomsSettlement for " + command);
+        }
+        insert(shipmentId, kind, command, amount, currency, payerAccountNumber, holdId, expiresAt,
+                idempotencyKey(shipmentId, command, kind), null);
     }
 
     /**
@@ -72,8 +100,16 @@ public class PaymentCommands {
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean enqueueCustomsSettlement(UUID shipmentId, UUID holdId, BigDecimal assessed, String currency,
                                             String payerAccountNumber, String authorityReference) {
-        return insert(shipmentId, PaymentCommandType.CUSTOMS_SETTLEMENT, assessed, currency, payerAccountNumber,
-                holdId, null, idempotencyKey(shipmentId, PaymentCommandType.CUSTOMS_SETTLEMENT),
+        return enqueueCustomsSettlement(shipmentId, HoldKind.FREIGHT, holdId, assessed, currency, payerAccountNumber,
+                authorityReference);
+    }
+
+    /** Against the hold the duties were collected in: the freight hold (ADR 0036) or the duty hold (ADR 0038). */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean enqueueCustomsSettlement(UUID shipmentId, HoldKind kind, UUID holdId, BigDecimal assessed,
+                                            String currency, String payerAccountNumber, String authorityReference) {
+        return insert(shipmentId, kind, PaymentCommandType.CUSTOMS_SETTLEMENT, assessed, currency, payerAccountNumber,
+                holdId, null, idempotencyKey(shipmentId, PaymentCommandType.CUSTOMS_SETTLEMENT, kind),
                 authorityReference) == 1;
     }
 
@@ -84,8 +120,15 @@ public class PaymentCommands {
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean enqueueExtension(UUID shipmentId, UUID holdId, BigDecimal amount, String currency,
                                     String payerAccountNumber, Instant expiresAt) {
-        return insert(shipmentId, PaymentCommandType.EXTEND, amount, currency, payerAccountNumber, holdId, expiresAt,
-                extensionKey(shipmentId, expiresAt), null) == 1;
+        return enqueueExtension(shipmentId, HoldKind.FREIGHT, holdId, amount, currency, payerAccountNumber, expiresAt);
+    }
+
+    /** An EXTEND of one of the shipment's holds; one open per hold. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean enqueueExtension(UUID shipmentId, HoldKind kind, UUID holdId, BigDecimal amount, String currency,
+                                    String payerAccountNumber, Instant expiresAt) {
+        return insert(shipmentId, kind, PaymentCommandType.EXTEND, amount, currency, payerAccountNumber, holdId,
+                expiresAt, extensionKey(shipmentId, expiresAt, kind), null) == 1;
     }
 
     /** The key of the re-authorisation after one expired hold: one per expiry, stable across redeliveries. */
@@ -100,30 +143,43 @@ public class PaymentCommands {
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean enqueueReauthorisation(UUID shipmentId, UUID expiredHoldId, BigDecimal amount, String currency,
                                           String payerAccountNumber, Instant expiresAt) {
-        return insert(shipmentId, PaymentCommandType.REAUTHORISE, amount, currency, payerAccountNumber, expiredHoldId,
-                expiresAt, reauthorisationKey(shipmentId, expiredHoldId), null) == 1;
+        return enqueueReauthorisation(shipmentId, HoldKind.FREIGHT, expiredHoldId, amount, currency, payerAccountNumber,
+                expiresAt);
     }
 
-    private int insert(UUID shipmentId, PaymentCommandType command, BigDecimal amount, String currency,
+    /** A REAUTHORISE of one of the shipment's holds; the key is per expired hold, so it already tells them apart. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean enqueueReauthorisation(UUID shipmentId, HoldKind kind, UUID expiredHoldId, BigDecimal amount,
+                                          String currency, String payerAccountNumber, Instant expiresAt) {
+        return insert(shipmentId, kind, PaymentCommandType.REAUTHORISE, amount, currency, payerAccountNumber,
+                expiredHoldId, expiresAt, reauthorisationKey(shipmentId, expiredHoldId), null) == 1;
+    }
+
+    private int insert(UUID shipmentId, HoldKind kind, PaymentCommandType command, BigDecimal amount, String currency,
                        String payerAccountNumber, UUID holdId, Instant expiresAt, String key,
                        String authorityReference) {
         Instant now = clock.instant();
         // No conflict target: any of the unique indexes (one command per type, one open extension, the key) means
-        // the command already exists. A capture takes the shipment's disbursement part (ADR 0036) from its row.
+        // the command already exists. A freight hold's capture takes the shipment's disbursement part (ADR 0036)
+        // from its row; a duty hold's capture is all disbursement (ADR 0038).
         return jdbcTemplate.update("""
-                INSERT INTO shipment_payments (id, shipment_id, command, status, amount, currency, payer_account_number,
-                                               idempotency_key, hold_id, expires_at, attempts, next_attempt_at,
-                                               created_at, updated_at, payer_organization_id, on_behalf_of_subject,
-                                               traceparent, disbursement_amount, authority_reference)
-                SELECT ?, s.id, ?, 'PENDING', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, s.payer_organization_id, s.booked_by_subject, ?,
-                       CASE WHEN ? = 'CAPTURE' THEN s.customs_disbursement_amount END, ?
+                INSERT INTO shipment_payments (id, shipment_id, command, hold_kind, status, amount, currency,
+                                               payer_account_number, idempotency_key, hold_id, expires_at, attempts,
+                                               next_attempt_at, created_at, updated_at, payer_organization_id,
+                                               on_behalf_of_subject, traceparent, disbursement_amount,
+                                               authority_reference)
+                SELECT ?, s.id, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, s.payer_organization_id,
+                       s.booked_by_subject, ?,
+                       CASE WHEN ? <> 'CAPTURE' THEN NULL
+                            WHEN ? = 'DUTIES' THEN ?
+                            ELSE s.customs_disbursement_amount END, ?
                 FROM shipments s WHERE s.id = ?
                 ON CONFLICT DO NOTHING
                 """,
-                UuidV7.next(clock), command.name(), amount, currency, payerAccountNumber, key, holdId,
+                UuidV7.next(clock), command.name(), kind.name(), amount, currency, payerAccountNumber, key, holdId,
                 expiresAt == null ? null : Timestamp.from(expiresAt),
                 Timestamp.from(now), Timestamp.from(now), Timestamp.from(now), traces.current(), command.name(),
-                authorityReference, shipmentId);
+                kind.name(), amount, authorityReference, shipmentId);
     }
 
     /**

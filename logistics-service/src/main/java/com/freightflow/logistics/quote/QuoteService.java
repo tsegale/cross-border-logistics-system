@@ -199,14 +199,14 @@ public class QuoteService {
     }
 
     /**
-     * Collected with the freight only when the quoting party owes them and they are in the freight currency: one
-     * hold, one capture split into revenue and disbursement (ADR 0036).
+     * Collected when the quoting party owes them. In the freight currency they go into the freight hold, one capture
+     * split into revenue and disbursement (ADR 0036); in another into a hold of their own (ADR 0038).
      */
     private static FreightQuote.CustomsSummary customsSummary(CustomsQuoting.Quoted quoted, Incoterm incoterm,
                                                               PayerRole payerRole, String quoteCurrency) {
         CustomsEstimator.Estimate estimate = quoted.estimate();
         PayerRole dutiesPaidBy = incoterm.importDutiesPaidBy();
-        boolean collected = dutiesPaidBy == payerRole && estimate.currency().equals(quoteCurrency);
+        boolean collected = dutiesPaidBy == payerRole;
         return new FreightQuote.CustomsSummary(estimate.market().name(), quoted.source().id(), estimate.currency(),
                 estimate.duties(), estimate.importVat(), dutiesPaidBy, collected);
     }

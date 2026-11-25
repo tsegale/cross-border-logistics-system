@@ -51,7 +51,15 @@ public record ShipmentResponse(
 
     /** Where paying for the shipment stands (ADR 0012). failureType is a problem type URI from banking-service. */
     public record PaymentDto(PaymentStatus status, UUID holdId, Instant holdExpiresAt, BigDecimal amount,
-                             String currency, String failureType, String failureDetail) {
+                             String currency, String failureType, String failureDetail,
+                             @io.swagger.v3.oas.annotations.media.Schema(description = "Duties and import VAT held on "
+                                     + "their own, in their currency (ADR 0038); null when there is none",
+                                     nullable = true) DutyHoldDto dutyHold) {
+    }
+
+    /** The duty hold: duties in another currency than the freight (NAD into Namibia). */
+    public record DutyHoldDto(PaymentStatus status, UUID holdId, Instant holdExpiresAt, BigDecimal amount,
+                              String currency) {
     }
 
     public record AuditDto(Actor bookedBy, Actor cancelledBy) {
@@ -97,7 +105,10 @@ public record ShipmentResponse(
                 s.getCancellationReason(),
                 new PaymentDto(s.getPaymentStatus(), s.getHoldId(), s.getHoldExpiresAt(),
                         MoneyRounding.roundToMinorUnits(s.getQuotedTotalAmount(), s.getQuotedCurrency()),
-                        s.getQuotedCurrency(), s.getPaymentFailureType(), s.getPaymentFailureDetail()),
+                        s.getQuotedCurrency(), s.getPaymentFailureType(), s.getPaymentFailureDetail(),
+                        s.hasDutyHold() ? new DutyHoldDto(s.getDutyHoldStatus(), s.getDutyHoldId(),
+                                s.getDutyHoldExpiresAt(), MoneyRounding.roundToMinorUnits(s.getDutyHoldAmount(),
+                                s.getDutyHoldCurrency()), s.getDutyHoldCurrency()) : null),
                 s.getBookingOrganizationId(),
                 s.getPayerOrganizationId(),
                 s.getCarrierId(),

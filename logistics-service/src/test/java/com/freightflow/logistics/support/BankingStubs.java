@@ -189,4 +189,15 @@ public final class BankingStubs {
         return post(urlPathEqualTo("/api/v1/holds"))
                 .withHeader("Idempotency-Key", equalTo("shipment-" + shipmentId + "-authorise"));
     }
+
+    /** The shipment's duty hold (ADR 0038): its own key, so a stub can answer it apart from the freight hold. */
+    public static MappingBuilder dutyHoldFor(UUID shipmentId) {
+        return post(urlPathEqualTo("/api/v1/holds"))
+                .withHeader("Idempotency-Key", equalTo("shipment-" + shipmentId + "-duties-authorise"));
+    }
+
+    /** {@link #HOLD_CREATED}'s body for another hold id. */
+    public static ResponseDefinitionBuilder holdCreated(String holdId) {
+        return respond(HOLD_CREATED).withBody(HOLD_CREATED.responseBody().replace(HOLD_ID, holdId));
+    }
 }

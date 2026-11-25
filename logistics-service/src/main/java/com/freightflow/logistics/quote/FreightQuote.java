@@ -150,7 +150,10 @@ public class FreightQuote {
     @Column(name = "duties_paid_by", length = 16, updatable = false)
     private PayerRole dutiesPaidBy;
 
-    /** Whether the booking holds them with the freight: the quoting party pays them, in the freight currency. */
+    /**
+     * Whether the booking holds them: the quoting party pays them. In the freight currency they are in the freight
+     * hold (ADR 0036); in another (NAD into Namibia) in a hold of their own (ADR 0038).
+     */
     @Column(name = "duties_collected", updatable = false)
     private Boolean dutiesCollected;
 
@@ -177,11 +180,25 @@ public class FreightQuote {
         return this;
     }
 
-    /** What a booking holds for customs on top of the freight: the estimate if collected, else zero. */
+    /** What the freight hold holds for customs on top of the freight: the estimate if collected in its currency. */
     public BigDecimal collectedCustomsEstimate() {
-        return Boolean.TRUE.equals(dutiesCollected)
+        return Boolean.TRUE.equals(dutiesCollected) && currency.equals(customsCurrency)
                 ? estimatedDuties.add(estimatedImportVat)
                 : MoneyRounding.toStorageScale(BigDecimal.ZERO);
+    }
+
+    /** Collected in a hold of their own, in their currency (ADR 0038): not the freight's. */
+    public boolean dutiesInOwnHold() {
+        return Boolean.TRUE.equals(dutiesCollected) && !currency.equals(customsCurrency)
+                && estimatedDuties.add(estimatedImportVat).signum() > 0;
+    }
+
+    /** What the duty hold holds: the estimate, in {@link #getCustomsCurrency()}. */
+    public BigDecimal dutyHoldEstimate() {
+        if (!dutiesInOwnHold()) {
+            throw new IllegalStateException("Quote " + id + " has no duty hold");
+        }
+        return estimatedDuties.add(estimatedImportVat);
     }
 
     public String getCustomsMarket() {

@@ -220,9 +220,16 @@ public class ShipmentService {
         Shipment saved = shipments.saveAndFlush(shipment);
         // Same transaction as the booking: the AUTHORISE command exists if and only if the shipment does (ADR 0012).
         // The hold is asked to last until after the planned pickup, as far as one request may reach (ADR 0011).
-        paymentCommands.enqueue(saved.getId(), PaymentCommandType.AUTHORISE, saved.getQuotedTotalAmount(),
-                saved.getQuotedCurrency(), saved.getPayerAccountNumber(), null,
-                holdExpiry.initialExpiry(request.plannedPickupDate(), now));
+        // Duties in another currency are held first, on their own; the freight hold follows (ADR 0038).
+        Instant expiresAt = holdExpiry.initialExpiry(request.plannedPickupDate(), now);
+        if (saved.hasDutyHold()) {
+            paymentCommands.enqueue(saved.getId(), com.freightflow.logistics.payment.HoldKind.DUTIES,
+                    PaymentCommandType.AUTHORISE, saved.getDutyHoldAmount(), saved.getDutyHoldCurrency(),
+                    saved.getPayerAccountNumber(), null, expiresAt);
+        } else {
+            paymentCommands.enqueue(saved.getId(), PaymentCommandType.AUTHORISE, saved.getQuotedTotalAmount(),
+                    saved.getQuotedCurrency(), saved.getPayerAccountNumber(), null, expiresAt);
+        }
         events.shipmentBooked(saved, caller.actor());
         log.info("Booked shipment {} (trackingNumber={}, quoteId={}, status={})",
                 saved.getId(), saved.getTrackingNumber(), saved.getQuoteId(), saved.getStatus());
@@ -428,6 +435,23 @@ public class ShipmentService {
             case RELEASE -> paymentCommands.enqueue(shipment.getId(), PaymentCommandType.RELEASE,
                     shipment.getQuotedTotalAmount(), shipment.getQuotedCurrency(), shipment.getPayerAccountNumber(),
                     shipment.getHoldId(), null);
+            case NONE -> {
+                // nothing to settle
+            }
+        }
+        settleDutyHold(shipment);
+    }
+
+    /** The duty hold follows the freight hold: captured at pickup, released on cancellation (ADR 0038). */
+    private void settleDutyHold(Shipment shipment) {
+        com.freightflow.logistics.payment.HoldKind duties = com.freightflow.logistics.payment.HoldKind.DUTIES;
+        switch (shipment.settleDutyHoldAfterStatusChange()) {
+            case CAPTURE -> paymentCommands.enqueue(shipment.getId(), duties, PaymentCommandType.CAPTURE,
+                    shipment.getDutyHoldAmount(), shipment.getDutyHoldCurrency(), shipment.getPayerAccountNumber(),
+                    shipment.getDutyHoldId(), null);
+            case RELEASE -> paymentCommands.enqueue(shipment.getId(), duties, PaymentCommandType.RELEASE,
+                    shipment.getDutyHoldAmount(), shipment.getDutyHoldCurrency(), shipment.getPayerAccountNumber(),
+                    shipment.getDutyHoldId(), null);
             case NONE -> {
                 // nothing to settle
             }

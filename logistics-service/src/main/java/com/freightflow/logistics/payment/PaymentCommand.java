@@ -37,6 +37,10 @@ public class PaymentCommand {
     @Column(name = "status", length = 16, nullable = false)
     private PaymentCommandStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "hold_kind", length = 8, nullable = false, updatable = false)
+    private HoldKind holdKind;
+
     @Column(name = "amount", precision = 19, scale = 4, nullable = false, updatable = false)
     private BigDecimal amount;
 
@@ -182,6 +186,10 @@ public class PaymentCommand {
 
     public PaymentCommandType getCommand() {
         return command;
+    }
+
+    public HoldKind getHoldKind() {
+        return holdKind;
     }
 
     public PaymentCommandStatus getStatus() {

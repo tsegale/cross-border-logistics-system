@@ -91,6 +91,16 @@ public class BankingHoldEvents {
         }
         Shipment shipment = found.get();
         Instant now = clock.instant();
+        if (shipment.dutyHoldExpiredByBanking(event.holdId(), now)) {
+            shipments.saveAndFlush(shipment);
+            Instant expiresAt = holdExpiry.reauthorisationExpiry(shipment.getPlannedPickupDate(), now);
+            outbox.enqueueReauthorisation(shipment.getId(), HoldKind.DUTIES, event.holdId(),
+                    shipment.getDutyHoldAmount(), shipment.getDutyHoldCurrency(), shipment.getPayerAccountNumber(),
+                    expiresAt);
+            log.warn("banking expired duty hold {} of shipment {} before pickup; re-authorising until {}",
+                    event.holdId(), shipment.getId(), expiresAt);
+            return "reauthorising";
+        }
         if (!shipment.holdExpiredByBanking(event.holdId(), now)) {
             // Picked up, cancelled, or already on another hold: the expiry changes nothing.
             return "no-action";
@@ -108,8 +118,10 @@ public class BankingHoldEvents {
     private String captured(HoldEvent event) {
         Optional<Shipment> found = shipment(event);
         UUID holdId = event.holdId();
-        boolean asked = found.flatMap(shipment -> commands.findByShipmentIdAndCommand(shipment.getId(),
-                PaymentCommandType.CAPTURE)).filter(capture -> holdId.equals(capture.getHoldId())).isPresent();
+        // A shipment can have two captures (freight and duties, ADR 0038): any of its captures of this hold.
+        boolean asked = found.map(shipment -> commands.findByShipmentIdOrderByCreatedAtAsc(shipment.getId()).stream()
+                .anyMatch(command -> command.getCommand() == PaymentCommandType.CAPTURE
+                        && holdId.equals(command.getHoldId()))).orElse(false);
         if (asked) {
             return "expected";
         }
