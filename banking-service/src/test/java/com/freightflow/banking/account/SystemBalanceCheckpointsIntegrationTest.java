@@ -109,12 +109,13 @@ class SystemBalanceCheckpointsIntegrationTest extends IntegrationTest {
         deposit(customer(), "1.00");
         checkpoints.rollUp(CLEARING_EUR);
 
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                "UPDATE system_balance_checkpoints SET balance = 0 WHERE account_id = ?", CLEARING_EUR))
-                .hasMessageContaining("append-only");
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                "DELETE FROM system_balance_checkpoints WHERE account_id = ?", CLEARING_EUR))
-                .hasMessageContaining("append-only");
+        // The service's role may not try (ADR 0041); the owner is stopped by the trigger.
+        for (String change : java.util.List.of("UPDATE system_balance_checkpoints SET balance = 0 WHERE account_id = ?",
+                "DELETE FROM system_balance_checkpoints WHERE account_id = ?")) {
+            assertThatThrownBy(() -> jdbcTemplate.update(change, CLEARING_EUR)).hasStackTraceContaining("permission denied");
+            assertThatThrownBy(() -> com.freightflow.banking.support.SharedContainers.owner().update(change, CLEARING_EUR))
+                    .hasMessageContaining("append-only");
+        }
         assertThatThrownBy(() -> jdbcTemplate.update("""
                 INSERT INTO system_balance_checkpoints (id, account_id, covered_below, balance, postings_covered, created_at)
                 VALUES (gen_random_uuid(), ?, '1'::xid8, 0, 0, now())

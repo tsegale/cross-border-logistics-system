@@ -33,14 +33,22 @@ spring:
     name: notification-service
   datasource:
     url: ${NOTIFICATION_DB_URL:jdbc:postgresql://127.0.0.1:5443/notification}
-    username: ${NOTIFICATION_DB_USER:notification}
-    # From the compose secret notification_db_password or the environment; no default (ADR 0019).
-    password: ${notification_db_password:${NOTIFICATION_DB_PASSWORD:}}
+    # The runtime role (ADR 0041): rows only. From the compose secret notification_db_app_password (config tree) or
+    # the environment; no default (ADR 0019).
+    username: ${NOTIFICATION_DB_APP_USER:notification_app}
+    password: ${notification_db_app_password:${NOTIFICATION_DB_APP_PASSWORD:}}
     hikari:
       connection-timeout: ${NOTIFICATION_DB_CONNECTION_TIMEOUT:2000}
       maximum-pool-size: ${NOTIFICATION_DB_MAX_POOL_SIZE:16}
+  # Migrations as the owner, which keeps the schema; afterMigrate.sql gives the runtime and monitoring roles their
+  # passwords from their secrets on every start (ADR 0041).
   flyway:
     enabled: true
+    user: ${NOTIFICATION_DB_USER:notification}
+    password: ${notification_db_password:${NOTIFICATION_DB_PASSWORD:}}
+    placeholders:
+      app-password: ${notification_db_app_password:${NOTIFICATION_DB_APP_PASSWORD:}}
+      monitoring-password: ${db_monitoring_password:${DB_MONITORING_PASSWORD:}}
   # Its own SCRAM user; the ACLs let it read shipment and hold events and own its retry topics (ADR 0022).
   kafka:
     # Producer and consumer spans, with traceparent in the record headers (ADR 0030).

@@ -23,8 +23,11 @@ KEYCLOAK_ENV = SECRETS_DIR / "keycloak.env"
 
 # One file per value, mounted as a compose secret of the same name.
 FILES = (
+    # Each database's owner, which runs the migrations, and the service's runtime role (ADR 0041).
     "banking_db_password",
+    "banking_db_app_password",
     "logistics_db_password",
+    "logistics_db_app_password",
     "keycloak_db_password",
     "logistics_client_secret",
     # Kafka SCRAM users (ADR 0022): admin for the broker and kafka-init, one per service.
@@ -35,6 +38,9 @@ FILES = (
     # The observability collector reads consumer lag as this user, describe-only (ADR 0031).
     "kafka_monitoring_password",
     "notification_db_password",
+    "notification_db_app_password",
+    # The collector's monitoring role in every database: statistics only, pg_monitor (ADR 0041).
+    "db_monitoring_password",
     "smtp_password",
     # DCSA Track and Trace (ADR 0037): the secret the carrier simulator signs its notifications with. Hex is valid
     # Base64, the encoding DCSA's subscription secret uses.

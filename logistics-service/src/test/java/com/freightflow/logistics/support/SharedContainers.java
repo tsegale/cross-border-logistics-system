@@ -3,7 +3,6 @@ package com.freightflow.logistics.support;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.errors.TopicExistsException;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -19,7 +18,6 @@ public final class SharedContainers {
 
     private static final Duration STARTUP_TIMEOUT = Duration.ofMinutes(2);
 
-    @ServiceConnection
     public static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
             DockerImageName.parse("postgres:17-alpine"))
             .withStartupTimeout(STARTUP_TIMEOUT);
@@ -49,6 +47,7 @@ public final class SharedContainers {
 
     @DynamicPropertySource
     static void kafka(DynamicPropertyRegistry registry) {
+        database(registry);
         registry.add("spring.kafka.bootstrap-servers", KAFKA::bootstrapServers);
         // Every internal TLS peer (the broker, KafkaBroker) is verified against this JVM's test CA.
         registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
@@ -61,6 +60,30 @@ public final class SharedContainers {
         registry.add("spring.ssl.bundle.pem.internal.reload-on-update", () -> "false");
         registry.add("KAFKA_USERNAME", () -> "logistics");
         registry.add("freightflow.kafka.password", () -> KAFKA.password("logistics"));
+    }
+
+    /** The runtime role's password in the tests; the container's own superuser is the owner that migrates. */
+    public static final String APP_PASSWORD = "logistics-app-test-password";
+
+    /**
+     * The service connects as its runtime role, logistics_app, and Flyway migrates as the owner, as in compose (ADR 0041):
+     * a grant the code needs and the migration forgot fails a test, not production. Not a service connection, which
+     * would log the service in as the container's superuser.
+     */
+    public static void database(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", () -> "logistics_app");
+        registry.add("spring.datasource.password", () -> APP_PASSWORD);
+        registry.add("spring.flyway.user", POSTGRES::getUsername);
+        registry.add("spring.flyway.password", POSTGRES::getPassword);
+        registry.add("spring.flyway.placeholders.app-password", () -> APP_PASSWORD);
+        registry.add("spring.flyway.placeholders.monitoring-password", () -> "");
+    }
+
+    /** The owner's connection, for what the runtime role may not do: a test's setup, or a check of a trigger. */
+    public static org.springframework.jdbc.core.JdbcTemplate owner() {
+        return new org.springframework.jdbc.core.JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()));
     }
 
     private SharedContainers() {

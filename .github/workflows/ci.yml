@@ -185,7 +185,7 @@ jobs:
       - name: The collector validates its config
         run: |
           mkdir -p "$RUNNER_TEMP/secrets"
-          for name in banking_db_password logistics_db_password notification_db_password kafka_monitoring_password; do
+          for name in db_monitoring_password kafka_monitoring_password; do
             echo ci-only > "$RUNNER_TEMP/secrets/$name"
           done
           # The receivers read their TLS files when the pipeline is built (the OTLP listener's certificate, Redis's and
@@ -197,8 +197,7 @@ jobs:
           chmod 0644 "$RUNNER_TEMP/tls/key.pem"
           docker run --rm -v "$PWD/infra/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro" \
             -v "$RUNNER_TEMP/secrets:/run/secrets:ro" -v "$RUNNER_TEMP/tls:/tls:ro" \
-            -e BANKING_DB_USER=banking -e LOGISTICS_DB_USER=logistics \
-            -e NOTIFICATION_DB_USER=notification -e TAIL_SAMPLING_PERCENTAGE=100 \
+            -e TAIL_SAMPLING_PERCENTAGE=100 \
             "$COLLECTOR_IMAGE" validate --config=/etc/otelcol/config.yaml
 
   # The whole stack with the observability profile (ADR 0030 to 0033): one booking must be one trace in Tempo through

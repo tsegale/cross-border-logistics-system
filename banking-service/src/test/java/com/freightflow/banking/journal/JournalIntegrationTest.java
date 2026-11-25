@@ -6,6 +6,7 @@ import com.freightflow.banking.account.AccountType;
 import com.freightflow.banking.journal.dto.JournalEntryResponse;
 import com.freightflow.banking.support.Funding;
 import com.freightflow.banking.support.IntegrationTest;
+import com.freightflow.banking.support.SharedContainers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
@@ -60,29 +61,21 @@ class JournalIntegrationTest extends IntegrationTest {
         UUID entryId = entry.id();
         UUID postingId = entry.postings().get(0).id();
 
-        // Attempting UPDATE on postings is rejected by trg_postings_append_only
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                "UPDATE postings SET amount = 9999.0000 WHERE id = ?", postingId))
-                .isInstanceOf(DataAccessException.class)
-                .hasMessageContaining("append-only");
-
-        // Attempting DELETE on postings is rejected by trg_postings_append_only
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                "DELETE FROM postings WHERE id = ?", postingId))
-                .isInstanceOf(DataAccessException.class)
-                .hasMessageContaining("append-only");
-
-        // Attempting UPDATE on journal_entries is rejected by trg_journal_entries_append_only
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                "UPDATE journal_entries SET reference = 'TAMPERED' WHERE id = ?", entryId))
-                .isInstanceOf(DataAccessException.class)
-                .hasMessageContaining("append-only");
-
-        // Attempting DELETE on journal_entries is rejected by trg_journal_entries_append_only
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                "DELETE FROM journal_entries WHERE id = ?", entryId))
-                .isInstanceOf(DataAccessException.class)
-                .hasMessageContaining("append-only");
+        // Two layers (ADR 0041): the service's role may not even try, and the owner is stopped by the triggers.
+        for (String change : List.of("UPDATE postings SET amount = 9999.0000 WHERE id = ?",
+                "DELETE FROM postings WHERE id = ?")) {
+            assertThatThrownBy(() -> jdbcTemplate.update(change, postingId))
+                    .isInstanceOf(DataAccessException.class).hasStackTraceContaining("permission denied");
+            assertThatThrownBy(() -> SharedContainers.owner().update(change, postingId))
+                    .isInstanceOf(DataAccessException.class).hasMessageContaining("append-only");
+        }
+        for (String change : List.of("UPDATE journal_entries SET reference = 'TAMPERED' WHERE id = ?",
+                "DELETE FROM journal_entries WHERE id = ?")) {
+            assertThatThrownBy(() -> jdbcTemplate.update(change, entryId))
+                    .isInstanceOf(DataAccessException.class).hasStackTraceContaining("permission denied");
+            assertThatThrownBy(() -> SharedContainers.owner().update(change, entryId))
+                    .isInstanceOf(DataAccessException.class).hasMessageContaining("append-only");
+        }
     }
 
     @Test

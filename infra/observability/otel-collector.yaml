@@ -33,13 +33,13 @@ receivers:
           min_version: "1.2"
           reload_interval: 1m
 
-  # One receiver per database, each as that service's own user: the collector needs no superuser. TLS with the
+  # One receiver per database, as its monitoring role: statistics only (pg_monitor), no rows (ADR 0041). TLS with the
   # internal CA's root, verified against the endpoint's host name: the databases refuse plaintext (ADR 0039).
   postgresql/banking:
     endpoint: banking-db:5432
     transport: tcp
-    username: ${env:BANKING_DB_USER}
-    password: ${file:/run/secrets/banking_db_password}
+    username: monitoring
+    password: ${file:/run/secrets/db_monitoring_password}
     databases: [banking]
     collection_interval: 15s
     tls:
@@ -47,8 +47,8 @@ receivers:
   postgresql/logistics:
     endpoint: logistics-db:5432
     transport: tcp
-    username: ${env:LOGISTICS_DB_USER}
-    password: ${file:/run/secrets/logistics_db_password}
+    username: monitoring
+    password: ${file:/run/secrets/db_monitoring_password}
     databases: [logistics]
     collection_interval: 15s
     tls:
@@ -56,8 +56,8 @@ receivers:
   postgresql/notification:
     endpoint: notification-db:5432
     transport: tcp
-    username: ${env:NOTIFICATION_DB_USER}
-    password: ${file:/run/secrets/notification_db_password}
+    username: monitoring
+    password: ${file:/run/secrets/db_monitoring_password}
     databases: [notification]
     collection_interval: 15s
     tls:

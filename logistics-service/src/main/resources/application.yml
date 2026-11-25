@@ -49,9 +49,10 @@ spring:
   datasource:
     # Defaults match docker compose's published port, so the service also runs from the IDE.
     url: ${LOGISTICS_DB_URL:jdbc:postgresql://127.0.0.1:5442/logistics}
-    username: ${LOGISTICS_DB_USER:logistics}
-    # From the compose secret logistics_db_password (config tree below) or the environment; no default (ADR 0019).
-    password: ${logistics_db_password:${LOGISTICS_DB_PASSWORD:}}
+    # The runtime role (ADR 0041): rows only. From the compose secret logistics_db_app_password (config tree) or
+    # the environment; no default (ADR 0019).
+    username: ${LOGISTICS_DB_APP_USER:logistics_app}
+    password: ${logistics_db_app_password:${LOGISTICS_DB_APP_PASSWORD:}}
     # With the database down, fail a request in about 2 s instead of Hikari's default 30 s.
     hikari:
       connection-timeout: ${LOGISTICS_DB_CONNECTION_TIMEOUT:2000}
@@ -104,8 +105,15 @@ spring:
         request.timeout.ms: 10000
         # Within the relay's send-timeout (30 s), which is within its lease (60 s).
         delivery.timeout.ms: 25000
+  # Migrations as the owner, which keeps the schema; afterMigrate.sql gives the runtime and monitoring roles their
+  # passwords from their secrets on every start (ADR 0041).
   flyway:
     enabled: true
+    user: ${LOGISTICS_DB_USER:logistics}
+    password: ${logistics_db_password:${LOGISTICS_DB_PASSWORD:}}
+    placeholders:
+      app-password: ${logistics_db_app_password:${LOGISTICS_DB_APP_PASSWORD:}}
+      monitoring-password: ${db_monitoring_password:${DB_MONITORING_PASSWORD:}}
   mvc:
     problemdetails:
       enabled: true

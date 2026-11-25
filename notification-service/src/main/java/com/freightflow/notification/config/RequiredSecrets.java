@@ -20,6 +20,7 @@ public class RequiredSecrets implements EnvironmentPostProcessor, Ordered {
 
     static final List<String> REQUIRED = List.of(
             "spring.datasource.password",
+            "spring.flyway.password",
             "spring.mail.password",
             "freightflow.kafka.password");
 
@@ -30,7 +31,7 @@ public class RequiredSecrets implements EnvironmentPostProcessor, Ordered {
         }
         List<String> missing = REQUIRED.stream().filter(key -> !StringUtils.hasText(environment.getProperty(key))).toList();
         if (!missing.isEmpty()) {
-            throw new IllegalStateException("Missing secrets " + missing + ": mount secrets/notification_db_password, secrets/smtp_password and "
+            throw new IllegalStateException("Missing secrets " + missing + ": mount secrets/notification_db_app_password, secrets/notification_db_password (the owner's, for migrations), secrets/smtp_password and "
                     + "secrets/kafka_notification_password (compose secrets, the last as kafka_password), or set "
                     + "NOTIFICATION_DB_PASSWORD, SMTP_PASSWORD and KAFKA_PASSWORD. There are no defaults.");
         }

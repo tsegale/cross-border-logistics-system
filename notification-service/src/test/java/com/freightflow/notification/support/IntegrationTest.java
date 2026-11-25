@@ -37,6 +37,7 @@ public abstract class IntegrationTest {
      */
     @DynamicPropertySource
     static void internalCa(DynamicPropertyRegistry registry) {
+        SharedContainers.database(registry);
         registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
         // This service's identity from the test CA: its bundle holds a certificate wherever it runs (ADR 0040).
         registry.add("spring.ssl.bundle.pem.internal.keystore.certificate",

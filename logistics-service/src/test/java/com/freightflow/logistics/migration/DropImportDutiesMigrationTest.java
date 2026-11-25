@@ -52,7 +52,9 @@ class DropImportDutiesMigrationTest {
     }
 
     private static Flyway flyway(DriverManagerDataSource dataSource, String target) {
-        return Flyway.configure().dataSource(dataSource).schemas(SCHEMA).target(target).load();
+        // Without afterMigrate.sql: these versions predate the roles it gives passwords to (ADR 0041).
+        return Flyway.configure().dataSource(dataSource).schemas(SCHEMA).target(target).skipDefaultCallbacks(true)
+                .load();
     }
 
     private static void insertQuote(JdbcTemplate jdbc, String id, String duty, Instant validUntil) {

@@ -75,13 +75,16 @@ class QuoteIntegrationTest extends IntegrationTest {
         String id = json(mockMvc.perform(quote("NAWVB", "DEHAM", "SEA_LCL", "FCA", "CONSIGNEE", TWO_PALLETS))
                 .andExpect(status().isCreated()).andReturn()).get("id").asString();
         String lane = "origin_unlocode = 'NAWVB' AND destination_unlocode = 'DEHAM' AND mode = 'SEA_LCL'";
-        jdbcTemplate.update("UPDATE tariffs SET rate_per_unit = 999.0000 WHERE " + lane);
+        // Tariffs are reference data the service may only read (ADR 0041): the change is the owner's.
+        com.freightflow.logistics.support.SharedContainers.owner()
+                .update("UPDATE tariffs SET rate_per_unit = 999.0000 WHERE " + lane);
         try {
             mockMvc.perform(get("/api/v1/quotes/{id}", id))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalAmount").value(524.75));
         } finally {
-            jdbcTemplate.update("UPDATE tariffs SET rate_per_unit = 95.0000 WHERE " + lane);
+            com.freightflow.logistics.support.SharedContainers.owner()
+                    .update("UPDATE tariffs SET rate_per_unit = 95.0000 WHERE " + lane);
         }
     }
 

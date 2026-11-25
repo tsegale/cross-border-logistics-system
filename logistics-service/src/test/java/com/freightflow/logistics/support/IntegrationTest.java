@@ -42,6 +42,7 @@ public abstract class IntegrationTest {
         registry.add("KEYCLOAK_TOKEN_URI", () -> BankingStub.baseUrl() + "/token");
         // The test CA's root for every internal TLS client (ADR 0039), before the context starts: SharedContainers'
         // own registration applies only once its registrar bean runs, after a bean like the warm-up may need it.
+        SharedContainers.database(registry);
         registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
         // This service's identity from the test CA: its bundle holds a certificate wherever it runs (ADR 0040).
         registry.add("spring.ssl.bundle.pem.internal.keystore.certificate",

@@ -134,6 +134,8 @@ class BankingFaultInjectionTest {
                 "BANKING_DB_URL", "jdbc:postgresql://banking-db:5432/banking",
                 "BANKING_DB_USER", BANKING_DB.getUsername(),
                 "BANKING_DB_PASSWORD", BANKING_DB.getPassword(),
+                // banking connects as its runtime role, which its migrations create (ADR 0041).
+                "BANKING_DB_APP_PASSWORD", "banking-app-fault-test",
                 "KEYCLOAK_ISSUER_URI", com.freightflow.logistics.support.RealmKeycloak.ISSUER,
                 "KEYCLOAK_JWK_SET_URI", "http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs",
                 // No broker on this network: banking starts without one, as it does when Kafka is down (ADR 0022).
@@ -152,6 +154,8 @@ class BankingFaultInjectionTest {
 
     @DynamicPropertySource
     static void bankingBehindToxiproxy(DynamicPropertyRegistry registry) {
+        // Before the context starts (SharedContainers' own registration applies later): the runtime role (ADR 0041).
+        SharedContainers.database(registry);
         // Mutual TLS through the proxy, which passes the bytes on: banking's certificate names 127.0.0.1.
         registry.add("spring.http.serviceclient.banking.base-url",
                 () -> "https://127.0.0.1:" + TOXIPROXY.getMappedPort(8666));

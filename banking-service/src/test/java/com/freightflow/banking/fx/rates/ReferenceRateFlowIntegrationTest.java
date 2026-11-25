@@ -94,9 +94,14 @@ class ReferenceRateFlowIntegrationTest {
         if (!SOURCES.isRunning()) {
             SOURCES.start();
         }
+        // The runtime role, and the owner for Flyway, as everywhere (ADR 0041).
         registry.add("spring.datasource.url", DATABASE::url);
-        registry.add("spring.datasource.username", DATABASE::username);
-        registry.add("spring.datasource.password", DATABASE::password);
+        registry.add("spring.datasource.username", () -> "banking_app");
+        registry.add("spring.datasource.password", () -> SharedContainers.APP_PASSWORD);
+        registry.add("spring.flyway.user", DATABASE::username);
+        registry.add("spring.flyway.password", DATABASE::password);
+        registry.add("spring.flyway.placeholders.app-password", () -> SharedContainers.APP_PASSWORD);
+        registry.add("spring.flyway.placeholders.monitoring-password", () -> "");
         registry.add("spring.kafka.bootstrap-servers", SharedContainers.KAFKA::bootstrapServers);
         // Every internal TLS peer (the broker, KafkaBroker) is verified against this JVM's test CA.
         registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
@@ -263,7 +268,12 @@ class ReferenceRateFlowIntegrationTest {
         // Stored rates are never changed or deleted, whatever the code path.
         assertThatThrownBy(() -> jdbcTemplate.update("UPDATE reference_rates SET rate = 1 WHERE id = ?", monday))
                 .hasMessageContaining("never overwritten");
+        // Deleting one: the service's role may not try (ADR 0041), the owner is stopped by the trigger.
         assertThatThrownBy(() -> jdbcTemplate.update("DELETE FROM reference_rates WHERE id = ?", monday))
+                .hasStackTraceContaining("permission denied");
+        assertThatThrownBy(() -> new org.springframework.jdbc.core.JdbcTemplate(
+                new org.springframework.jdbc.datasource.DriverManagerDataSource(DATABASE.url(), DATABASE.username(),
+                        DATABASE.password())).update("DELETE FROM reference_rates WHERE id = ?", monday))
                 .hasMessageContaining("never deleted");
         assertThatThrownBy(() -> jdbcTemplate.update(
                 "UPDATE reference_rates SET status = 'REJECTED', decided_at = now(), decided_approval_id = ? WHERE id = ?",

@@ -354,11 +354,14 @@ class HoldIntegrationTest extends IntegrationTest {
         String id = holdId(payer, "10.00", "EUR");
         mockMvc.perform(extend(id, Instant.now().plus(Duration.ofDays(10)), key())).andExpect(status().isOk());
 
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                "UPDATE hold_extensions SET new_expires_at = new_expires_at + interval '1 day' WHERE hold_id = ?::uuid", id))
-                .hasMessageContaining("append-only");
-        assertThatThrownBy(() -> jdbcTemplate.update("DELETE FROM hold_extensions WHERE hold_id = ?::uuid", id))
-                .hasMessageContaining("append-only");
+        // The service's role may not try (ADR 0041); the owner is stopped by the trigger.
+        for (String change : java.util.List.of(
+                "UPDATE hold_extensions SET new_expires_at = new_expires_at + interval '1 day' WHERE hold_id = ?::uuid",
+                "DELETE FROM hold_extensions WHERE hold_id = ?::uuid")) {
+            assertThatThrownBy(() -> jdbcTemplate.update(change, id)).hasStackTraceContaining("permission denied");
+            assertThatThrownBy(() -> com.freightflow.banking.support.SharedContainers.owner().update(change, id))
+                    .hasMessageContaining("append-only");
+        }
     }
 
     @Test
