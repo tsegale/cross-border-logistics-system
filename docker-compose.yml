@@ -285,6 +285,8 @@ services:
       # Daily reference rates (ADR 0034): the ECB and the Bank of Namibia, or the partner simulator in CI.
       ECB_BASE_URL: ${ECB_BASE_URL:-https://data-api.ecb.europa.eu}
       BON_RATES_URL: ${BON_RATES_URL:-https://services.bon.com.na/ratestable/api/rates}
+      # internal when the two URLs are the partner simulator's (CI): its certificate is the internal CA's (ADR 0040).
+      REFERENCE_RATES_SSL_BUNDLE: ${REFERENCE_RATES_SSL_BUNDLE:-}
       FX_MAX_AGE_WORKING_DAYS: ${FX_MAX_AGE_WORKING_DAYS:-2}
       FX_REFRESH_INTERVAL: ${FX_REFRESH_INTERVAL:-15m}
     secrets:
@@ -346,7 +348,9 @@ services:
       KAFKA_USERNAME: logistics
       # The carrier simulator's T&T API, polled when DCSA_KALAHARI_MODE=POLL (ADR 0037); it pushes by default.
       DCSA_KALAHARI_MODE: ${DCSA_KALAHARI_MODE:-PUSH}
-      DCSA_KALAHARI_API_URL: http://partner-simulator:8090/carrier
+      DCSA_KALAHARI_API_URL: https://partner-simulator:8090/carrier
+      # The simulated carrier's certificate is the internal CA's; a real carrier's is checked against public roots.
+      DCSA_SSL_BUNDLE: internal
     secrets:
       - logistics_db_password
       - logistics_client_secret
@@ -591,15 +595,17 @@ services:
     mem_limit: 48m
     image: python:3.15.2-alpine
     command: ["python", "-I", "/app/simulator.py"]
+    # The image's root user is not needed: the group the agent gives its key to (infra/tls/identities.conf).
+    user: "1000:1000"
     volumes:
       - ./infra/partners:/app:ro
-      # The internal CA's root: the carrier's notifications go to the gateway over HTTPS (ADR 0039).
+      # Its certificate for its own HTTPS and the internal CA's root, for the carrier's pushes to the gateway (ADR 0040).
       - type: volume
         source: certs
         target: /tls
         read_only: true
         volume:
-          subpath: trust
+          subpath: partner-simulator
     depends_on:
       cert-agent:
         condition: service_healthy
@@ -612,7 +618,8 @@ services:
       CARRIER_SECRET_FILE: /run/secrets/dcsa_carrier_secret
     secrets: [dcsa_carrier_secret]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
+      test: ["CMD", "python", "-c", "import ssl, urllib.request; urllib.request.urlopen('https://localhost:8090/health',
+             timeout=2, context=ssl.create_default_context(cafile='/tls/ca.pem'))"]
       interval: 5s
       timeout: 5s
       retries: 12

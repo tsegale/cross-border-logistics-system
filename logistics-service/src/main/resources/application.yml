@@ -173,6 +173,8 @@ freightflow:
           secret: ${dcsa_carrier_secret:${DCSA_CARRIER_SECRET:}}
           mode: ${DCSA_KALAHARI_MODE:PUSH}
           base-url: ${DCSA_KALAHARI_API_URL:http://127.0.0.1:8090/carrier}
+      # Blank: the JVM's public roots, for real carriers. internal: the partner simulator's root (ADR 0040).
+      ssl-bundle: ${DCSA_SSL_BUNDLE:}
     supported-currencies: ${LOGISTICS_SUPPORTED_CURRENCIES:NAD,ZAR,EUR}
     quote-validity: ${LOGISTICS_QUOTE_VALIDITY:24h}
     # Payment saga relay (ADR 0012)

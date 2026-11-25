@@ -35,6 +35,7 @@ the internal CA, verified by name. The services take only mutual TLS, and only f
 | Carrier simulator to the gateway | HTTPS | server certificate | gateway bundle | the smoke test's DCSA push |
 | notification, Alertmanager to Mailpit (SMTP) | STARTTLS required, then the SMTP login | server certificate | Mailpit restarted on renewal, its messages in a database file | notification's email tests (Mailpit requires STARTTLS there too) |
 | Scripts to Mailpit's API (8025) | HTTPS | server certificate | as above | the smoke test's email checks |
+| banking, logistics to the partner simulator | HTTPS; the real ECB, Bank of Namibia and carriers are checked against the JVM's public roots, the simulator against the internal root only where `REFERENCE_RATES_SSL_BUNDLE` and `DCSA_SSL_BUNDLE` say `internal` | server certificate | re-read into the live context | the smoke test's DCSA voyage, CI's rates |
 
 - **Allowed callers by name.** The connector (`server.ssl.client-auth: need`) refuses any client without a certificate
   from the internal CA in the handshake. `CallerCertificateFilter`, ahead of Spring Security, then takes the request only
@@ -73,7 +74,8 @@ the internal CA, verified by name. The services take only mutual TLS, and only f
   identity is allowed to, until its certificate expires (24 h at most).
 - Internal suites are the JDK's defaults for TLS 1.3 and 1.2; only the public listener is held to Mozilla's list.
 - Still in plaintext when this was accepted, and moved in the commits that follow it: the services' OTLP export to the
-  collector and the collector to Tempo and Loki, banking's and logistics' calls to the partner simulator, and
-  Prometheus, Grafana and Alertmanager among themselves.
+  collector and the collector to Tempo and Loki, and Prometheus, Grafana and Alertmanager among themselves.
+- The internal CA is never trusted for a public host: the clients of the ECB, the Bank of Namibia and the carriers use
+  the JVM's roots unless a setting names the internal bundle, which only a stack that runs the simulator sets.
 - Mailpit cannot reload a certificate, so its wrapper restarts it on each renewal (every 16 h); a sender connecting in
   that second is refused and retries. A real relay is a provider's, with a public certificate.

@@ -164,6 +164,8 @@ freightflow:
       reference:
         provider: ${FX_RATE_PROVIDER:ecb}
         ecb-base-url: ${ECB_BASE_URL:https://data-api.ecb.europa.eu}
+        # Blank: the JVM's public roots, for the real sources. internal: the partner simulator's root (ADR 0040).
+        ssl-bundle: ${REFERENCE_RATES_SSL_BUNDLE:}
         bon-url: ${BON_RATES_URL:https://services.bon.com.na/ratestable/api/rates}
         # The ECB publishes around 16:00 CET on TARGET working days; a day's rate is due an hour after.
         publication-time: "16:00"

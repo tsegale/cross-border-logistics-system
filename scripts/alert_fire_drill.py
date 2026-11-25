@@ -337,8 +337,9 @@ def phase3_bookings(watch: Watch, account: str, run: str) -> None:
 def simulator(settings: dict) -> None:
     """Changes the partner simulator's behaviour through its control endpoint, inside the compose network."""
     compose("exec", "-T", "partner-simulator", "python", "-c",
-            "import sys, urllib.request; urllib.request.urlopen(urllib.request.Request("
-            "'http://127.0.0.1:8090/_control', data=sys.argv[1].encode(), method='POST'), timeout=5)",
+            "import ssl, sys, urllib.request; urllib.request.urlopen(urllib.request.Request("
+            "'https://localhost:8090/_control', data=sys.argv[1].encode(), method='POST'), timeout=5, "
+            "context=ssl.create_default_context(cafile='/tls/ca.pem'))",
             json.dumps(settings))
 
 
@@ -375,8 +376,9 @@ def phase4_rates(watch: Watch, run: str) -> None:
 
 def carrier(path: str, settings: dict) -> None:
     compose("exec", "-T", "partner-simulator", "python", "-c",
-            "import sys, urllib.request; urllib.request.urlopen(urllib.request.Request("
-            f"'http://127.0.0.1:8090{path}', data=sys.argv[1].encode(), method='POST'), timeout=15)",
+            "import ssl, sys, urllib.request; urllib.request.urlopen(urllib.request.Request("
+            f"'https://localhost:8090{path}', data=sys.argv[1].encode(), method='POST'), timeout=15, "
+            "context=ssl.create_default_context(cafile='/tls/ca.pem'))",
             json.dumps(settings))
 
 

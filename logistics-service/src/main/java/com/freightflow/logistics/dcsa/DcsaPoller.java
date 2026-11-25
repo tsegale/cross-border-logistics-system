@@ -7,8 +7,10 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.HttpClientSettings;
+import org.springframework.boot.ssl.SslBundles;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -48,14 +50,22 @@ public class DcsaPoller {
     private final Clock clock;
 
     public DcsaPoller(DcsaProperties properties, DcsaInbox inbox, JdbcTemplate jdbcTemplate,
-                      CircuitBreakerRegistry breakers, RestClient.Builder builder, MeterRegistry meters, Clock clock) {
+                      CircuitBreakerRegistry breakers, RestClient.Builder builder, MeterRegistry meters, Clock clock,
+                      SslBundles bundles, @Value("${freightflow.logistics.dcsa.ssl-bundle:}") String sslBundle) {
         this.properties = properties;
         this.inbox = inbox;
         this.jdbcTemplate = jdbcTemplate;
         this.breaker = breakers.circuitBreaker("dcsa-poll");
+        // A real carrier's certificate is from a public CA, checked against the JVM's roots; ssl-bundle names a bundle
+        // to check against instead, internal where the partner simulator stands in (ADR 0040).
+        HttpClientSettings settings = HttpClientSettings.defaults()
+                .withTimeouts(Duration.ofSeconds(2), Duration.ofSeconds(10));
+        if (sslBundle != null && !sslBundle.isBlank()) {
+            settings = settings.withSslBundle(bundles.getBundle(sslBundle));
+        }
         this.client = builder.clone().requestFactory(ClientHttpRequestFactoryBuilder.jdk()
                         .withHttpClientCustomizer(http -> http.version(HttpClient.Version.HTTP_1_1))
-                        .build(HttpClientSettings.defaults().withTimeouts(Duration.ofSeconds(2), Duration.ofSeconds(10))))
+                        .build(settings))
                 .build();
         this.meters = meters;
         this.clock = clock;

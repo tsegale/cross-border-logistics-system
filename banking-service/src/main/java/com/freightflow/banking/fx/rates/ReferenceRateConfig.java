@@ -6,10 +6,12 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.HttpClientSettings;
+import org.springframework.boot.ssl.SslBundles;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
@@ -49,10 +51,11 @@ public class ReferenceRateConfig {
 
         @Bean
         EcbRates ecbRates(RestClient.Builder builder, CircuitBreakerRegistry breakers, ReferenceRateProperties properties,
-                          MeterRegistry meters) {
+                          MeterRegistry meters, SslBundles bundles,
+                          @Value("${freightflow.banking.fx.reference.ssl-bundle:}") String sslBundle) {
             RestClient client = builder.clone()
                     .baseUrl(properties.ecbBaseUrl().toString())
-                    .requestFactory(requestFactory(properties))
+                    .requestFactory(requestFactory(properties, bundles, sslBundle))
                     .defaultHeader("Accept", "text/csv")
                     .build();
             return new EcbRates(client, breakers, properties, meters);
@@ -60,13 +63,14 @@ public class ReferenceRateConfig {
 
         /** No Bank of Namibia URL, no cross-check: the first rate then always waits for two operators. */
         @Bean
-        BonRates bonRates(RestClient.Builder builder, CircuitBreakerRegistry breakers, ReferenceRateProperties properties) {
+        BonRates bonRates(RestClient.Builder builder, CircuitBreakerRegistry breakers, ReferenceRateProperties properties,
+                          SslBundles bundles, @Value("${freightflow.banking.fx.reference.ssl-bundle:}") String sslBundle) {
             if (properties.bonUrl() == null) {
                 return null;
             }
             RestClient client = builder.clone()
                     .baseUrl(properties.bonUrl().toString())
-                    .requestFactory(requestFactory(properties))
+                    .requestFactory(requestFactory(properties, bundles, sslBundle))
                     .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
                     .build();
             return new BonRates(client, breakers);
@@ -104,12 +108,22 @@ public class ReferenceRateConfig {
         return metrics;
     }
 
-    private static ClientHttpRequestFactory requestFactory(ReferenceRateProperties properties) {
-        // HTTP/1.1, as for logistics' banking client: no h2c upgrade offer on plain http (ADR 0013).
+    /**
+     * HTTP/1.1, as for logistics' banking client: no h2c upgrade offer on plain http (ADR 0013). The ECB and the Bank
+     * of Namibia have certificates from public CAs, checked against the JVM's roots; {@code ssl-bundle} names a bundle
+     * to check against instead, {@code internal} where the partner simulator stands in for them (ADR 0040), so the
+     * internal CA is never trusted for a public host.
+     */
+    private static ClientHttpRequestFactory requestFactory(ReferenceRateProperties properties, SslBundles bundles,
+                                                           String sslBundle) {
+        HttpClientSettings settings = HttpClientSettings.defaults()
+                .withTimeouts(properties.connectTimeout(), properties.readTimeout());
+        if (sslBundle != null && !sslBundle.isBlank()) {
+            settings = settings.withSslBundle(bundles.getBundle(sslBundle));
+        }
         return ClientHttpRequestFactoryBuilder.jdk()
                 .withHttpClientCustomizer(client -> client.version(HttpClient.Version.HTTP_1_1))
-                .build(HttpClientSettings.defaults()
-                        .withTimeouts(properties.connectTimeout(), properties.readTimeout()));
+                .build(settings);
     }
 
     /** The queries behind the gauges. */

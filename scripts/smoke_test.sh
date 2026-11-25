@@ -535,8 +535,9 @@ call 200 PUT "/api/v1/shipments/${DCSA_SHIP}/carrier" "{\"carrierId\":\"carrier-
 as anonymous
 call 401 POST /api/v1/dcsa/notifications/carrier-kalahari-freight '[{"eventID":"3cecb101-7a1a-43a4-9d62-e88a131651e2"}]'   "Subscription-ID: 6f2d0a6e-1c1d-4f53-9a64-1c4e8f0b7a21" "Notification-Signature: sha256=00"
 expect .type https://freightflow.dev/problems/invalid-webhook-signature
-dc exec -T partner-simulator python -c "import urllib.request; urllib.request.urlopen(urllib.request.Request(
-  'http://127.0.0.1:8090/_control/carrier/voyages', method='POST', data=b'{\"containerNumber\":\"CSQU3054383\",\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"intervalSeconds\":1,\"carrierBookingReference\":\"${DCSA_BOOKING}\"}'), timeout=10)" > /dev/null
+dc exec -T partner-simulator python -c "import ssl, urllib.request; urllib.request.urlopen(urllib.request.Request(
+  'https://localhost:8090/_control/carrier/voyages', method='POST', data=b'{\"containerNumber\":\"CSQU3054383\",\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"intervalSeconds\":1,\"carrierBookingReference\":\"${DCSA_BOOKING}\"}'), timeout=10,
+  context=ssl.create_default_context(cafile='/tls/ca.pem'))" > /dev/null
 as customer-namib-exports
 wait_for "/api/v1/shipments/${DCSA_SHIP}" .status DELIVERED
 expect .payment.status CAPTURED

@@ -14,13 +14,18 @@ Control: POST /_control with a JSON object of any of
   start. Nothing here is persisted.
 Carrier (ADR 0037): carrier.py, under /carrier and /_control/carrier.
 GET /health answers 200.
+
+HTTPS only (ADR 0040), TLS 1.2 or 1.3 with the certificate the agent issues to partner-simulator (TLS_CERT, TLS_KEY),
+re-read every minute when the agent has renewed it: new connections get the new one.
 """
 
 import datetime
 import json
 import os
+import ssl
 import sys
 import threading
+import time
 from decimal import Decimal, ROUND_HALF_EVEN
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -181,7 +186,31 @@ class Handler(BaseHTTPRequestHandler):
         print(f"{self.command} {self.path} -> {args[1] if len(args) > 1 else ''}", flush=True)
 
 
+def reload_on_renewal(context: ssl.SSLContext, cert: str, key: str) -> None:
+    """Loads the renewed certificate into the live context; handshakes after it present the new one."""
+    loaded = os.stat(cert).st_mtime_ns
+    while True:
+        time.sleep(int(os.environ.get("TLS_CHECK_SECONDS", "60")))
+        try:
+            changed = os.stat(cert).st_mtime_ns
+            if changed != loaded:
+                context.load_cert_chain(cert, key)
+                loaded = changed
+                print("partner-simulator tls: certificate renewed, reloaded", flush=True)
+        except (OSError, ssl.SSLError) as error:
+            print(f"partner-simulator tls: reload failed, retrying: {error}", flush=True)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8090"))
-    print(f"partner-simulator on :{port}", flush=True)
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    cert = os.environ.get("TLS_CERT", "/tls/cert.pem")
+    key = os.environ.get("TLS_KEY", "/tls/key.pem")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(cert, key)
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    # The handshake in each request's own thread, not in the accept loop, where one slow client would hold up all.
+    server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+    threading.Thread(target=reload_on_renewal, args=(context, cert, key), daemon=True).start()
+    print(f"partner-simulator on :{port} (TLS)", flush=True)
+    server.serve_forever()
