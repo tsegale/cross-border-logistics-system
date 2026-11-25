@@ -4,6 +4,7 @@ import com.freightflow.logistics.outbox.OutboxClaims;
 import com.freightflow.logistics.support.IntegrationTest;
 import com.freightflow.logistics.support.KafkaBroker;
 import com.freightflow.logistics.support.LogisticsFixtures;
+import com.freightflow.logistics.support.Relays;
 import com.freightflow.logistics.support.SharedContainers;
 import com.freightflow.logistics.telemetry.TraceContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,7 +44,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * logistics' copy of the relay against a real broker (ADR 0025), on the claim mechanism it shares with the payment
@@ -172,8 +172,20 @@ class EventRelayIntegrationTest extends IntegrationTest {
                 throw new IllegalStateException("relay died after the broker acknowledged");
             }
         };
-        assertThatThrownBy(() -> relay(SharedContainers.KAFKA, dying).relayOnce())
-                .hasMessageContaining("relay died");
+        // Other classes' leftover events can fill the first batches: the relay dies once per batch until it has sent
+        // this shipment's event too (its claim, committed before the send, changes the row).
+        EventRelay dyingRelay = relay(SharedContainers.KAFKA, dying);
+        List<RuntimeException> deaths = new ArrayList<>();
+        Relays.events(() -> {
+            try {
+                return dyingRelay.relayOnce();
+            } catch (IllegalStateException died) {
+                deaths.add(died);
+                return 1;
+            }
+        }, jdbcTemplate, clock, shipment);
+        assertThat(deaths).as("the relay died after sending").isNotEmpty()
+                .allSatisfy(died -> assertThat(died).hasMessageContaining("relay died"));
         assertThat(unpublished(shipment)).as("the row was never marked").isEqualTo(2);
 
         // The dead relay's lease runs out; another instance picks the event up again.
