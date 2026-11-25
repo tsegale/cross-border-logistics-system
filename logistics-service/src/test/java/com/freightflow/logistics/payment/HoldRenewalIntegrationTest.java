@@ -66,6 +66,15 @@ class HoldRenewalIntegrationTest extends IntegrationTest {
     private PaymentCommandRepository commands;
 
     @Autowired
+    private PaymentCommands outbox;
+
+    @Autowired
+    private org.springframework.transaction.support.TransactionTemplate transactions;
+
+    @Autowired
+    private com.freightflow.logistics.shipment.ShipmentRepository shipments;
+
+    @Autowired
     private MutableClock clock;
 
     @Autowired
@@ -178,6 +187,27 @@ class HoldRenewalIntegrationTest extends IntegrationTest {
 
         clock.advance(Duration.ofDays(27));
         assertThat(renewals.renewDue()).isZero();
+    }
+
+    @Test
+    void shipmentsWithAnOpenExtensionDoNotTakeTheRenewalPage() throws Exception {
+        LocalDate pickup = LocalDate.ofInstant(clock.instant(), ZoneOffset.UTC).plusDays(40);
+        String waiting = fixtures.bookShipment(pickup).get("id").asString();
+        String renewable = fixtures.bookShipment(pickup).get("id").asString();
+        relayFor(waiting, renewable);
+        clock.advance(Duration.ofDays(27));
+        // The one that runs out first already has an extension open (an operator has yet to act on it).
+        jdbcTemplate.update("UPDATE shipments SET hold_expires_at = ? WHERE id = ?::uuid",
+                java.sql.Timestamp.from(clock.instant().plus(Duration.ofDays(1))), waiting);
+        Boolean enqueued = transactions.execute(status -> outbox.enqueueExtension(UUID.fromString(waiting),
+                UUID.fromString(BankingStubs.HOLD_ID), new java.math.BigDecimal("524.75"), "EUR", "FF00EUR000000000",
+                clock.instant().plus(Duration.ofDays(29))));
+        assertThat(enqueued).isTrue();
+
+        // A page of one still reaches the shipment that can be renewed.
+        assertThat(shipments.findBookedWithHoldExpiringBefore(clock.instant().plus(Duration.ofDays(3)),
+                org.springframework.data.domain.PageRequest.of(0, 1)))
+                .extracting(shipment -> shipment.getId().toString()).containsExactly(renewable);
     }
 
     // ------------------------------------------------------------------ helpers

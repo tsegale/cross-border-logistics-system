@@ -71,13 +71,23 @@ public interface ShipmentRepository extends JpaRepository<Shipment, UUID> {
             @Param("cursorId") UUID cursorId,
             Pageable pageable);
 
-    /** Booked, authorised shipments with a planned pickup whose hold runs out before the cutoff, soonest first. */
+    /**
+     * Booked, authorised shipments with a planned pickup whose hold runs out before the cutoff, soonest first, that
+     * have no open extension. A shipment with one, pending or parked for an operator, is not renewed again, and must
+     * not take a place in the page: otherwise a page full of them would keep every other hold from being renewed.
+     */
     @Query("""
             SELECT s FROM Shipment s
             WHERE s.status = com.freightflow.logistics.shipment.ShipmentStatus.BOOKED
               AND s.paymentStatus = com.freightflow.logistics.shipment.PaymentStatus.AUTHORISED
               AND s.holdId IS NOT NULL AND s.plannedPickupDate IS NOT NULL
               AND s.holdExpiresAt < :cutoff
+              AND NOT EXISTS (
+                  SELECT 1 FROM PaymentCommand c
+                  WHERE c.shipmentId = s.id
+                    AND c.command = com.freightflow.logistics.payment.PaymentCommandType.EXTEND
+                    AND c.status IN (com.freightflow.logistics.payment.PaymentCommandStatus.PENDING,
+                                     com.freightflow.logistics.payment.PaymentCommandStatus.PARKED))
             ORDER BY s.holdExpiresAt ASC
             """)
     List<Shipment> findBookedWithHoldExpiringBefore(@Param("cutoff") Instant cutoff, Pageable pageable);
