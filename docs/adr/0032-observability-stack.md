@@ -18,7 +18,7 @@ most of a 3.7 GiB Docker VM (ADR 0029).
 | Loki | `grafana/loki:3.7.10` | 256m | logs over OTLP, filesystem storage, 7 days |
 | Prometheus | `prom/prometheus:v3.16.0` | 384m | scrapes the services (exemplars), receives remote write, evaluates the rules |
 | Alertmanager | `prom/alertmanager:v0.35.0` | 64m | routes alerts as emails (ADR 0033) |
-| Grafana | `grafana/grafana:13.2.6` | 256m | dashboards and data sources provisioned from files, read-only |
+| Grafana | `grafana/grafana:13.3.1` | 384m | dashboards and data sources provisioned from files, read-only. 256m until Phase 7: 13.3.1 peaked at 255.9 MiB, its whole limit, in CI run 45607746751 and was OOM-killed at start in run 45609180797 (exit 137) |
 
 Why not `grafana/otel-lgtm`:
 - **No Alertmanager.** Alerts would be Grafana-managed rules, which promtool cannot test (ADR 0033).

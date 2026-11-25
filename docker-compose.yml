@@ -67,6 +67,10 @@ services:
   banking-db:
     mem_limit: 192m
     image: postgres:17-alpine
+    # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
+    # user from the start, so the key it copies is its own.
+    entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
+    user: "70:70"
     environment:
       POSTGRES_DB: banking
       POSTGRES_USER: ${BANKING_DB_USER:?set in .env}
@@ -74,6 +78,16 @@ services:
     secrets: [banking_db_password]
     volumes:
       - banking-db-data:/var/lib/postgresql/data
+      - ./infra/postgres:/etc/freightflow/postgres:ro
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: banking-db
+    depends_on:
+      cert-agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -83,6 +97,10 @@ services:
   logistics-db:
     mem_limit: 192m
     image: postgres:17-alpine
+    # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
+    # user from the start, so the key it copies is its own.
+    entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
+    user: "70:70"
     environment:
       POSTGRES_DB: logistics
       POSTGRES_USER: ${LOGISTICS_DB_USER:?set in .env}
@@ -90,6 +108,16 @@ services:
     secrets: [logistics_db_password]
     volumes:
       - logistics-db-data:/var/lib/postgresql/data
+      - ./infra/postgres:/etc/freightflow/postgres:ro
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: logistics-db
+    depends_on:
+      cert-agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -99,6 +127,10 @@ services:
   notification-db:
     mem_limit: 128m
     image: postgres:17-alpine
+    # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
+    # user from the start, so the key it copies is its own.
+    entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
+    user: "70:70"
     environment:
       POSTGRES_DB: notification
       POSTGRES_USER: ${NOTIFICATION_DB_USER:?set in .env}
@@ -106,6 +138,16 @@ services:
     secrets: [notification_db_password]
     volumes:
       - notification-db-data:/var/lib/postgresql/data
+      - ./infra/postgres:/etc/freightflow/postgres:ro
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: notification-db
+    depends_on:
+      cert-agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -119,6 +161,10 @@ services:
   keycloak-db:
     mem_limit: 128m
     image: postgres:17-alpine
+    # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
+    # user from the start, so the key it copies is its own.
+    entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
+    user: "70:70"
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
@@ -126,6 +172,16 @@ services:
     secrets: [keycloak_db_password]
     volumes:
       - keycloak-db-data:/var/lib/postgresql/data
+      - ./infra/postgres:/etc/freightflow/postgres:ro
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: keycloak-db
+    depends_on:
+      cert-agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
       interval: 5s
@@ -145,6 +201,8 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_DB_URL_HOST: keycloak-db
       KC_DB_URL_DATABASE: keycloak
+      # TLS to its database, verified against the internal root (ADR 0039).
+      KC_DB_URL_PROPERTIES: "?sslmode=verify-full&sslrootcert=/opt/keycloak/tls/ca.pem"
       KC_DB_USERNAME: keycloak
       # The public URL becomes the iss of every token, so clients and services must use exactly this. TLS belongs in
       # front of it in production (docs/threat-model.md).
@@ -158,6 +216,12 @@ services:
       KEYCLOAK_WEB_ORIGIN: ${KEYCLOAK_WEB_ORIGIN:-http://127.0.0.1:3000}
     volumes:
       - ./infra/keycloak/realm:/opt/keycloak/data/import:ro
+      - type: volume
+        source: certs
+        target: /opt/keycloak/tls
+        read_only: true
+        volume:
+          subpath: keycloak
     ports:
       - "127.0.0.1:8180:8080"
     depends_on:
@@ -191,7 +255,7 @@ services:
       JAVA_OPTS: >-
         -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
         -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
-      BANKING_DB_URL: jdbc:postgresql://banking-db:5432/banking
+      BANKING_DB_URL: jdbc:postgresql://banking-db:5432/banking?sslmode=verify-full&sslrootcert=/tls/ca.pem
       BANKING_DB_USER: ${BANKING_DB_USER:?set in .env}
       # The password is the secret file banking_db_password, read through Spring's config tree.
       # pessimistic | conditional-update (ADR 0005). The benchmark switches it by recreating this container.
@@ -215,7 +279,16 @@ services:
       - banking_db_password
       - source: kafka_banking_password
         target: kafka_password
+    volumes:
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: banking-service
     depends_on:
+      cert-agent:
+        condition: service_healthy
       banking-db:
         condition: service_healthy
       kafka-init:
@@ -246,7 +319,7 @@ services:
       JAVA_OPTS: >-
         -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
         -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
-      LOGISTICS_DB_URL: jdbc:postgresql://logistics-db:5432/logistics
+      LOGISTICS_DB_URL: jdbc:postgresql://logistics-db:5432/logistics?sslmode=verify-full&sslrootcert=/tls/ca.pem
       LOGISTICS_DB_USER: ${LOGISTICS_DB_USER:?set in .env}
       # Its database password and its client secret for Keycloak are secret files (ADR 0019).
       # Internal network only: holds and captures are not routed by the gateway.
@@ -267,7 +340,16 @@ services:
       - dcsa_carrier_secret
       - source: kafka_logistics_password
         target: kafka_password
+    volumes:
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: logistics-service
     depends_on:
+      cert-agent:
+        condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
       keycloak:
@@ -324,7 +406,16 @@ services:
       - "127.0.0.1:8080:8080"
       # Management port: health and Prometheus, not reachable through the public port (ADR 0015).
       - "127.0.0.1:8085:8085"
+    volumes:
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: api-gateway
     depends_on:
+      cert-agent:
+        condition: service_healthy
       redis:
         condition: service_healthy
       keycloak:
@@ -464,7 +555,7 @@ services:
       JAVA_OPTS: >-
         -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
         -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
-      NOTIFICATION_DB_URL: jdbc:postgresql://notification-db:5432/notification
+      NOTIFICATION_DB_URL: jdbc:postgresql://notification-db:5432/notification?sslmode=verify-full&sslrootcert=/tls/ca.pem
       NOTIFICATION_DB_USER: ${NOTIFICATION_DB_USER:?set in .env}
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://127.0.0.1:8180}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/freightflow/protocol/openid-connect/certs
@@ -478,7 +569,16 @@ services:
       - smtp_password
       - source: kafka_notification_password
         target: kafka_password
+    volumes:
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: notification-service
     depends_on:
+      cert-agent:
+        condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
       keycloak:
@@ -592,7 +692,8 @@ services:
   grafana:
     profiles: [observability]
     image: grafana/grafana:13.3.1
-    mem_limit: 256m
+    # 13.3.1 peaked at 255.9 of 256 MiB in CI and was OOM-killed at start (ADR 0032).
+    mem_limit: 384m
     environment:
       # Local profile: anyone on 127.0.0.1 may look and explore (every panel links to Explore), nothing is saved:
       # the dashboards are provisioned files that the UI cannot overwrite.
