@@ -260,7 +260,7 @@ services:
     environment:
       # OpenTelemetry (ADR 0030): exported only with infra/observability/observability.env (the otlp profile).
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-default}
-      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-https://otel-collector:4318}
       SERVICE_VERSION: ${SERVICE_VERSION:-dev}
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       # Heap 45% of the 512m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
@@ -328,7 +328,7 @@ services:
     environment:
       # OpenTelemetry (ADR 0030): exported only with infra/observability/observability.env (the otlp profile).
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-default}
-      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-https://otel-collector:4318}
       SERVICE_VERSION: ${SERVICE_VERSION:-dev}
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       # Heap 45% of the 576m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
@@ -419,7 +419,7 @@ services:
     environment:
       # OpenTelemetry (ADR 0030): exported only with infra/observability/observability.env (the otlp profile).
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-default}
-      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-https://otel-collector:4318}
       SERVICE_VERSION: ${SERVICE_VERSION:-dev}
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       # Heap 45% of the 320m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).
@@ -630,7 +630,7 @@ services:
     environment:
       # OpenTelemetry (ADR 0030): exported only with infra/observability/observability.env (the otlp profile).
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-default}
-      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-https://otel-collector:4318}
       SERVICE_VERSION: ${SERVICE_VERSION:-dev}
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       # Heap 45% of the 384m limit; the rest is metaspace, code cache, thread stacks and buffers (ADR 0029).

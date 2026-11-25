@@ -10,12 +10,17 @@ management:
     export:
       otlp:
         enabled: true
+  # TLS to the collector, verified against the internal root by name (ADR 0040).
   opentelemetry:
     tracing:
       export:
         otlp:
           endpoint: ${OTLP_ENDPOINT}/v1/traces
+          ssl:
+            bundle: internal
     logging:
       export:
         otlp:
           endpoint: ${OTLP_ENDPOINT}/v1/logs
+          ssl:
+            bundle: internal

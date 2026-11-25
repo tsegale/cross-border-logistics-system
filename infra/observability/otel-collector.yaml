@@ -14,12 +14,24 @@ extensions:
     endpoint: 0.0.0.0:13133
 
 receivers:
+  # TLS with the agent's certificate, re-read every minute (it is renewed every 16 h); the services verify it against
+  # the internal root by name (ADR 0040).
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        tls:
+          cert_file: /tls/cert.pem
+          key_file: /tls/key.pem
+          min_version: "1.2"
+          reload_interval: 1m
       http:
         endpoint: 0.0.0.0:4318
+        tls:
+          cert_file: /tls/cert.pem
+          key_file: /tls/key.pem
+          min_version: "1.2"
+          reload_interval: 1m
 
   # One receiver per database, each as that service's own user: the collector needs no superuser. TLS with the
   # internal CA's root, verified against the endpoint's host name: the databases refuse plaintext (ADR 0039).
