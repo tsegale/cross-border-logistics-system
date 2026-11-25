@@ -197,6 +197,27 @@ tests:
               description: "The limits are sized from measured peaks (ADR 0029); this one is close to being OOM-killed."
               runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/container-memory.md
 
+  - name: a certificate with under 6 hours left pages after 10 minutes, a renewed one does not
+    interval: 1m
+    input_series:
+      # kafka's renewal failed: 5 h 59 min left and falling. redis was renewed: 23 h left.
+      - series: tlscheck_time_left_seconds{tlscheck_x509_cn="kafka",tlscheck_x509_issuer="CN=FreightFlow Internal CA Intermediate CA"}
+        values: 21540-60x15
+      - series: tlscheck_time_left_seconds{tlscheck_x509_cn="redis",tlscheck_x509_issuer="CN=FreightFlow Internal CA Intermediate CA"}
+        values: 82800-60x15
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: CertificateNotRenewed
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: CertificateNotRenewed
+        exp_alerts:
+          - exp_labels: {severity: page, tlscheck_x509_cn: kafka}
+            exp_annotations:
+              summary: "The certificate of kafka expires in 5h 49m 0s"
+              description: "The certificate agent has not renewed it for two hours; at expiry its TLS connections fail."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/certificate-not-renewed.md
+
   - name: a stale reference rate pages, a quarantined one opens a ticket
     interval: 1m
     input_series:

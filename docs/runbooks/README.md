@@ -22,4 +22,5 @@ profile.
 | [emails-unknown](emails-unknown.md) | EmailsUnknown |
 | [emails-failing](emails-failing.md) | EmailsFailing |
 | [service-down](service-down.md) | ServiceDown, GatewayUpstreamErrors |
+| [certificate-not-renewed](certificate-not-renewed.md) | CertificateNotRenewed |
 | [container-memory](container-memory.md) | ContainerMemoryNearLimit |

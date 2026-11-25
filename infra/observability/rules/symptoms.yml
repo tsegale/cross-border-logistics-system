@@ -163,6 +163,17 @@ groups:
           summary: "{{ $value | humanizePercentage }} of requests through the gateway end in a server error"
           description: "Every route, not only bookings and transfers: a service or Keycloak is failing behind the gateway."
           runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/service-down.md
+      # The agent renews a 24 h certificate at 8 h left (ADR 0039) and retries every 5 minutes; under 6 h it has failed
+      # for two hours, and at 0 every connection to or from that container fails closed.
+      - alert: CertificateNotRenewed
+        expr: min by (tlscheck_x509_cn) (tlscheck_time_left_seconds) < 6 * 3600
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "The certificate of {{ $labels.tlscheck_x509_cn }} expires in {{ $value | humanizeDuration }}"
+          description: "The certificate agent has not renewed it for two hours; at expiry its TLS connections fail."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/certificate-not-renewed.md
       - alert: ContainerMemoryNearLimit
         expr: max by (container_name) (container_memory_usage_total_bytes / container_memory_usage_limit_bytes) > 0.9
         for: 10m

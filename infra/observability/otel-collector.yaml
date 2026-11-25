@@ -4,7 +4,7 @@
 #
 #   services --OTLP--> otlp receiver --> memory_limiter --> redaction --> tail_sampling --> batch --> Tempo
 #                                                       \-> redaction --> transform(log bodies) --> batch --> Loki
-#   postgresql, kafka_metrics, redis, docker_stats --> batch --> Prometheus (remote write)
+#   postgresql, kafka_metrics, redis, docker_stats, tls_check --> batch --> Prometheus (remote write)
 #
 # The services' own metrics (RED, JVM, Hikari, business gauges) are scraped by Prometheus from /actuator/prometheus
 # directly, which keeps their exemplars (ADR 0031).
@@ -66,6 +66,27 @@ receivers:
     # SASL_SSL: the broker's certificate verified against the internal CA's root (ADR 0039).
     tls:
       ca_file: /tls/ca.pem
+
+  # The time left on every certificate the internal CA issued (ADR 0039), from the copies the agent publishes
+  # without their keys: CertificateNotRenewed. Generated from infra/tls/identities.conf; a new identity adds a line.
+  tls_check:
+    collection_interval: 60s
+    targets:
+      - file_path: /certs/api-gateway.pem
+      - file_path: /certs/banking-service.pem
+      - file_path: /certs/logistics-service.pem
+      - file_path: /certs/notification-service.pem
+      - file_path: /certs/banking-db.pem
+      - file_path: /certs/logistics-db.pem
+      - file_path: /certs/notification-db.pem
+      - file_path: /certs/keycloak-db.pem
+      - file_path: /certs/keycloak.pem
+      - file_path: /certs/kafka.pem
+      - file_path: /certs/redis.pem
+      - file_path: /certs/mailpit.pem
+      - file_path: /certs/partner-simulator.pem
+      - file_path: /certs/otel-collector.pem
+      - file_path: /certs/prometheus.pem
 
   redis:
     endpoint: redis:6379
@@ -188,6 +209,7 @@ service:
       processors: [memory_limiter, redaction, transform/log_bodies, batch]
       exporters: [otlphttp/loki]
     metrics:
-      receivers: [postgresql/banking, postgresql/logistics, postgresql/notification, kafka_metrics, redis, docker_stats]
+      receivers: [postgresql/banking, postgresql/logistics, postgresql/notification, kafka_metrics, redis, docker_stats,
+                  tls_check]
       processors: [memory_limiter, transform/kafka_units, batch]
       exporters: [prometheus_remote_write]

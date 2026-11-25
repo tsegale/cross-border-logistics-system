@@ -63,7 +63,7 @@ EXPECTED = [
     "BookingAvailabilityBudgetBurnFast", "BookingAvailabilityBudgetBurnSlow", "BookingLatencyBudgetBurnFast",
     "BookingLatencyBudgetBurnSlow", "GatewayUpstreamErrors", "ContainerMemoryNearLimit", "FxReferenceRateStale",
     "FxReferenceRateQuarantined", "CustomsTariffReviewOverdue", "CarrierWebhookSignaturesFailing",
-    "CarrierPollingBehind",
+    "CarrierPollingBehind", "CertificateNotRenewed",
 ]
 # Burn-rate alerts outlast the drill: a fast burn keeps firing up to 30 minutes after the outage (its 6 h and 30 m
 # pair), a slow burn for hours. They must fire here; that they clear is proved by the promtool recovery tests.
@@ -387,6 +387,17 @@ def phase5_carriers(watch: Watch) -> None:
     log("carrier events API answering again")
 
 
+def phase6_certificates(watch: Watch) -> None:
+    """A certificate with an hour left, as if its renewals had failed since it was issued, then a fresh one."""
+    log("phase 6: kafka's certificate issued with a 1 h lifetime")
+    compose("exec", "-T", "-e", "CERT_LIFETIME=1h", "cert-agent", "sh", "/etc/freightflow/tls/agent.sh", "issue",
+            "kafka")
+    watch.wait_fired(["CertificateNotRenewed"], 15)
+    # The runbook's fix: a fresh 24 h certificate, picked up by the broker's watcher within a minute.
+    compose("exec", "-T", "cert-agent", "sh", "/etc/freightflow/tls/agent.sh", "issue", "kafka")
+    log("kafka has a 24 h certificate again")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--json", help="write the evidence here")
@@ -407,6 +418,7 @@ def main() -> None:
         phase3_bookings(watch, account, run)
         phase4_rates(watch, run)
         phase5_carriers(watch)
+        phase6_certificates(watch)
         watch.wait_fired(["ReconciliationNotRunning"], 15)
         compose("up", "-d", "--wait", "--no-deps", "banking-service")
         log("banking-service back with its scheduled reconciliation")

@@ -686,6 +686,13 @@ services:
         read_only: true
         volume:
           subpath: otel-collector
+      # Every certificate the agent issued, without keys, for tls_check (CertificateNotRenewed).
+      - type: volume
+        source: certs
+        target: /certs
+        read_only: true
+        volume:
+          subpath: public
     depends_on:
       # The monitoring user exists only once kafka-init has run; a first login that fails is not retried by the
       # kafka_metrics receiver's client.

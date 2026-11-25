@@ -6,6 +6,12 @@
 #   /tls/<identity>/key.pem    its key, PKCS#8, 0640, group = the consumer's gid
 #   /tls/<identity>/ca.pem     the root, 0644 (also /tls/ca.pem, and /tls/trust/ca.pem for clients that need
 #                              nothing else and mount only that directory)
+#   /tls/public/<identity>.pem every certificate without its key, 0644, for the collector's expiry check
+#                              (tls_check, CertificateNotRenewed)
+#
+# agent.sh issue <identity> issues that one certificate afresh now, with CERT_LIFETIME, and exits: the runbook's way
+# to replace a certificate at once (docs/runbooks/certificate-not-renewed.md) and the fire drill's way to make one
+# short-lived.
 #
 # A certificate is renewed (mTLS to the CA with the current one) once two thirds of its 24 h lifetime are gone, and
 # issued afresh with the provisioner when it is missing or already expired (a laptop that slept through a renewal).
@@ -74,6 +80,14 @@ install_new() {
   mv -f "$dir/key.pem.new" "$dir/key.pem"
   mv -f "$dir/cert.pem.new" "$dir/cert.pem"
   mv -f "$dir/ca.pem.new" "$dir/ca.pem"
+  publish "$name"
+}
+
+# publish <identity>: the certificate alone, where the collector reads it; it holds nothing secret.
+publish() {
+  mkdir -p "$OUT/public"
+  cp "$OUT/$1/cert.pem" "$OUT/public/$1.pem.new" && chmod 0644 "$OUT/public/$1.pem.new" \
+    && mv -f "$OUT/public/$1.pem.new" "$OUT/public/$1.pem"
 }
 
 expiry() {
@@ -96,6 +110,8 @@ check_all() {
       issue "$name" "$gid" "$sans" || { log "could not issue $name"; echo failed > "$outcome"; }
     elif step certificate needs-renewal "$cert" ${RENEW_WITHIN:+--expires-in "$RENEW_WITHIN"} > /dev/null 2>&1; then
       renew "$name" "$gid" || issue "$name" "$gid" "$sans" || { log "could not renew $name"; echo failed > "$outcome"; }
+    elif [ ! -s "$OUT/public/$name.pem" ]; then
+      publish "$name"
     fi
   done
   cp "$ROOT" "$OUT/ca.pem.new" && chmod 0644 "$OUT/ca.pem.new" && mv -f "$OUT/ca.pem.new" "$OUT/ca.pem"
@@ -106,6 +122,17 @@ check_all() {
   fi
   date -u +%s > "$OUT/.checked"
 }
+
+# One identity, now: agent.sh issue <identity>.
+if [ "${1:-}" = issue ]; then
+  line="$(grep -v '^[[:space:]]*#' "$IDENTITIES" | awk -v id="${2:-}" '$1 == id' | head -n 1)"
+  [ -n "$line" ] || { log "no identity ${2:-} in $IDENTITIES"; exit 2; }
+  # shellcheck disable=SC2086 # the three fields of the line
+  set -- $line
+  wait_for_ca
+  issue "$1" "$2" "$3"
+  exit
+fi
 
 wait_for_ca
 check_all
