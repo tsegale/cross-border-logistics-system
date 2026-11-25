@@ -76,8 +76,12 @@ the internal CA, verified by name. The services take only mutual TLS, and only f
   certificate from the CA reaches nothing that holds data. A container whose key leaks can still call what its
   identity is allowed to, until its certificate expires (24 h at most).
 - Internal suites are the JDK's defaults for TLS 1.3 and 1.2; only the public listener is held to Mozilla's list.
-- Still in plaintext when this was accepted, and moved in the commits that follow it: the services' OTLP export to the
-  collector and the collector to Tempo and Loki, and Prometheus, Grafana and Alertmanager among themselves.
+- **Not in TLS: the observability profile's backends among themselves.** The services' OTLP to the collector is TLS;
+  the collector's export to Tempo, Loki and Prometheus, Prometheus's to Alertmanager and Grafana's queries are not,
+  nor are the UIs on 3000, 9090, 9093, 3200 and 3100, published on 127.0.0.1 only. That profile runs on a laptop and
+  in CI; what it carries is telemetry with ids only (ADR 0030), no tokens, bodies or personal data (`TelemetryLeaks`).
+  A deployment uses managed backends with their own TLS (Phase 8). Each of the five reloads certificates differently,
+  so this was left out for the hardening that carries more weight (Phase 7, sections 2 to 6).
 - The internal CA is never trusted for a public host: the clients of the ECB, the Bank of Namibia and the carriers use
   the JVM's roots unless a setting names the internal bundle, which only a stack that runs the simulator sets.
 - Mailpit cannot reload a certificate, so its wrapper restarts it on each renewal (every 16 h); a sender connecting in
