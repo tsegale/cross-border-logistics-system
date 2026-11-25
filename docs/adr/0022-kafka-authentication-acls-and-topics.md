@@ -30,7 +30,8 @@ only what it consumes (least privilege, as ADR 0018 does for HTTP).
   anything not granted is refused. No alternative is worth the dependency.
 
 ## Decision
-- **SASL/SCRAM-SHA-512** on the one client listener (`INTERNAL`, `SASL_PLAINTEXT`), one user per service:
+- **SASL/SCRAM-SHA-512** on the one client listener (`INTERNAL`, `SASL_PLAINTEXT`; `SASL_SSL` since Phase 7, see the
+  update below), one user per service:
   `banking`, `logistics`, `notification`, plus `admin` for the broker and its init job. Passwords are generated into
   `secrets/` by `scripts/generate_secrets.py` and mounted as compose secrets; each service mounts only its own, under
   the name `kafka_password`, and refuses to start without it (`RequiredSecrets`).
@@ -78,7 +79,7 @@ only what it consumes (least privilege, as ADR 0018 does for HTTP).
   against the pinned image, so the compose broker and the tested broker are configured by the same code.
 - Traffic on the compose network is not encrypted. SCRAM protects the password, not the events. Encrypting
   in-cluster traffic (SASL_SSL here, TLS for Postgres and service HTTP) is one deployment decision for all of them,
-  not a Kafka-only one, and it belongs with the production deployment.
+  not a Kafka-only one, and it belongs with the production deployment. (Superseded in Phase 7: see the update.)
 - `kafka-init` only adds. Removing a line from `acls.conf` does not revoke the grant; revoke with
   `kafka-acls.sh --remove --allow-principal User:<service> --topic <topic> --operation <op>`. Reconciling would need
   the list of every ACL the broker holds and a window with fewer grants than intended on each start.
@@ -88,3 +89,28 @@ only what it consumes (least privilege, as ADR 0018 does for HTTP).
   carries on. Its topics then exist only once it, or the outbox relay (Phase 4, §3), declares them again.
 - The broker adds `kafka` (heap capped at 512 MB) and the short-lived `kafka-init` to the default stack; the stack's
   measured memory is in the README.
+
+## Update, Phase 7 (2026-11-25): SASL_SSL
+Phase 7 encrypts every hop with certificates from the internal CA (ADR 0039), so the reason given above for leaving
+Kafka in plaintext (it would be the one encrypted hop) is gone. Authentication stays SCRAM, now inside TLS:
+
+- **Listeners.** `INTERNAL` (and the tests' `EXTERNAL`) are `SASL_SSL`, TLS 1.3 or 1.2 (`ssl.enabled.protocols`),
+  with the certificate the agent issues to `kafka`. The broker's own connections to `INTERNAL` verify that
+  certificate by name like any client (`ssl.endpoint.identification.algorithm=https`). The controller listener stays
+  `PLAINTEXT` on the container's loopback: no other container can reach it, and TLS there would protect nothing a
+  process inside the broker's container could not already read.
+- **Keystore.** Kafka's PEM keystore (KIP-651) reads the key as PKCS#8 only, so the agent writes every identity's
+  key as PKCS#8, which OpenSSL, Java and Go all read. `start.sh` joins key and chain into the one file Kafka reads.
+- **Renewal without a restart.** Kafka reloads a listener's keystore when its `ssl.keystore.location` is updated
+  dynamically (KIP-226, `kafka-configs.sh --alter --entity-type brokers`). A watcher in `start.sh` sees the agent's
+  new certificate, builds a second keystore file and points the listeners at it, then rebuilds the first and points
+  them back: after a restart the stored dynamic value may name either file, and one of the two steps is always a
+  change. Open connections keep the certificate they were opened with. The update is a second JVM for a few seconds
+  inside the broker's 512m limit (48 MiB heap, C1 only).
+- **Clients** verify the broker against the CA's root by name: the services through a Spring Boot SSL bundle
+  (`spring.kafka.ssl.bundle: kafka`, the root at `/tls/ca.pem`), `kafka-init` and the scripts with a PEM truststore,
+  the collector's `kafka_metrics` receiver with `tls.ca_file`.
+- **Tests.** `KafkaBroker` runs the same `start.sh` with a certificate from a CA made in the test JVM
+  (`TestCertificates`, BouncyCastle 1.87, test scope), so every Kafka test runs over SASL_SSL.
+  `KafkaCertificateRotationIntegrationTest` replaces the certificate under a producer sending every 20 ms: no send
+  fails, and a new connection gets the new certificate.

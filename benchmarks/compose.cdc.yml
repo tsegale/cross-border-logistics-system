@@ -9,8 +9,8 @@
 # a measurement, not a deployment, and adds no principal to infra/kafka/acls.conf.
 services:
   logistics-db:
+    # Arguments to Postgres: infra/postgres/start.sh starts the server with TLS and passes these on.
     command:
-      - postgres
       - -c
       - wal_level=logical
       - -c
@@ -25,6 +25,12 @@ services:
     secrets: [kafka_admin_password]
     volumes:
       - ./benchmarks/cdc:/etc/freightflow/cdc:ro
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: trust
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -40,6 +46,12 @@ services:
     secrets: [kafka_admin_password, logistics_db_password]
     volumes:
       - ./benchmarks/cdc:/etc/freightflow/cdc:ro
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: trust
     depends_on:
       cdc-topic:
         condition: service_completed_successfully

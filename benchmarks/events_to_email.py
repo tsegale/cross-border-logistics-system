@@ -241,7 +241,7 @@ def backlog() -> float:
 
 # A client config for the broker's admin, written inside the broker's container from its secret.
 KAFKA_CLIENT = (
-    'printf "security.protocol=SASL_PLAINTEXT\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config='
+    'printf "security.protocol=SASL_SSL\nssl.truststore.type=PEM\nssl.truststore.location=/tls/ca.pem\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config='
     'org.apache.kafka.common.security.scram.ScramLoginModule required username=\\"admin\\" password=\\"%s\\";\n" '
     '"$(cat /run/secrets/kafka_admin_password)" > /tmp/bench-client.properties'
 )

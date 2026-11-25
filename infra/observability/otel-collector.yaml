@@ -63,6 +63,9 @@ receivers:
         username: monitoring
         password: ${file:/run/secrets/kafka_monitoring_password}
         mechanism: SCRAM-SHA-512
+    # SASL_SSL: the broker's certificate verified against the internal CA's root (ADR 0039).
+    tls:
+      ca_file: /tls/ca.pem
 
   redis:
     endpoint: redis:6379

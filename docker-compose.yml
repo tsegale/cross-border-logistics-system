@@ -479,6 +479,16 @@ services:
     volumes:
       - ./infra/kafka:/etc/freightflow/kafka:ro
       - kafka-data:/var/lib/kafka/data
+      # Its certificate for the SASL_SSL listener (ADR 0039).
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: kafka
+    depends_on:
+      cert-agent:
+        condition: service_healthy
     healthcheck:
       # The listener is up; kafka-init then waits for an authenticated answer before it applies users and ACLs.
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/29092'"]
@@ -499,6 +509,13 @@ services:
               kafka_monitoring_password]
     volumes:
       - ./infra/kafka:/etc/freightflow/kafka:ro
+      # Only the CA's root, to verify the broker.
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: trust
     depends_on:
       kafka:
         condition: service_healthy

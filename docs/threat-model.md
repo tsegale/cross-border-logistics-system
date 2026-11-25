@@ -120,9 +120,9 @@ Events are acted on by their consumers, so a forged or altered event is as dange
 | Elevation of privilege | A service changes ACLs or users | Only `admin` (the broker and `kafka-init`) holds cluster permissions; services never see its password | `infra/kafka/acls.conf`, compose `secrets:` |
 | Elevation of privilege | The controller's PLAINTEXT listener used to act as the super user ANONYMOUS | Bound to the container's loopback (`127.0.0.1:9093`); no other container can reach it | `infra/kafka/start.sh`; ADR 0022 |
 
-Residual: traffic on the compose network is not encrypted, so a process on the network could read events in transit
-(SCRAM protects the password, not the payload); TLS for the broker, Postgres and service HTTP is one production
-deployment decision. Removing a line from `acls.conf` does not revoke a grant (ADR 0022's runbook). Events carry no
+Since Phase 7 the broker's client listener is SASL_SSL with a certificate from the internal CA, verified by name by
+every client (ADR 0022's update, ADR 0039), so a process on the network sees neither events nor passwords.
+Residual: removing a line from `acls.conf` does not revoke a grant (ADR 0022's runbook). Events carry no
 personal data (ADR 0024), which limits what a reader of the log could learn.
 
 ## 8. Events in the log, consumers and email

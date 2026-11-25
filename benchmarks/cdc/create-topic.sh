@@ -5,7 +5,9 @@ set -euo pipefail
 CONFIG="$(mktemp)"
 trap 'rm -f "$CONFIG"' EXIT
 cat > "$CONFIG" <<EOF
-security.protocol=SASL_PLAINTEXT
+security.protocol=SASL_SSL
+ssl.truststore.type=PEM
+ssl.truststore.location=/tls/ca.pem
 sasl.mechanism=SCRAM-SHA-512
 sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="admin" password="$(cat /run/secrets/kafka_admin_password)";
 EOF

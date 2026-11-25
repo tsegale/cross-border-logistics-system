@@ -3,8 +3,9 @@
 # keeps it fresh. Runs in the step-cli image as its non-root user, with the consumers' groups added (group_add).
 #
 #   /tls/<identity>/cert.pem   the leaf and the intermediate, 0644
-#   /tls/<identity>/key.pem    its key, 0640, group = the consumer's gid
-#   /tls/<identity>/ca.pem     the root, 0644 (also /tls/ca.pem)
+#   /tls/<identity>/key.pem    its key, PKCS#8, 0640, group = the consumer's gid
+#   /tls/<identity>/ca.pem     the root, 0644 (also /tls/ca.pem, and /tls/trust/ca.pem for clients that need
+#                              nothing else and mount only that directory)
 #
 # A certificate is renewed (mTLS to the CA with the current one) once two thirds of its 24 h lifetime are gone, and
 # issued afresh with the provisioner when it is missing or already expired (a laptop that slept through a renewal).
@@ -61,6 +62,11 @@ renew() {
 
 install_new() {
   name="$1"; gid="$2"; dir="$OUT/$name"
+  # step writes an EC key as SEC1 ("EC PRIVATE KEY"); Kafka's PEM keystore reads only PKCS#8, which every other
+  # consumer (OpenSSL, Java, Go) reads too. Converting a PKCS#8 key again (a renewal) leaves it unchanged.
+  out="$(step crypto key format --pkcs8 --pem --no-password --insecure --force --out "$dir/key.pem.pk8" \
+    "$dir/key.pem.new" 2>&1)" || { log "$out"; return 1; }
+  mv -f "$dir/key.pem.pk8" "$dir/key.pem.new"
   chgrp "$gid" "$dir/key.pem.new"
   chmod 0640 "$dir/key.pem.new"
   chmod 0644 "$dir/cert.pem.new"
@@ -84,13 +90,17 @@ check_all() {
   echo ok > "$outcome"
   grep -v '^[[:space:]]*#' "$IDENTITIES" | grep -v '^[[:space:]]*$' | while read -r name gid sans; do
     cert="$OUT/$name/cert.pem"
-    if [ ! -s "$cert" ] || [ ! -s "$OUT/$name/key.pem" ] || expired "$cert"; then
+    # A key from before the agent wrote PKCS#8 is issued afresh too.
+    if [ ! -s "$cert" ] || [ ! -s "$OUT/$name/key.pem" ] || expired "$cert" \
+      || [ "$(head -n 1 "$OUT/$name/key.pem")" != "-----BEGIN PRIVATE KEY-----" ]; then
       issue "$name" "$gid" "$sans" || { log "could not issue $name"; echo failed > "$outcome"; }
     elif step certificate needs-renewal "$cert" ${RENEW_WITHIN:+--expires-in "$RENEW_WITHIN"} > /dev/null 2>&1; then
       renew "$name" "$gid" || issue "$name" "$gid" "$sans" || { log "could not renew $name"; echo failed > "$outcome"; }
     fi
   done
   cp "$ROOT" "$OUT/ca.pem.new" && chmod 0644 "$OUT/ca.pem.new" && mv -f "$OUT/ca.pem.new" "$OUT/ca.pem"
+  mkdir -p "$OUT/trust"
+  cp "$ROOT" "$OUT/trust/ca.pem.new" && chmod 0644 "$OUT/trust/ca.pem.new" && mv -f "$OUT/trust/ca.pem.new" "$OUT/trust/ca.pem"
   if [ "$(cat "$outcome")" != ok ]; then
     return 1
   fi

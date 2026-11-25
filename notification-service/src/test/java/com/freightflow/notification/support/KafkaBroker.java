@@ -3,6 +3,7 @@ package com.freightflow.notification.support;
 import com.github.dockerjava.api.command.InspectContainerResponse;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.SaslConfigs;
+import org.apache.kafka.common.config.SslConfigs;
 import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -21,7 +22,8 @@ import java.util.Map;
 /**
  * The broker exactly as compose runs it (ADR 0022): {@code infra/kafka/start.sh} with SCRAM and the authorizer, then
  * {@code infra/kafka/init.sh} for the service users and the ACLs in {@code infra/kafka/acls.conf}. Every service user
- * gets a random password for this JVM.
+ * gets a random password for this JVM, and the broker a certificate from this JVM's test CA ({@link TestCertificates})
+ * in the agent's layout, so every listener is SASL_SSL as in compose (ADR 0039).
  *
  * <p>Tests connect from the host, so the broker also advertises an external listener on the mapped port. That port
  * is only known once the container exists, so the start command waits for the address, as Testcontainers' own
@@ -47,6 +49,10 @@ public final class KafkaBroker extends GenericContainer<KafkaBroker> {
             withCopyToContainer(Transferable.of(password), "/run/secrets/kafka_" + user + "_password");
         }
         withCopyFileToContainer(MountableFile.forHostPath(INFRA), "/etc/freightflow/kafka");
+        TestCertificates.Identity kafka = TestCertificates.issue("kafka");
+        withCopyToContainer(Transferable.of(kafka.certificatePem(), 0644), "/tls/cert.pem");
+        withCopyToContainer(Transferable.of(kafka.privateKeyPem(), 0644), "/tls/key.pem");
+        withCopyToContainer(Transferable.of(TestCertificates.caPem(), 0644), "/tls/ca.pem");
         withEnv("CLUSTER_ID", "5L6g3nShT-eMCtK--X86sw");
         withEnv("KAFKA_ADVERTISED_HOST", "127.0.0.1");
         withEnv("KAFKA_HEAP_OPTS", "-Xms128m -Xmx384m");
@@ -90,7 +96,9 @@ public final class KafkaBroker extends GenericContainer<KafkaBroker> {
     public Map<String, Object> clientConfig(String user, String password) {
         Map<String, Object> config = new LinkedHashMap<>();
         config.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers());
-        config.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, "SASL_PLAINTEXT");
+        config.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, "SASL_SSL");
+        config.put(SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, "PEM");
+        config.put(SslConfigs.SSL_TRUSTSTORE_CERTIFICATES_CONFIG, TestCertificates.caPem());
         config.put(SaslConfigs.SASL_MECHANISM, "SCRAM-SHA-512");
         config.put(SaslConfigs.SASL_JAAS_CONFIG, "org.apache.kafka.common.security.scram.ScramLoginModule required "
                 + "username=\"" + user + "\" password=\"" + password + "\";");

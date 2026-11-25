@@ -13,9 +13,11 @@ BIN=/opt/kafka/bin
 ADMIN_CONFIG="$(mktemp)"
 trap 'rm -f "$ADMIN_CONFIG"' EXIT
 cat > "$ADMIN_CONFIG" <<EOF
-security.protocol=SASL_PLAINTEXT
+security.protocol=SASL_SSL
 sasl.mechanism=SCRAM-SHA-512
 sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="admin" password="$(cat /run/secrets/kafka_admin_password)";
+ssl.truststore.type=PEM
+ssl.truststore.location=${TLS_TRUST:-/tls/ca.pem}
 EOF
 
 # The broker's healthcheck is a TCP connect; wait here until it answers an authenticated request.

@@ -1,6 +1,7 @@
 package com.freightflow.banking.fx.rates;
 
 import com.freightflow.banking.account.AccountService;
+import com.freightflow.banking.support.TestCertificates;
 import com.freightflow.banking.account.dto.AccountResponse;
 import com.freightflow.banking.account.dto.CreateAccountRequest;
 import com.freightflow.banking.approval.ApprovalKind;
@@ -94,6 +95,8 @@ class ReferenceRateFlowIntegrationTest {
         registry.add("spring.datasource.username", DATABASE::username);
         registry.add("spring.datasource.password", DATABASE::password);
         registry.add("spring.kafka.bootstrap-servers", SharedContainers.KAFKA::bootstrapServers);
+        // The broker's TLS listener, verified against this JVM's test CA (KafkaBroker).
+        registry.add("spring.ssl.bundle.pem.kafka.truststore.certificate", TestCertificates::caPem);
         registry.add("KAFKA_USERNAME", () -> "banking");
         registry.add("freightflow.kafka.password", () -> SharedContainers.KAFKA.password("banking"));
         registry.add("freightflow.banking.fx.reference.ecb-base-url", () -> "http://127.0.0.1:" + SOURCES.port());

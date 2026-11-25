@@ -38,6 +38,8 @@
              the enforcer fails the build unless the API equals the one Boot manages (${opentelemetry.version}). -->
         <opentelemetry-logback-appender.version>2.34.0-alpha</opentelemetry-logback-appender.version>
         <opentelemetry-logback-appender.built-on>1.68.0</opentelemetry-logback-appender.built-on>
+        <!-- Test only: a throwaway CA for the broker's TLS listener (KafkaBroker, ADR 0039). -->
+        <bouncycastle.version>1.87</bouncycastle.version>
     </properties>
 
     <dependencies>
@@ -199,6 +201,12 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+            <version>${bouncycastle.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

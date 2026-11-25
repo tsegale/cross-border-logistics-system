@@ -7,6 +7,13 @@ server:
         strategy: framework
 
 spring:
+  # The internal CA's root (ADR 0039): /tls/ca.pem in the container, a test CA's file in the tests.
+  ssl:
+    bundle:
+      pem:
+        kafka:
+          truststore:
+            certificate: ${TLS_TRUST_CERTIFICATE:file:/tls/ca.pem}
   # Compose secrets are files under /run/secrets; each file name becomes a property (ADR 0019).
   config:
     import: optional:configtree:/run/secrets/
@@ -33,8 +40,11 @@ spring:
     template:
       observation-enabled: true
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
+    # SCRAM inside TLS, the broker's certificate verified against the internal CA's root by name (ADR 0039).
     security:
-      protocol: SASL_PLAINTEXT
+      protocol: SASL_SSL
+    ssl:
+      bundle: kafka
     properties:
       sasl.mechanism: SCRAM-SHA-512
       sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="${KAFKA_USERNAME:banking}" password="${freightflow.kafka.password}";

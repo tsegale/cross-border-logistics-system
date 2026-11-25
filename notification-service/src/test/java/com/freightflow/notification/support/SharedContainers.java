@@ -64,6 +64,8 @@ public final class SharedContainers {
     @DynamicPropertySource
     static void connections(DynamicPropertyRegistry registry) {
         registry.add("spring.kafka.bootstrap-servers", KAFKA::bootstrapServers);
+        // The broker's TLS listener, verified against this JVM's test CA (KafkaBroker).
+        registry.add("spring.ssl.bundle.pem.kafka.truststore.certificate", TestCertificates::caPem);
         registry.add("KAFKA_USERNAME", () -> "notification");
         registry.add("freightflow.kafka.password", () -> KAFKA.password("notification"));
         registry.add("spring.mail.host", () -> "127.0.0.1");
