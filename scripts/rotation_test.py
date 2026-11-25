@@ -57,7 +57,8 @@ def booking_emails(recipient: str, booked: set[str], timeout: float) -> set[str]
 class Traffic(threading.Thread):
     def __init__(self, account: str, run: str) -> None:
         super().__init__(daemon=True)
-        self.account, self.run = account, run
+        # Not self.run: that is the thread's own method.
+        self.account, self.tag = account, run
         self.stop = threading.Event()
         self.booked: list[str] = []
         self.failures: list[str] = []
@@ -69,7 +70,7 @@ class Traffic(threading.Thread):
             number += 1
             try:
                 # A quote and a booking (the benchmark harness's), then the public tracking view.
-                tracking, _ = harness.book(self.account, f"rotation-{self.run}", number)
+                tracking, _ = harness.book(self.account, f"rotation-{self.tag}", number)
                 harness.call("customer-hanseatic-imports", "GET", f"/api/v1/shipments/track/{tracking}")
                 self.booked.append(tracking)
             except Exception as error:  # noqa: BLE001 every failure counts, with its reason
