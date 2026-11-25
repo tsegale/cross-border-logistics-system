@@ -247,15 +247,27 @@ public class ShipmentService {
         return assignCarrier(caller, id, carrierId, null, ifMatchHeader);
     }
 
-    /** With the container, ISO 6346 checked: DCSA events find the shipment by it (ADR 0037). */
     @Transactional
     public ShipmentResponse assignCarrier(Caller caller, UUID id, String carrierId, String containerNumber,
                                           String ifMatchHeader) {
+        return assignCarrier(caller, id, carrierId, containerNumber, null, ifMatchHeader);
+    }
+
+    /**
+     * With the container, ISO 6346 checked, and the carrier's booking reference: DCSA equipment events find the
+     * shipment by the first, transport events by the second (ADR 0037).
+     */
+    @Transactional
+    public ShipmentResponse assignCarrier(Caller caller, UUID id, String carrierId, String containerNumber,
+                                          String carrierBookingReference, String ifMatchHeader) {
         Shipment shipment = visible(caller, id);
         ETags.assertMatches(ifMatchHeader, shipment.getVersion());
         shipment.assignCarrier(carrierId, clock.instant());
         if (containerNumber != null && !containerNumber.isBlank()) {
             shipment.assignContainer(com.freightflow.logistics.dcsa.ContainerNumber.validate(containerNumber));
+        }
+        if (carrierBookingReference != null && !carrierBookingReference.isBlank()) {
+            shipment.assignCarrierBookingReference(carrierBookingReference.trim());
         }
         Shipment saved = shipments.saveAndFlush(shipment);
         log.info("Assigned carrier {} to shipment {}", carrierId, id);

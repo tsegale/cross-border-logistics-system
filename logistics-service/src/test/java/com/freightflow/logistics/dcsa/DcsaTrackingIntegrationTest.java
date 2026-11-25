@@ -29,7 +29,9 @@ import static com.freightflow.logistics.dcsa.DcsaTestEvents.SECRET;
 import static com.freightflow.logistics.dcsa.DcsaTestEvents.SUBSCRIPTION;
 import static com.freightflow.logistics.dcsa.DcsaTestEvents.equipment;
 import static com.freightflow.logistics.dcsa.DcsaTestEvents.notification;
-import static com.freightflow.logistics.dcsa.DcsaTestEvents.transport;
+import static com.freightflow.logistics.dcsa.DcsaTestEvents.VESSEL;
+import static com.freightflow.logistics.dcsa.DcsaTestEvents.equipmentOnVessel;
+import static com.freightflow.logistics.dcsa.DcsaTestEvents.transportOnVessel;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
@@ -93,9 +95,12 @@ class DcsaTrackingIntegrationTest extends IntegrationTest {
         String container = container();
         UUID shipment = shipmentInContainer(CARRIER, container);
         Instant now = Instant.now();
+        String voyageNumber = voyage();
         List<String> voyage = List.of(equipment("PICK", container, "NAWVB", now), equipment("GTIN", container, "NAWVB", now),
-                equipment("LOAD", container, "NAWVB", now), transport("DEPA", "NAWVB", now),
-                transport("ARRI", "DEHAM", now), equipment("DISC", container, "DEHAM", now),
+                equipmentOnVessel("LOAD", container, "NAWVB", now, VESSEL, voyageNumber),
+                transportOnVessel("DEPA", "NAWVB", now, VESSEL, voyageNumber),
+                transportOnVessel("ARRI", "DEHAM", now, VESSEL, voyageNumber),
+                equipmentOnVessel("DISC", container, "DEHAM", now, VESSEL, voyageNumber),
                 equipment("GTOT", container, "DEHAM", now), equipment("DROP", container, "DEHAM", now));
 
         for (String event : voyage) {
@@ -104,12 +109,15 @@ class DcsaTrackingIntegrationTest extends IntegrationTest {
         }
 
         assertThat(shipmentStatus(shipment)).isEqualTo("DELIVERED");
-        // The six equipment events moved it. The vessel's DEPA and ARRI carry no container: stored, matched to no
-        // shipment, ignored.
+        // All eight reached it: the six equipment events by the container, the vessel's DEPA and ARRI by the vessel
+        // and voyage its LOAD was reported on.
         assertThat(jdbcTemplate.queryForList("SELECT status FROM dcsa_events WHERE shipment_id = ?", String.class,
-                shipment)).hasSize(6).containsOnly("APPLIED");
+                shipment)).hasSize(8).containsOnly("APPLIED");
+        assertThat(jdbcTemplate.queryForList("SELECT matched_by FROM dcsa_event_shipments WHERE shipment_id = ?",
+                String.class, shipment)).hasSize(8).containsOnly("EQUIPMENT", "TRANSPORT_CALL")
+                .filteredOn("TRANSPORT_CALL"::equals).hasSize(2);
         assertThat(count("SELECT count(*) FROM tracking_events WHERE shipment_id = ? AND carrier_event_id LIKE 'dcsa:%'",
-                shipment)).isEqualTo(6);
+                shipment)).isEqualTo(8);
     }
 
     @Test
@@ -190,6 +198,114 @@ class DcsaTrackingIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.type").value("https://freightflow.dev/problems/invalid-container-number"));
     }
 
+    @Test
+    void aVesselsArrivalReachesEveryShipmentOnItsVoyageAndNoOther() throws Exception {
+        String voyage = voyage();
+        String first = container();
+        String second = container();
+        String elsewhere = container();
+        UUID one = shipmentInContainer(CARRIER, first);
+        UUID two = shipmentInContainer(CARRIER, second);
+        UUID other = shipmentInContainer(CARRIER, elsewhere);
+        Instant loaded = Instant.now().minus(Duration.ofHours(2));
+        mockMvc.perform(push(CARRIER, SUBSCRIPTION, notification(
+                equipmentOnVessel("LOAD", first, "NAWVB", loaded, VESSEL, voyage),
+                equipmentOnVessel("LOAD", second, "NAWVB", loaded, VESSEL, voyage),
+                equipmentOnVessel("LOAD", elsewhere, "NAWVB", loaded, VESSEL, voyage())), null))
+                .andExpect(status().isNoContent());
+        drain();
+
+        mockMvc.perform(push(CARRIER, SUBSCRIPTION, notification(transportOnVessel("ARRI", "DEHAM",
+                Instant.now().minus(Duration.ofHours(1)), VESSEL, voyage)), null)).andExpect(status().isNoContent());
+        drain();
+
+        java.util.function.Supplier<String> seen = () -> jdbcTemplate.queryForList(
+                "SELECT event_type, status, outcome FROM dcsa_events WHERE payload -> 'transportCall' ->> "
+                        + "'exportVoyageNumber' = ? ORDER BY received_at", voyage) + " "
+                + jdbcTemplate.queryForList("SELECT shipment_id, export_voyage FROM shipment_transport_calls WHERE "
+                        + "export_voyage = ?", voyage);
+        assertThat(shipmentStatus(one)).as(seen).isEqualTo("AT_DESTINATION_PORT");
+        assertThat(shipmentStatus(two)).as(seen).isEqualTo("AT_DESTINATION_PORT");
+        assertThat(shipmentStatus(other)).as("loaded on another voyage of the same vessel").isEqualTo("IN_TRANSIT");
+    }
+
+    @Test
+    void aTransportEventFindsItsShipmentByTheCarriersBookingReference() throws Exception {
+        String reference = "KAL" + ThreadLocalRandom.current().nextLong(1_000_000_000L, 9_999_999_999L);
+        String shipment = fixtures.bookAndPay().get("id").asString();
+        mockMvc.perform(put("/api/v1/shipments/{id}/carrier", shipment).with(TestCallers.operator())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"carrierId\":\"" + CARRIER + "\",\"carrierBookingReference\":\"" + reference + "\"}"))
+                .andExpect(status().isOk());
+
+        // No container yet, so no equipment event could have named the vessel: the booking reference links it.
+        mockMvc.perform(push(CARRIER, SUBSCRIPTION, notification(transportOnVessel("DEPA", "NAWVB", Instant.now(),
+                VESSEL, voyage(), reference)), null)).andExpect(status().isNoContent());
+        drain();
+
+        assertThat(shipmentStatus(UUID.fromString(shipment))).isEqualTo("IN_TRANSIT");
+        assertThat(jdbcTemplate.queryForObject("SELECT matched_by FROM dcsa_event_shipments WHERE shipment_id = ?::uuid",
+                String.class, shipment)).isEqualTo("BOOKING_REFERENCE");
+    }
+
+    @Test
+    void aTransportEventNoShipmentIsLinkedToYetIsRetriedAndReachesItWhenItsLoadArrivesLate() throws Exception {
+        String voyage = voyage();
+        UUID id = UUID.randomUUID();
+        // The vessel arrived an hour ago; the carrier's LOAD from two hours ago is the one that comes late.
+        String event = transportOnVessel("ARRI", "DEHAM", Instant.now().minus(Duration.ofHours(1)), VESSEL, voyage)
+                .replaceFirst("\"eventID\":\"[0-9a-f-]+\"", "\"eventID\":\"" + id + "\"");
+        mockMvc.perform(push(CARRIER, SUBSCRIPTION, notification(event), null)).andExpect(status().isNoContent());
+
+        drain();
+        // Its LOAD may still be on the way: it waits, with a backoff, rather than being written off at once.
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM dcsa_events WHERE id = ?", String.class, id))
+                .isEqualTo("PENDING");
+        assertThat(jdbcTemplate.queryForObject("SELECT next_attempt_at > now() FROM dcsa_events WHERE id = ?",
+                Boolean.class, id)).isTrue();
+
+        jdbcTemplate.update("UPDATE dcsa_events SET attempts = 7, next_attempt_at = now() WHERE id = ?", id);
+        drain();
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM dcsa_events WHERE id = ?", String.class, id))
+                .isEqualTo("UNMATCHED");
+        assertThat(jdbcTemplate.queryForObject("SELECT outcome FROM dcsa_events WHERE id = ?", String.class, id))
+                .contains(VESSEL);
+
+        // The LOAD that names the vessel arrives late: the arrival is taken up again and reaches the shipment.
+        String container = container();
+        UUID shipment = shipmentInContainer(CARRIER, container);
+        mockMvc.perform(push(CARRIER, SUBSCRIPTION, notification(equipmentOnVessel("LOAD", container, "NAWVB",
+                Instant.now().minus(Duration.ofHours(2)), VESSEL, voyage)), null)).andExpect(status().isNoContent());
+        drain();
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM dcsa_events WHERE id = ?", String.class, id))
+                .isEqualTo("APPLIED");
+        assertThat(shipmentStatus(shipment)).isEqualTo("AT_DESTINATION_PORT");
+    }
+
+    @Test
+    void anEquipmentEventReachesEveryShipmentConsolidatedInTheContainer() throws Exception {
+        String container = container();
+        UUID one = shipmentInContainer(CARRIER, container);
+        UUID two = shipmentInContainer(CARRIER, container);
+
+        mockMvc.perform(push(CARRIER, SUBSCRIPTION, notification(equipment("GTIN", container, "NAWVB", Instant.now())),
+                null)).andExpect(status().isNoContent());
+        drain();
+
+        assertThat(shipmentStatus(one)).isEqualTo("AT_ORIGIN_PORT");
+        assertThat(shipmentStatus(two)).isEqualTo("AT_ORIGIN_PORT");
+    }
+
+    @Test
+    void aBookingReferenceIsCheckedOnAssignment() throws Exception {
+        String shipment = fixtures.bookAndPay().get("id").asString();
+
+        mockMvc.perform(put("/api/v1/shipments/{id}/carrier", shipment).with(TestCallers.operator())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"carrierId\":\"" + CARRIER + "\",\"carrierBookingReference\":\"no spaces allowed\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private UUID shipmentInContainer(String carrier, String container) throws Exception {
@@ -209,22 +325,28 @@ class DcsaTrackingIntegrationTest extends IntegrationTest {
                 .content(body);
     }
 
-    /** Processes every pending event, as the scheduled processor would. */
+    /** Processes every due event, as the scheduled processor does: claimed, so attempts count. */
     private void drain() {
-        for (int round = 0; round < 10; round++) {
-            List<UUID> pending = jdbcTemplate.queryForList(
-                    "SELECT id FROM dcsa_events WHERE status = 'PENDING' ORDER BY received_at", UUID.class);
-            if (pending.isEmpty()) {
-                return;
-            }
-            pending.forEach(processor::process);
+        for (int round = 0; round < 10 && dueEvents() > 0; round++) {
+            processor.processDue();
         }
+    }
+
+    private long dueEvents() {
+        Long n = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM dcsa_events WHERE status = 'PENDING' AND next_attempt_at <= now()", Long.class);
+        return n == null ? 0 : n;
     }
 
     /** A valid ISO 6346 number no other test uses. */
     private static String container() {
         String first = "FFLU" + String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
         return first + ContainerNumber.checkDigit(first);
+    }
+
+    /** A voyage number no other test uses. */
+    private static String voyage() {
+        return String.format("%05dN", ThreadLocalRandom.current().nextInt(100_000));
     }
 
     private String shipmentStatus(UUID shipment) {

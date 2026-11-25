@@ -17,6 +17,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         // Tests drive PaymentCommandRelay.relayOnce() themselves and do not wait for real backoff.
         "freightflow.logistics.payments.relay-enabled=false",
         "freightflow.logistics.payments.hold-expiry.renewal-enabled=false",
+        // Tests drive DcsaEventProcessor.processDue() themselves: a cached context's schedule would take their events.
+        "freightflow.logistics.dcsa.processing-enabled=false",
         "freightflow.logistics.payments.retry-backoff=1ms",
         "freightflow.logistics.payments.max-retry-backoff=2ms",
         // Tests that stub failures must not trip the shared breaker for the next test; the fault tests set their own.

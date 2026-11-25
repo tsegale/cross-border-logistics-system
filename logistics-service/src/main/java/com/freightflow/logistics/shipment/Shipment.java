@@ -148,6 +148,9 @@ public class Shipment {
     @Column(name = "container_number", length = 11)
     private String containerNumber;
 
+    @Column(name = "carrier_booking_reference", length = 35)
+    private String carrierBookingReference;
+
     // Who did it (ADR 0020).
     @Column(name = "booked_by_subject", length = 64, updatable = false)
     private String bookedBySubject;
@@ -374,6 +377,15 @@ public class Shipment {
 
     public String getContainerNumber() {
         return containerNumber;
+    }
+
+    /** The carrier's booking reference: DCSA transport events name it in their documentReferences (ADR 0037). */
+    public void assignCarrierBookingReference(String carrierBookingReference) {
+        this.carrierBookingReference = Objects.requireNonNull(carrierBookingReference, "carrierBookingReference");
+    }
+
+    public String getCarrierBookingReference() {
+        return carrierBookingReference;
     }
 
     public void assignCarrier(String carrierId, Instant now) {

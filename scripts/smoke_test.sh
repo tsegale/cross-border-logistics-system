@@ -498,16 +498,28 @@ wait_for "/api/v1/shipments/${DCSA_SHIP}" .status BOOKED
 as operator
 call 400 PUT "/api/v1/shipments/${DCSA_SHIP}/carrier" '{"carrierId":"carrier-kalahari-freight","containerNumber":"CSQU3054384"}'
 expect .type https://freightflow.dev/problems/invalid-container-number
-call 200 PUT "/api/v1/shipments/${DCSA_SHIP}/carrier" '{"carrierId":"carrier-kalahari-freight","containerNumber":"CSQU3054383"}'
+DCSA_BOOKING="KAL${RUN_ID//[^A-Za-z0-9]/}"
+DCSA_BOOKING="${DCSA_BOOKING:0:35}"
+call 200 PUT "/api/v1/shipments/${DCSA_SHIP}/carrier" "{\"carrierId\":\"carrier-kalahari-freight\",\"containerNumber\":\"CSQU3054383\",\"carrierBookingReference\":\"${DCSA_BOOKING}\"}"
 # A notification nobody signed is refused at the public endpoint.
 as anonymous
 call 401 POST /api/v1/dcsa/notifications/carrier-kalahari-freight '[{"eventID":"3cecb101-7a1a-43a4-9d62-e88a131651e2"}]'   "Subscription-ID: 6f2d0a6e-1c1d-4f53-9a64-1c4e8f0b7a21" "Notification-Signature: sha256=00"
 expect .type https://freightflow.dev/problems/invalid-webhook-signature
 dc exec -T partner-simulator python -c "import urllib.request; urllib.request.urlopen(urllib.request.Request(
-  'http://127.0.0.1:8090/_control/carrier/voyages', method='POST', data=b'{\"containerNumber\":\"CSQU3054383\",\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"intervalSeconds\":1}'), timeout=10)" > /dev/null
+  'http://127.0.0.1:8090/_control/carrier/voyages', method='POST', data=b'{\"containerNumber\":\"CSQU3054383\",\"origin\":\"NAWVB\",\"destination\":\"DEHAM\",\"intervalSeconds\":1,\"carrierBookingReference\":\"${DCSA_BOOKING}\"}'), timeout=10)" > /dev/null
 as customer-namib-exports
 wait_for "/api/v1/shipments/${DCSA_SHIP}" .status DELIVERED
 expect .payment.status CAPTURED
+# The vessel's DEPA and ARRI name no container: they reached the shipment by its booking reference and by the vessel
+# and voyage its LOAD was reported on (ADR 0037).
+DCSA_TRANSPORT="$(dc exec -T logistics-db psql -U "${LOGISTICS_DB_USER:-logistics}" -d logistics -At -c \
+  "SELECT count(*) FROM dcsa_event_shipments l JOIN dcsa_events e ON e.id = l.dcsa_event_id
+   WHERE l.shipment_id = '${DCSA_SHIP}' AND e.event_type = 'TRANSPORT' AND l.outcome = 'APPLIED'" | tr -d '[:space:]')"
+if [[ "$DCSA_TRANSPORT" != "2" ]]; then
+  echo "FAIL: the vessel's departure and arrival reached the shipment ${DCSA_TRANSPORT} times, expected 2" >&2
+  exit 1
+fi
+echo "     the vessel's DEPA and ARRI reached the shipment"
 
 # ---------------------------------------------------------------- reading back
 as auditor

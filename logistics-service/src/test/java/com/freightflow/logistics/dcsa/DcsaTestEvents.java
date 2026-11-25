@@ -39,6 +39,35 @@ final class DcsaTestEvents {
                 .formatted(UUID.randomUUID(), at, at, code, UUID.randomUUID(), location);
     }
 
+    /** The vessel the voyages of these tests sail on: the IMO number from DCSA's examples (its check digit holds). */
+    static final String VESSEL = "9321483";
+
+    /** An equipment event on a vessel's voyage (LOAD, DISC): what links the vessel's transport events to it. */
+    static String equipmentOnVessel(String code, String container, String location, Instant created, String vessel,
+                                    String voyage) {
+        String at = created.truncatedTo(ChronoUnit.MILLIS).toString();
+        return """
+                {"eventID":"%s","eventCreatedDateTime":"%s","eventType":"EQUIPMENT","eventClassifierCode":"ACT",                "eventDateTime":"%s","equipmentEventTypeCode":"%s","equipmentReference":"%s","ISOEquipmentCode":"22RT",                "emptyIndicatorCode":"LADEN","transportCall":{"transportCallID":"%s","carrierServiceCode":"NAE",                "exportVoyageNumber":"%s","importVoyageNumber":"%s","UNLocationCode":"%s","modeOfTransport":"VESSEL",                "vessel":{"vesselIMONumber":"%s","vesselName":"Kalahari Express"}}}"""
+                .formatted(UUID.randomUUID(), at, at, code, container, UUID.randomUUID(), voyage, voyage, location,
+                        vessel);
+    }
+
+    /** A vessel's departure or arrival, with its transport call and, when given, the bookings it carries (BKG). */
+    static String transportOnVessel(String code, String location, Instant created, String vessel, String voyage,
+                                    String... bookingReferences) {
+        String at = created.truncatedTo(ChronoUnit.MILLIS).toString();
+        StringBuilder references = new StringBuilder();
+        for (String reference : bookingReferences) {
+            references.append(references.isEmpty() ? "" : ",")
+                    .append("{\"documentReferenceType\":\"BKG\",\"documentReferenceValue\":\"").append(reference)
+                    .append("\"}");
+        }
+        return """
+                {"eventID":"%s","eventCreatedDateTime":"%s","eventType":"TRANSPORT","eventClassifierCode":"ACT",                "eventDateTime":"%s","transportEventTypeCode":"%s","transportCall":{"transportCallID":"%s",                "carrierServiceCode":"NAE","exportVoyageNumber":"%s","importVoyageNumber":"%s","UNLocationCode":"%s",                "modeOfTransport":"VESSEL","vessel":{"vesselIMONumber":"%s","vesselName":"Kalahari Express"}}%s}"""
+                .formatted(UUID.randomUUID(), at, at, code, UUID.randomUUID(), voyage, voyage, location, vessel,
+                        references.isEmpty() ? "" : ",\"documentReferences\":[" + references + "]");
+    }
+
     static String notification(String... events) {
         return "[" + String.join(",", events) + "]";
     }

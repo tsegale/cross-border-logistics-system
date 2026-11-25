@@ -37,13 +37,26 @@ class DcsaContractTest {
     }
 
     /**
-     * One correction, in memory only; the committed document stays as DCSA published it. Four array query
-     * parameters (shipmentEventTypeCode, documentTypeCode, transportEventTypeCode, equipmentEventTypeCode) have a
-     * comma-separated string as their default, which the parser refuses ("default is not of type array"). Request
-     * parameter defaults play no part in validating an event.
+     * Two corrections, in memory only; the committed document stays as DCSA published it.
+     * <ul>
+     *   <li>Four array query parameters (shipmentEventTypeCode, documentTypeCode, transportEventTypeCode,
+     *       equipmentEventTypeCode) have a comma-separated string as their default, which the parser refuses
+     *       ("default is not of type array"). Request parameter defaults play no part in validating an event.</li>
+     *   <li>{@code documentReferenceType}'s enum is written {@code ["BKG (Booking)", "TRD (Transport Document)"]}: the
+     *       description pasted into the values. The schema's own example, its description of the field and what
+     *       carriers send is {@code BKG} and {@code TRD}, so the enum is read as those codes.</li>
+     * </ul>
      */
     static String loadable(String spec) {
         JsonNode tree = JSON.readTree(spec);
+        tree.findParents("documentReferenceType").forEach(parent -> {
+            JsonNode field = parent.path("documentReferenceType");
+            if (field instanceof ObjectNode object && field.path("enum").isArray()) {
+                var codes = object.putArray("enum");
+                codes.add("BKG");
+                codes.add("TRD");
+            }
+        });
         tree.findParents("schema").forEach(parent -> {
             JsonNode schema = parent.path("schema");
             if (parent.has("in") && schema instanceof ObjectNode object && "array".equals(schema.path("type").asString(""))
@@ -61,6 +74,8 @@ class DcsaContractTest {
                 DcsaTestEvents.equipment("GTIN", "CSQU3054383", "NAWVB", now),
                 DcsaTestEvents.equipment("LOAD", "CSQU3054383", "NAWVB", now),
                 DcsaTestEvents.transport("DEPA", "NAWVB", now),
+                DcsaTestEvents.equipmentOnVessel("LOAD", "CSQU3054383", "NAWVB", now, DcsaTestEvents.VESSEL, "2647N"),
+                DcsaTestEvents.transportOnVessel("ARRI", "DEHAM", now, DcsaTestEvents.VESSEL, "2647N", "KAL2611240042"),
                 DcsaTestEvents.equipment("DROP", "CSQU3054383", "DEHAM", now));
 
         ValidationReport report = validate(body);

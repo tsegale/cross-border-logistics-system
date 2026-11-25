@@ -14,13 +14,17 @@ import java.util.UUID;
  *                        second guard, for anything inside the window
  * @param clockSkew       how far in the future an event's creation time may be
  * @param processInterval how often stored events are turned into tracking events
+ * @param processingEnabled whether the scheduled processor runs (default true); tests drive
+ *                        {@link DcsaEventProcessor#processDue()} themselves, so a cached test context's schedule does
+ *                        not take another test's events
  * @param carriers        per carrier id (the carrier's client id in Keycloak): its subscription
  */
 @ConfigurationProperties(prefix = "freightflow.logistics.dcsa")
 public record DcsaProperties(Duration replayWindow, Duration clockSkew, Duration processInterval,
-                             Map<String, Carrier> carriers) {
+                             Boolean processingEnabled, Map<String, Carrier> carriers) {
 
     public DcsaProperties {
+        processingEnabled = processingEnabled == null || processingEnabled;
         replayWindow = replayWindow == null ? Duration.ofHours(24) : replayWindow;
         clockSkew = clockSkew == null ? Duration.ofMinutes(5) : clockSkew;
         processInterval = processInterval == null ? Duration.ofMillis(500) : processInterval;

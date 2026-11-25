@@ -1,10 +1,13 @@
 """A carrier that speaks DCSA Track and Trace 2.2 (ADR 0037), so the demo and CI need no carrier account.
 
 POST /_control/carrier/voyages  {"containerNumber": "...", "origin": "NAWVB", "destination": "DEHAM",
-                                 "intervalSeconds": 2, "mode": "push"}
+                                 "intervalSeconds": 2, "mode": "push", "carrierBookingReference": "...",
+                                 "vesselIMONumber": "9321483", "voyageNumber": "2647N"}
   runs the container through a voyage: PICK at the origin, GTIN, LOAD, the vessel's DEPA, its ARRI at the
   destination, DISC, GTOT and DROP, one event every intervalSeconds. Each event is an actual (ACT) DCSA event with a
-  fresh eventID. mode push sends each as a notification to CARRIER_CALLBACK_URL with Subscription-ID, API-Version and
+  fresh eventID. LOAD, DISC, DEPA and ARRI name the vessel and voyage in their transportCall, and every event names
+  the booking (documentReferences BKG) when carrierBookingReference is given: that is how a transport event, which
+  names no container, finds its shipments. mode push sends each as a notification to CARRIER_CALLBACK_URL with Subscription-ID, API-Version and
   Notification-Signature (HMAC-SHA256 over the body, keyed with the Base64 secret in CARRIER_SECRET_FILE); mode poll
   only keeps them for GET /carrier/v2/events.
 GET /carrier/v2/events?eventCreatedDateTime:gte=<ISO 8601>&limit=<n>
@@ -54,27 +57,45 @@ def sign(body, key):
     return "sha256=" + hmac.new(key, body, hashlib.sha256).hexdigest()
 
 
-def equipment_event(code, container, location):
-    return {"eventID": str(uuid.uuid4()), "eventCreatedDateTime": iso(now()), "eventType": "EQUIPMENT",
-            "eventClassifierCode": "ACT", "eventDateTime": iso(now()), "equipmentEventTypeCode": code,
-            "equipmentReference": container, "ISOEquipmentCode": "22RT", "emptyIndicatorCode": "LADEN",
-            "transportCall": {"transportCallID": str(uuid.uuid4()), "UNLocationCode": location,
-                              "modeOfTransport": "VESSEL" if code in ("LOAD", "DISC") else "TRUCK"}}
+def vessel_call(location, ship):
+    """A transport call on the vessel: its IMO number and the voyage, as LOAD, DISC, DEPA and ARRI carry them."""
+    return {"transportCallID": str(uuid.uuid4()), "carrierServiceCode": "NAE",
+            "exportVoyageNumber": ship["voyage"], "importVoyageNumber": ship["voyage"], "UNLocationCode": location,
+            "modeOfTransport": "VESSEL", "vessel": {"vesselIMONumber": ship["imo"], "vesselName": "Kalahari Express"}}
 
 
-def transport_event(code, location):
-    return {"eventID": str(uuid.uuid4()), "eventCreatedDateTime": iso(now()), "eventType": "TRANSPORT",
-            "eventClassifierCode": "ACT", "eventDateTime": iso(now()), "transportEventTypeCode": code,
-            "transportCall": {"transportCallID": str(uuid.uuid4()), "UNLocationCode": location,
-                              "modeOfTransport": "VESSEL", "carrierVoyageNumber": "2647N"}}
+def with_booking(event, booking):
+    if booking:
+        event["documentReferences"] = [{"documentReferenceType": "BKG", "documentReferenceValue": booking}]
+    return event
 
 
-def voyage(container, origin, destination):
-    return [lambda: equipment_event("PICK", container, origin), lambda: equipment_event("GTIN", container, origin),
-            lambda: equipment_event("LOAD", container, origin), lambda: transport_event("DEPA", origin),
-            lambda: transport_event("ARRI", destination), lambda: equipment_event("DISC", container, destination),
-            lambda: equipment_event("GTOT", container, destination),
-            lambda: equipment_event("DROP", container, destination)]
+def equipment_event(code, container, location, ship=None, booking=None):
+    call = vessel_call(location, ship) if ship and code in ("LOAD", "DISC") else {
+        "transportCallID": str(uuid.uuid4()), "UNLocationCode": location,
+        "modeOfTransport": "VESSEL" if code in ("LOAD", "DISC") else "TRUCK"}
+    return with_booking({"eventID": str(uuid.uuid4()), "eventCreatedDateTime": iso(now()), "eventType": "EQUIPMENT",
+                         "eventClassifierCode": "ACT", "eventDateTime": iso(now()), "equipmentEventTypeCode": code,
+                         "equipmentReference": container, "ISOEquipmentCode": "22RT", "emptyIndicatorCode": "LADEN",
+                         "transportCall": call}, booking)
+
+
+def transport_event(code, location, ship, booking=None):
+    return with_booking({"eventID": str(uuid.uuid4()), "eventCreatedDateTime": iso(now()), "eventType": "TRANSPORT",
+                         "eventClassifierCode": "ACT", "eventDateTime": iso(now()), "transportEventTypeCode": code,
+                         "transportCall": vessel_call(location, ship)}, booking)
+
+
+def voyage(container, origin, destination, ship, booking):
+    def equipment(code, location):
+        return lambda: equipment_event(code, container, location, ship, booking)
+
+    def transport(code, location):
+        return lambda: transport_event(code, location, ship, booking)
+
+    return [equipment("PICK", origin), equipment("GTIN", origin), equipment("LOAD", origin),
+            transport("DEPA", origin), transport("ARRI", destination), equipment("DISC", destination),
+            equipment("GTOT", destination), equipment("DROP", destination)]
 
 
 def push(body, signature):
@@ -95,8 +116,8 @@ def push(body, signature):
     return status
 
 
-def run(container, origin, destination, interval, mode):
-    for make in voyage(container, origin, destination):
+def run(container, origin, destination, interval, mode, ship, booking):
+    for make in voyage(container, origin, destination, ship, booking):
         event = make()
         with lock:
             events.append(event)
@@ -111,10 +132,12 @@ def run(container, origin, destination, interval, mode):
 
 def start_voyage(spec):
     container = spec["containerNumber"]
+    ship = {"imo": spec.get("vesselIMONumber", "9321483"), "voyage": spec.get("voyageNumber", "2647N")}
     thread = threading.Thread(target=run, daemon=True, args=(container, spec.get("origin", "NAWVB"),
                                                             spec.get("destination", "DEHAM"),
                                                             float(spec.get("intervalSeconds", 2)),
-                                                            spec.get("mode", "push")))
+                                                            spec.get("mode", "push"), ship,
+                                                            spec.get("carrierBookingReference")))
     thread.start()
     return {"containerNumber": container, "events": 8}
 
