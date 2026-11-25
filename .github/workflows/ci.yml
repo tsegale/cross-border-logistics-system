@@ -143,9 +143,13 @@ jobs:
             check config /etc/prometheus/prometheus.yml
       - name: amtool checks Alertmanager's config
         run: |
-          mkdir -p "$RUNNER_TEMP/secrets" && echo ci-only > "$RUNNER_TEMP/secrets/smtp_password"
+          mkdir -p "$RUNNER_TEMP/secrets" "$RUNNER_TEMP/am-tls" && echo ci-only > "$RUNNER_TEMP/secrets/smtp_password"
+          # Its email TLS names the CA's root: a throwaway one stands in for it.
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$RUNNER_TEMP/am-tls/ca.key" \
+            -subj /CN=ci-only -days 1 -out "$RUNNER_TEMP/am-tls/ca.pem" 2> /dev/null
           docker run --rm -v "$PWD/infra/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
-            -v "$RUNNER_TEMP/secrets/smtp_password:/run/secrets/smtp_password:ro" --entrypoint amtool \
+            -v "$RUNNER_TEMP/secrets/smtp_password:/run/secrets/smtp_password:ro" -v "$RUNNER_TEMP/am-tls:/tls:ro" \
+            --entrypoint amtool \
             "$ALERTMANAGER_IMAGE" check-config /etc/alertmanager/alertmanager.yml
       - name: The collector validates its config
         run: |

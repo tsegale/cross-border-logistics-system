@@ -51,9 +51,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "benchmarks"))
 import events_to_email as harness  # noqa: E402
+from internal_ca import ssl_context  # noqa: E402
 
 PROMETHEUS = "http://127.0.0.1:9090"
-MAILPIT = "http://127.0.0.1:8025"
+# HTTPS, verified against the internal CA's root (ADR 0040).
+MAILPIT = "https://127.0.0.1:8025"
 COMPOSE = os.environ.get("COMPOSE", "docker compose").split()
 
 EXPECTED = [
@@ -84,7 +86,7 @@ def sql(db: str, statement: str) -> str:
 
 
 def get(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=20) as response:
+    with urllib.request.urlopen(url, timeout=20, context=ssl_context()) as response:
         return json.loads(response.read() or b"{}")
 
 

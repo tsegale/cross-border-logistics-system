@@ -6,7 +6,8 @@ global:
   smtp_from: alerts@freightflow.dev
   smtp_auth_username: freightflow
   smtp_auth_password_file: /run/secrets/smtp_password
-  smtp_require_tls: false
+  # STARTTLS required; Mailpit verified against the internal CA's root (ADR 0040).
+  smtp_require_tls: true
 
 route:
   receiver: on-call
@@ -34,3 +35,6 @@ receivers:
     email_configs:
       - to: on-call@freightflow.dev
         send_resolved: true
+        tls_config:
+          ca_file: /tls/ca.pem
+          min_version: TLS12

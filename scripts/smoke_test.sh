@@ -414,8 +414,9 @@ dc() {
 
 # mail_subjects : the subjects of every email Mailpit holds for the recipient, one per line
 mail_subjects() {
-  dc exec -T mailpit wget -qO- \
-    "http://127.0.0.1:8025/api/v1/search?query=to%3A%22${RECIPIENT}%22&limit=50" \
+  # Mailpit's API takes HTTPS only (ADR 0040): asked from notification-service, which has curl and the internal root.
+  dc exec -T notification-service curl -fsS --cacert /tls/ca.pem \
+    "https://mailpit:8025/api/v1/search?query=to%3A%22${RECIPIENT}%22&limit=50" \
     | "$PYTHON" -c 'import json,sys; [print(m["Subject"]) for m in json.load(sys.stdin)["messages"]]'
 }
 

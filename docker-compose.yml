@@ -557,12 +557,27 @@ services:
   mailpit:
     mem_limit: 48m
     image: axllent/mailpit:v1.34.0
-    entrypoint: ["/bin/sh", "-c", "MP_SMTP_AUTH=\"freightflow:$$(cat /run/secrets/smtp_password)\" exec /mailpit"]
+    # Not root: the group the agent gives its key to (infra/tls/identities.conf).
+    user: "1000:1000"
+    # STARTTLS required on SMTP, HTTPS on the UI and API, restarted on each renewal (infra/mailpit/start.sh).
+    entrypoint: ["/bin/sh", "/etc/freightflow/mailpit/start.sh"]
     environment:
-      # Plain SMTP inside the compose network; a real relay takes STARTTLS (SMTP_STARTTLS=true).
-      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
       MP_MAX_MESSAGES: "5000"
+      # Also read by the healthcheck's readyz, which then asks over HTTPS.
+      MP_UI_TLS_CERT: /tls/cert.pem
+      MP_UI_TLS_KEY: /tls/key.pem
     secrets: [smtp_password]
+    volumes:
+      - ./infra/mailpit:/etc/freightflow/mailpit:ro
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: mailpit
+    depends_on:
+      cert-agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "/mailpit", "readyz"]
       interval: 5s
@@ -623,6 +638,8 @@ services:
       KAFKA_USERNAME: notification
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
+      # STARTTLS required, Mailpit verified against the internal root by name (ADR 0040).
+      SMTP_STARTTLS: "true"
       SMTP_USERNAME: freightflow
     secrets:
       - notification_db_password
@@ -776,6 +793,16 @@ services:
     secrets: [smtp_password]
     volumes:
       - ./infra/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      # The internal CA's root: its emails go to Mailpit over STARTTLS (ADR 0040).
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: trust
+    depends_on:
+      cert-agent:
+        condition: service_healthy
     ports:
       - "127.0.0.1:9093:9093"
 

@@ -82,9 +82,15 @@ spring:
     port: ${SMTP_PORT:1025}
     username: ${SMTP_USERNAME:freightflow}
     password: ${smtp_password:${SMTP_PASSWORD:}}
+    # With SMTP_STARTTLS (compose, and every real relay): STARTTLS required, the server verified against the internal
+    # root by name through the bundle's socket factory (ADR 0040). The login goes only inside TLS.
+    ssl:
+      bundle: internal
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: ${SMTP_STARTTLS:false}
+      mail.smtp.starttls.required: ${SMTP_STARTTLS:false}
+      mail.smtp.ssl.checkserveridentity: true
       mail.smtp.connectiontimeout: 5000
       mail.smtp.timeout: 10000
       mail.smtp.writetimeout: 10000

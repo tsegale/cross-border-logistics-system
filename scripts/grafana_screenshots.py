@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import internal_ca  # noqa: E402
 
 GRAFANA = "http://127.0.0.1:3000"
 PROMETHEUS = "http://127.0.0.1:9090"
@@ -43,7 +47,7 @@ def main() -> None:
     if args.alerts:
         shots.append(("observability-fired-alerts.png", f"{PROMETHEUS}/alerts?state=firing", 5000))
         # Alertmanager's emails to the on-call address, in Mailpit (benchmarks/compose.bench.yml publishes it).
-        shots.append(("observability-alert-email.png", "http://127.0.0.1:8025/search?q=to%3Aon-call%40freightflow.dev", 5000))
+        shots.append(("observability-alert-email.png", "https://127.0.0.1:8025/search?q=to%3Aon-call%40freightflow.dev", 5000))
 
     # Grafana has no healthcheck in compose, so --wait does not wait for it.
     deadline = time.monotonic() + 120
@@ -58,7 +62,9 @@ def main() -> None:
         time.sleep(3)
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
+        # Mailpit is HTTPS from the internal CA (ADR 0040): Chromium accepts a chain only if it holds the root's key.
+        browser = playwright.chromium.launch(
+            args=[f"--ignore-certificate-errors-spki-list={internal_ca.root_spki_sha256()}"])
         page = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="dark")
         for name, url, settle_ms in shots:
             # Prometheus' and Mailpit's pages poll for ever and never go network-idle: wait for the load and settle.

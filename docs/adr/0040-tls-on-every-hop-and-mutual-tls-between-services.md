@@ -33,6 +33,8 @@ the internal CA, verified by name. The services take only mutual TLS, and only f
 | Gateway to Redis | TLS only (`--port 0`) | server certificate | `CONFIG SET` | `RateLimitTest` against `infra/redis/start.sh` |
 | Services, gateway, scripts to Keycloak | HTTPS only | server certificate | hourly re-read | the smoke test's logins |
 | Carrier simulator to the gateway | HTTPS | server certificate | gateway bundle | the smoke test's DCSA push |
+| notification, Alertmanager to Mailpit (SMTP) | STARTTLS required, then the SMTP login | server certificate | Mailpit restarted on renewal, its messages in a database file | notification's email tests (Mailpit requires STARTTLS there too) |
+| Scripts to Mailpit's API (8025) | HTTPS | server certificate | as above | the smoke test's email checks |
 
 - **Allowed callers by name.** The connector (`server.ssl.client-auth: need`) refuses any client without a certificate
   from the internal CA in the handshake. `CallerCertificateFilter`, ahead of Spring Security, then takes the request only
@@ -71,5 +73,7 @@ the internal CA, verified by name. The services take only mutual TLS, and only f
   identity is allowed to, until its certificate expires (24 h at most).
 - Internal suites are the JDK's defaults for TLS 1.3 and 1.2; only the public listener is held to Mozilla's list.
 - Still in plaintext when this was accepted, and moved in the commits that follow it: the services' OTLP export to the
-  collector and the collector to Tempo and Loki, notification's SMTP to Mailpit, banking's and logistics' calls to the
-  partner simulator, and Prometheus, Grafana and Alertmanager among themselves.
+  collector and the collector to Tempo and Loki, banking's and logistics' calls to the partner simulator, and
+  Prometheus, Grafana and Alertmanager among themselves.
+- Mailpit cannot reload a certificate, so its wrapper restarts it on each renewal (every 16 h); a sender connecting in
+  that second is refused and retries. A real relay is a provider's, with a public certificate.

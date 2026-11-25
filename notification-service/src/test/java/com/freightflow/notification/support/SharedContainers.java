@@ -8,6 +8,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -34,11 +35,18 @@ public final class SharedContainers {
 
     public static final KafkaBroker KAFKA = new KafkaBroker();
 
-    /** An SMTP server with an HTTP API, the one compose runs (ADR 0027); SMTP auth as in compose. */
+    /**
+     * An SMTP server with an HTTP API, the one compose runs (ADR 0027): SMTP auth inside STARTTLS, which it requires,
+     * with a certificate from the test CA (ADR 0040). The API stays plain HTTP here; only the tests read it.
+     */
     public static final GenericContainer<?> MAILPIT = new GenericContainer<>(DockerImageName.parse(Mailpit.IMAGE))
             .withExposedPorts(1025, 8025)
             .withEnv("MP_SMTP_AUTH", SMTP_USER + ":" + SMTP_PASSWORD)
-            .withEnv("MP_SMTP_AUTH_ALLOW_INSECURE", "true")
+            .withCopyToContainer(Transferable.of(TestCertificates.of("mailpit").certificatePem(), 0644), "/tls/cert.pem")
+            .withCopyToContainer(Transferable.of(TestCertificates.of("mailpit").privateKeyPem(), 0644), "/tls/key.pem")
+            .withEnv("MP_SMTP_TLS_CERT", "/tls/cert.pem")
+            .withEnv("MP_SMTP_TLS_KEY", "/tls/key.pem")
+            .withEnv("MP_SMTP_REQUIRE_STARTTLS", "true")
             .waitingFor(Wait.forHttp("/readyz").forPort(8025))
             .withStartupTimeout(STARTUP_TIMEOUT);
 
@@ -79,6 +87,8 @@ public final class SharedContainers {
         registry.add("spring.mail.port", () -> MAILPIT.getMappedPort(1025));
         registry.add("spring.mail.username", () -> SMTP_USER);
         registry.add("spring.mail.password", () -> SMTP_PASSWORD);
+        // STARTTLS required, as in compose: the server's certificate checked against the test CA, by name.
+        registry.add("SMTP_STARTTLS", () -> "true");
     }
 
     public static String mailpitApi() {

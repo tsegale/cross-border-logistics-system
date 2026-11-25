@@ -17,7 +17,7 @@ import java.util.List;
 /** Reads what reached the SMTP server through Mailpit's HTTP API (https://mailpit.axllent.org/docs/api-v1/). */
 public final class Mailpit {
 
-    public static final String IMAGE = "axllent/mailpit:v1.33.0";
+    public static final String IMAGE = "axllent/mailpit:v1.34.0";
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private static final JsonMapper JSON = JsonMapper.builder().build();
 

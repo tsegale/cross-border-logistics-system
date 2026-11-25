@@ -53,6 +53,8 @@ issue() {
   IFS="$old_ifs"
   out="$(step ca certificate "$@" 2>&1)" || { log "$out"; return 1; }
   install_new "$name" "$gid"
+  # The names it was issued for: a renewal keeps a certificate's names, so a change in identities.conf re-issues it.
+  echo "$sans" > "$dir/sans"
   log "issued $name ($(expiry "$dir/cert.pem"))"
 }
 
@@ -104,9 +106,10 @@ check_all() {
   echo ok > "$outcome"
   grep -v '^[[:space:]]*#' "$IDENTITIES" | grep -v '^[[:space:]]*$' | while read -r name gid sans; do
     cert="$OUT/$name/cert.pem"
-    # A key from before the agent wrote PKCS#8 is issued afresh too.
+    # A key from before the agent wrote PKCS#8, or names that identities.conf has changed since, is issued afresh too.
     if [ ! -s "$cert" ] || [ ! -s "$OUT/$name/key.pem" ] || expired "$cert" \
-      || [ "$(head -n 1 "$OUT/$name/key.pem")" != "-----BEGIN PRIVATE KEY-----" ]; then
+      || [ "$(head -n 1 "$OUT/$name/key.pem")" != "-----BEGIN PRIVATE KEY-----" ] \
+      || [ "$(cat "$OUT/$name/sans" 2> /dev/null)" != "$sans" ]; then
       issue "$name" "$gid" "$sans" || { log "could not issue $name"; echo failed > "$outcome"; }
     elif step certificate needs-renewal "$cert" ${RENEW_WITHIN:+--expires-in "$RENEW_WITHIN"} > /dev/null 2>&1; then
       renew "$name" "$gid" || issue "$name" "$gid" "$sans" || { log "could not renew $name"; echo failed > "$outcome"; }

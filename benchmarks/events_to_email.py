@@ -40,7 +40,7 @@ from internal_ca import ssl_context  # noqa: E402
 
 # HTTPS, verified against the internal CA's root (ADR 0039).
 GATEWAY = os.environ.get("GATEWAY_URL", "https://127.0.0.1:8080")
-MAILPIT = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025")
+MAILPIT = os.environ.get("MAILPIT_URL", "https://127.0.0.1:8025")
 # The services take mutual TLS only (ADR 0040): their actuators are read from inside each container, with the
 # certificate it accepts as itself.
 ACTUATORS = {"banking": 8081, "logistics": 8082}
@@ -88,7 +88,7 @@ def call(persona: str, method: str, path: str, body: dict | str | None = None, h
 
 
 def get_json(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=10) as response:
+    with urllib.request.urlopen(url, timeout=10, context=ssl_context()) as response:
         return json.loads(response.read())
 
 
