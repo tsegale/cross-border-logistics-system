@@ -11,7 +11,8 @@
 set -eu
 
 SOURCE="${TLS_SOURCE:-/tls}"
-TARGET="${TLS_TARGET:-/data/tls}"
+# On the tmpfs: the copies hold the key, and the root filesystem is read-only (ADR 0041).
+TARGET="${TLS_TARGET:-/tmp/tls}"
 CHECK="${TLS_CHECK_SECONDS:-60}"
 SOCKET=/tmp/redis.sock
 

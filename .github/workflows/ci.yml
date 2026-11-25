@@ -70,7 +70,10 @@ jobs:
       - run: sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
       - name: Generate the stack's secrets into secrets/
         run: python3 scripts/generate_secrets.py
-      - run: docker compose up -d --wait --build
+      - run: docker compose up -d --wait --wait-timeout 900 --build
+      # ADR 0041, on the running containers: read-only, no capability, no-new-privileges, not root, no socket.
+      - name: Every container is hardened
+        run: python3 scripts/check_hardening.py
       # Every container's memory peak and each JVM's heap, non-heap and threads through the rest of the job (ADR 0029).
       - name: Start sampling memory
         run: mkdir -p memory && nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/memory.stop" --json memory/memory.json > memory/memory.md 2> memory/memory.err &
@@ -213,7 +216,9 @@ jobs:
       - uses: actions/checkout@v7
       - run: sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
       - run: python3 scripts/generate_secrets.py
-      - run: $COMPOSE up -d --wait --build
+      - run: $COMPOSE up -d --wait --wait-timeout 900 --build
+      - name: Every container is hardened, the observability profile's too
+        run: python3 scripts/check_hardening.py
       - name: Start sampling memory
         run: mkdir -p observability && nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/memory.stop" --json observability/memory.json > observability/memory.md 2> observability/memory.err &
       - name: Seed demo data and run the smoke test

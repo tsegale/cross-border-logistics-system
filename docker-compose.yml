@@ -11,14 +11,27 @@
 # collector at once (the benchmark compares them).
 name: freightflow
 
+# Every container (ADR 0041): its root filesystem read-only (what it writes is a volume or a tmpfs below), no Linux
+# capability, and no process gaining privileges it did not start with. Each also runs as a user other than root,
+# except docker-api, which needs the host's socket and holds no capability either.
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 services:
   # ---------------- Certificates (ADR 0039) ----------------
   # The internal CA: step-ca, initialised on its first start from the ca_password secret. It issues 24 h certificates
   # to the agent's provisioner and renews them over mTLS. Not published; its keys stay in its volume.
   ca:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=16m
     # Peak 67.2 MiB (memory.peak, laptop): the 54 MB step-ca binary's pages count against the limit (ADR 0029).
     mem_limit: 96m
-    image: smallstep/step-ca:0.30.2
+    # smallstep/step-ca:0.30.2 without its binary's file capability (infra/ca/Dockerfile, ADR 0041).
+    build: ./infra/ca
+    image: freightflow-ca
     environment:
       DOCKER_STEPCA_INIT_NAME: FreightFlow Internal CA
       DOCKER_STEPCA_INIT_DNS_NAMES: ca,localhost
@@ -36,6 +49,9 @@ services:
   # Issues every identity in infra/tls/identities.conf a certificate and renews it (infra/tls/agent.sh). Each
   # container mounts its own directory of the certs volume, read-only; the agent reads the root from the CA's volume.
   cert-agent:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=16m
     # Peak 35.2 MiB renewing all 14 (memory.peak, laptop); at 32m the 44 MB step binary was paged out and back in
     # on every call, and each certificate took 48 s (ADR 0029).
     mem_limit: 48m
@@ -70,6 +86,11 @@ services:
 
   # ---------------- Databases: one per service ----------------
   banking-db:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
+      - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
+      - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 192m
     image: postgres:17-alpine
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
@@ -100,6 +121,11 @@ services:
       retries: 12
 
   logistics-db:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
+      - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
+      - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 192m
     image: postgres:17-alpine
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
@@ -130,6 +156,11 @@ services:
       retries: 12
 
   notification-db:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
+      - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
+      - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 128m
     image: postgres:17-alpine
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
@@ -164,6 +195,11 @@ services:
   # is left alone, so a change to the file needs: docker compose down keycloak keycloak-db && docker volume rm
   # freightflow_keycloak-db-data
   keycloak-db:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
+      - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
+      - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 128m
     image: postgres:17-alpine
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
@@ -194,6 +230,10 @@ services:
       retries: 12
 
   keycloak:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
+      - /opt/keycloak/data:size=64m,uid=1000,gid=0,mode=0770
     mem_limit: 704m
     build: ./infra/keycloak
     image: freightflow-keycloak
@@ -255,6 +295,9 @@ services:
 
   # ---------------- Services ----------------
   banking-service:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
     mem_limit: 512m
     build: ./banking-service
     environment:
@@ -326,6 +369,9 @@ services:
       start_interval: 3s
 
   logistics-service:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
     mem_limit: 576m
     build: ./logistics-service
     environment:
@@ -396,6 +442,9 @@ services:
   # run on this same image: TestIssuer reads it from this file. Redis 8 is used under the AGPLv3 (ADR 0017).
   # TLS only, with its certificate from the internal CA, reloaded on renewal (infra/redis/start.sh, ADR 0039).
   redis:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=1m,uid=999,gid=1000,mode=0770
     mem_limit: 32m
     image: redis:8.10-alpine
     # The image's own user; it reads its key through the group the agent gives it (infra/tls/identities.conf).
@@ -420,6 +469,9 @@ services:
       retries: 12
 
   api-gateway:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
     mem_limit: 320m
     build: ./api-gateway
     environment:
@@ -481,8 +533,13 @@ services:
   # Off by default: then every request has to come through the gateway (ADR 0019).
   debug-ports:
     profiles: [debug]
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=1m
     mem_limit: 32m
     image: alpine/socat:1.8.1.1
+    # Ports above 1024 only: no root needed (ADR 0041).
+    user: "65534:65534"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
@@ -507,6 +564,9 @@ services:
   # ---------------- Events ----------------
   # Single-node Kafka 4 in KRaft mode (ADR 0003): SCRAM-SHA-512 per service, ACLs, nothing published (ADR 0022).
   kafka:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m,uid=1000,gid=1000,mode=0770
     mem_limit: 512m
     image: apache/kafka:4.3.1
     entrypoint: ["bash", "/etc/freightflow/kafka/start.sh"]
@@ -515,6 +575,8 @@ services:
       CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
       # Inside its 512m limit with page cache and metadata log buffers beside it (ADR 0029).
       KAFKA_HEAP_OPTS: -Xms256m -Xmx256m
+      # The root filesystem is read-only (ADR 0041): Kafka's and its tools' logs go to the tmpfs.
+      LOG_DIR: /tmp/kafka-logs
     secrets: [kafka_admin_password]
     volumes:
       - ./infra/kafka:/etc/freightflow/kafka:ro
@@ -539,12 +601,16 @@ services:
 
   # Service users and ACLs from infra/kafka/acls.conf, applied on every start, before any service connects.
   kafka-init:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=16m,uid=1000,gid=1000,mode=0770
     mem_limit: 256m
     image: apache/kafka:4.3.1
     entrypoint: ["bash", "/etc/freightflow/kafka/init.sh"]
     environment:
       # The CLI tools (kafka-configs, kafka-acls) need little heap.
       KAFKA_HEAP_OPTS: -Xmx128m
+      LOG_DIR: /tmp/kafka-logs
     secrets: [kafka_admin_password, kafka_banking_password, kafka_logistics_password, kafka_notification_password,
               kafka_monitoring_password]
     volumes:
@@ -565,6 +631,9 @@ services:
   # An SMTP server that keeps what it receives and shows it (web UI and API on 8025, published by --profile debug).
   # SMTP needs a login, the password from secrets/smtp_password, as a real relay would.
   mailpit:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=32m,uid=1000,gid=1000,mode=0770
     mem_limit: 48m
     image: axllent/mailpit:v1.34.0
     # Not root: the group the agent gives its key to (infra/tls/identities.conf).
@@ -598,6 +667,9 @@ services:
   # working days, with a /_control endpoint for the fire drill. CI points banking at it (ECB_BASE_URL, BON_RATES_URL),
   # so no CI job calls a live API; a local stack uses the real sources unless .env says otherwise.
   partner-simulator:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=8m
     mem_limit: 48m
     image: python:3.15.2-alpine
     command: ["python", "-I", "/app/simulator.py"]
@@ -631,6 +703,9 @@ services:
       retries: 12
 
   notification-service:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
     mem_limit: 384m
     build: ./notification-service
     environment:
@@ -697,12 +772,13 @@ services:
   # metrics. Grafana on 127.0.0.1:3000; Prometheus, Tempo, Loki and Alertmanager on 127.0.0.1 for the CI checks.
   otel-collector:
     profiles: [observability]
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=16m
     image: otel/opentelemetry-collector-contrib:0.165.0
     command: ["--config=/etc/otelcol/config.yaml"]
     mem_limit: 192m
-    # Root, for the Docker socket the docker_stats receiver reads (container memory against its limit). Read-only
-    # mount; the trade-off is in ADR 0031.
-    user: "0"
+    networks: [default, docker-api]
     environment:
       GOMEMLIMIT: 150MiB
       TAIL_SAMPLING_PERCENTAGE: ${TAIL_SAMPLING_PERCENTAGE:-100}
@@ -710,7 +786,6 @@ services:
     secrets: [db_monitoring_password, kafka_monitoring_password]
     volumes:
       - ./infra/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - type: volume
         source: certs
         target: /tls
@@ -745,12 +820,31 @@ services:
       prometheus:
         condition: service_started
 
+  # The Docker API for the collector's docker_stats receiver, through HAProxy: GET only, and only the paths it reads
+  # (infra/docker-api/haproxy.cfg). The collector never holds the socket, which would give it the host (ADR 0041).
+  docker-api:
+    profiles: [observability]
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=1m
+      - /var/run:size=1m
+    image: haproxy:3.4.8-alpine
+    # The host's socket belongs to its root; read as its owner, with no capability.
+    user: "0"
+    mem_limit: 32m
+    volumes:
+      - ./infra/docker-api/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [docker-api]
+
   tempo:
     profiles: [observability]
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
     image: grafana/tempo:3.1.1
     command: ["-target=all", "-config.file=/etc/tempo.yaml"]
     mem_limit: 384m
-    user: "0"
     volumes:
       - ./infra/observability/tempo.yaml:/etc/tempo.yaml:ro
       - tempo-data:/var/tempo
@@ -759,6 +853,9 @@ services:
 
   loki:
     profiles: [observability]
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=64m
     image: grafana/loki:3.7.10
     command: ["-config.file=/etc/loki/config.yaml"]
     mem_limit: 256m
@@ -770,6 +867,9 @@ services:
 
   prometheus:
     profiles: [observability]
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=16m
     image: prom/prometheus:v3.16.0
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -801,6 +901,9 @@ services:
 
   alertmanager:
     profiles: [observability]
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=8m
     image: prom/alertmanager:v0.35.0
     command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
     mem_limit: 64m
@@ -822,6 +925,10 @@ services:
 
   grafana:
     profiles: [observability]
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=32m
+      - /var/lib/grafana:size=64m,uid=472,gid=0,mode=0770
     image: grafana/grafana:13.3.1
     # 13.3.1 peaked at 255.9 of 256 MiB in CI and was OOM-killed at start (ADR 0032).
     mem_limit: 384m
@@ -835,6 +942,8 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # No plugin downloads at start: the dashboards use none, and /var/lib/grafana is a small tmpfs (ADR 0041).
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
     volumes:
       - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -884,6 +993,11 @@ secrets:
     file: ./secrets/dcsa_carrier_secret
   ca_password:
     file: ./secrets/ca_password
+
+networks:
+  # Only the collector and the Docker API proxy (ADR 0041).
+  docker-api:
+    internal: true
 
 volumes:
   ca-data:

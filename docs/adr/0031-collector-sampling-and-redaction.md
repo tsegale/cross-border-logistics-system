@@ -62,4 +62,6 @@ it.
   partial trace. The 2 s latency policy still keeps the first part.
 - **The collector runs as root for the Docker socket**, mounted read-only, for container memory. Read-only still lets
   it list and inspect every container on the host; in Kubernetes the kubelet's cAdvisor endpoint replaces it.
+  (Superseded in Phase 7: a read-only mount does not limit the API, so the collector now runs as its image's user and
+  reads the Docker API through `docker-api`, an HAProxy allowlist of five GET paths. ADR 0041.)
 - The monitoring user's password is one more secret (`secrets/kafka_monitoring_password`, generated with the others).

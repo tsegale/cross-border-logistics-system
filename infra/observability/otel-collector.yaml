@@ -108,9 +108,10 @@ receivers:
       insecure: false
       ca_file: /tls/ca.pem
 
-  # Each container's memory and its limit (ADR 0029), from the Docker socket, mounted read-only.
+  # Each container's memory and its limit (ADR 0029), through the read-only Docker API proxy: the collector never
+  # holds the socket (ADR 0041).
   docker_stats:
-    endpoint: unix:///var/run/docker.sock
+    endpoint: tcp://docker-api:2375
     collection_interval: 15s
     timeout: 10s
 

@@ -40,7 +40,29 @@ append-only tables.
   code needs and a migration forgot fails a test. `DatabaseRolesIntegrationTest` in each service pins the roles' rights;
   the ledger's tests check both layers, the role's `permission denied` and the owner's trigger.
 
+## Decision: every container hardened
+Every service in `docker-compose.yml` merges one anchor, `x-hardened`: its root filesystem read-only, every Linux
+capability dropped, `no-new-privileges`. What a container writes is a named volume (data) or a sized tmpfs (`/tmp`,
+Postgres's socket directory and certificate copies, Keycloak's `data`, Grafana's database). Every one runs as a user
+other than root; the images that defaulted to root are given one (Tempo, the collector and socat their images' own
+non-root users, the partner simulator and Mailpit 1000).
+
+- **The step-ca binary carries a file capability** (`cap_net_bind_service`, for port 443), and the kernel refuses to
+  run a binary whose file capabilities it may not grant. The CA listens on 9000: `infra/ca/Dockerfile` removes the
+  capability from the binary and changes nothing else.
+- **No container holds the Docker socket but `docker-api`.** The collector read container memory through the socket
+  as root, and a read-only mount does not limit the API: whoever has the socket can start a privileged container and
+  own the host. `docker-api` (the official HAProxy image) holds it, as root because the socket is root's, with no
+  capability, and passes on only `GET` for `/_ping`, `/version`, `/containers/json` and a container's `json` and
+  `stats`, on a network only the collector shares. Everything else is a 403, so the collector cannot read a
+  container's files or start one.
+- **Checked on the running containers**, not on the file: `scripts/check_hardening.py` inspects every one (read-only
+  root, `CapDrop` ALL and nothing added, `no-new-privileges`, user, socket mounts), in CI after both stacks start.
+
 ## Consequences
+- Inspect, which docker_stats needs, shows a container's environment: Keycloak's admin and client secrets reach it
+  through `env_file`, so the collector could read them. Keycloak cannot read those values from files; a deployment
+  injects them from its secret store (Phase 8).
 - The service still holds the owner's password, for Flyway at its start. Running migrations as a separate job, so the
   running service never sees it, belongs with the deployment (Phase 8).
 - A secret per role: `generate_secrets.py` makes the three runtime passwords and the monitoring one; an existing

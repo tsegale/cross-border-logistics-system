@@ -34,6 +34,7 @@ and the benchmarks, with headroom; **every JVM sizes its heap from its own limit
 | ca | 96m | | | | step-ca (ADR 0039). 64m until the Kafka TLS commit: `memory.peak` 67.2 MiB on the laptop, the 54 MB binary's pages counted against the limit |
 | cert-agent | 48m | | | | step CLI and sh (ADR 0039). 32m until the Kafka TLS commit: `memory.peak` 35.2 MiB renewing all 14 certificates on the laptop; at 32m the 44 MB `step` binary was paged out between calls and each certificate took 48 s |
 | debug-ports (profile debug) | 32m | | | | socat |
+| docker-api (profile observability) | 32m | | | | HAProxy, the read-only Docker API for the collector (ADR 0041) |
 
 MiB throughout; smoke-test peaks from CI run 44887512287, benchmark peaks (payment flow at 16 VUs, the events suite
 with a broker outage) from run 44899628552 (Intel Xeon 6975P-C, 4 vCPUs); docs/benchmarks/memory.md. **The running default stack's limits

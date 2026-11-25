@@ -20,7 +20,7 @@ set -euo pipefail
 
 : "${CLUSTER_ID:?set CLUSTER_ID}"
 ADMIN_PASSWORD="$(cat /run/secrets/kafka_admin_password)"
-CONFIG=/opt/kafka/config/freightflow.properties
+CONFIG="${KAFKA_RUNTIME_DIR:-/tmp/kafka}/freightflow.properties"
 DATA_DIR=/var/lib/kafka/data
 TLS_SOURCE="${TLS_SOURCE:-/tls}"
 TLS_DIR="${TLS_DIR:-/tmp/kafka-tls}"
@@ -64,6 +64,7 @@ listener_tls() {
   done
 }
 
+mkdir -p "$(dirname "$CONFIG")"
 cat > "$CONFIG" <<EOF
 process.roles=broker,controller
 node.id=1
