@@ -12,6 +12,57 @@
 name: freightflow
 
 services:
+  # ---------------- Certificates (ADR 0039) ----------------
+  # The internal CA: step-ca, initialised on its first start from the ca_password secret. It issues 24 h certificates
+  # to the agent's provisioner and renews them over mTLS. Not published; its keys stay in its volume.
+  ca:
+    mem_limit: 64m
+    image: smallstep/step-ca:0.30.2
+    environment:
+      DOCKER_STEPCA_INIT_NAME: FreightFlow Internal CA
+      DOCKER_STEPCA_INIT_DNS_NAMES: ca,localhost
+      DOCKER_STEPCA_INIT_PROVISIONER_NAME: freightflow
+      DOCKER_STEPCA_INIT_PASSWORD_FILE: /run/secrets/ca_password
+    secrets: [ca_password]
+    volumes:
+      - ca-data:/home/step
+    healthcheck:
+      test: ["CMD", "step", "ca", "health", "--ca-url", "https://localhost:9000", "--root", "/home/step/certs/root_ca.crt"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  # Issues every identity in infra/tls/identities.conf a certificate and renews it (infra/tls/agent.sh). Each
+  # container mounts its own directory of the certs volume, read-only; the agent reads the root from the CA's volume.
+  cert-agent:
+    mem_limit: 32m
+    image: smallstep/step-cli:0.31.0
+    entrypoint: ["/bin/sh", "/etc/freightflow/tls/agent.sh"]
+    environment:
+      TLS_DIR: /home/step
+    # The consumers' groups, so the agent can give each its own key: app 10001, postgres 70, appuser 1000.
+    group_add: ["10001", "70", "1000"]
+    secrets: [ca_password]
+    volumes:
+      - ./infra/tls:/etc/freightflow/tls:ro
+      - type: volume
+        source: ca-data
+        target: /ca
+        read_only: true
+        volume:
+          subpath: certs
+      # On the image's home directory, which belongs to its user: the new volume takes that owner.
+      - certs:/home/step
+    depends_on:
+      ca:
+        condition: service_healthy
+    healthcheck:
+      # Healthy once every certificate is there and the last check is recent.
+      test: ["CMD-SHELL", "test -s /home/step/ca.pem && test $$(( $$(date -u +%s) - $$(cat /home/step/.checked) )) -lt 900"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
   # ---------------- Databases: one per service ----------------
   banking-db:
     mem_limit: 192m
@@ -591,8 +642,12 @@ secrets:
     file: ./secrets/kafka_monitoring_password
   dcsa_carrier_secret:
     file: ./secrets/dcsa_carrier_secret
+  ca_password:
+    file: ./secrets/ca_password
 
 volumes:
+  ca-data:
+  certs:
   banking-db-data:
   logistics-db-data:
   keycloak-db-data:
