@@ -25,6 +25,11 @@
              prints it, and -Dsurefire.runOrder.random.seed=<seed> replays that exact order. -->
         <maven.build.timestamp.format>yyMMddHHmmss</maven.build.timestamp.format>
         <surefire.runOrder.random.seed>${maven.build.timestamp}</surefire.runOrder.random.seed>
+        <!-- The OpenTelemetry Logback appender and the OpenTelemetry API that release is built on (the opentelemetry-api
+             dependency in its pom). Dependabot ignores the appender: both move by hand with a Spring Boot upgrade, and
+             the enforcer fails the build unless the API equals the one Boot manages (${opentelemetry.version}). -->
+        <opentelemetry-logback-appender.version>2.34.0-alpha</opentelemetry-logback-appender.version>
+        <opentelemetry-logback-appender.built-on>1.68.0</opentelemetry-logback-appender.built-on>
     </properties>
 
     <dependencies>
@@ -91,12 +96,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-opentelemetry</artifactId>
         </dependency>
-        <!-- Logs over OTLP are not part of Spring Boot: the appender release built on the OpenTelemetry API Boot
-             manages (1.68.0). Only "-alpha" releases exist. -->
+        <!-- Logs over OTLP are not part of Spring Boot. Only "-alpha" releases exist. -->
         <dependency>
             <groupId>io.opentelemetry.instrumentation</groupId>
             <artifactId>opentelemetry-logback-appender-1.0</artifactId>
-            <version>2.34.0-alpha</version>
+            <version>${opentelemetry-logback-appender.version}</version>
         </dependency>
 
         <!-- Tests: real Postgres, Kafka and an SMTP server with an API (Mailpit), never mocks of them -->
@@ -153,6 +157,43 @@
 
     <build>
         <plugins>
+            <!-- OpenTelemetry's artifacts must agree, or the context fails to start with a NoClassDefFoundError deep
+                 inside the SDK's auto-configuration (Dependabot #8 and #11). These rules fail the build first, saying
+                 which version to move. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>opentelemetry-versions-agree</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <!-- Exact equality catches both directions: an appender older than Boot's OpenTelemetry (#11) and one
+                                     built on a newer API (#8). -->
+                                <requireProperty>
+                                    <property>opentelemetry.version</property>
+                                    <regex>\Q${opentelemetry-logback-appender.built-on}\E</regex>
+                                    <regexMessage>Spring Boot manages OpenTelemetry ${opentelemetry.version}, but opentelemetry-logback-appender-1.0 ${opentelemetry-logback-appender.version} is built on ${opentelemetry-logback-appender.built-on}. Move the appender to the release whose pom depends on opentelemetry-api ${opentelemetry.version}, and set opentelemetry-logback-appender.built-on to match.</regexMessage>
+                                </requireProperty>
+                                <requireSameVersions>
+                                    <dependencies>
+                                        <dependency>io.opentelemetry:opentelemetry-api</dependency>
+                                        <dependency>io.opentelemetry:opentelemetry-context</dependency>
+                                        <dependency>io.opentelemetry:opentelemetry-sdk</dependency>
+                                        <dependency>io.opentelemetry:opentelemetry-sdk-common</dependency>
+                                        <dependency>io.opentelemetry:opentelemetry-sdk-logs</dependency>
+                                        <dependency>io.opentelemetry:opentelemetry-sdk-trace</dependency>
+                                        <dependency>io.opentelemetry:opentelemetry-sdk-metrics</dependency>
+                                    </dependencies>
+                                </requireSameVersions>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

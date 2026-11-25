@@ -18,8 +18,14 @@ transaction that writes it ends, and whatever sends it later has no request cont
 observation Spring already makes (MVC and WebFlux servers, `RestClient`, Kafka templates and listeners) becomes a
 span. The agent would add instrumentation for more libraries (JDBC statements, Lettuce) at the cost of a second
 instrumentation model, a startup penalty and memory in every container (ADR 0029). Logs over OTLP are not part of Boot:
-each JVM installs `opentelemetry-logback-appender-1.0` 2.28.0-alpha, the release built on the OpenTelemetry API Boot
-4.1.2 manages (1.62.0), in `TelemetryConfig`.
+each JVM installs `opentelemetry-logback-appender-1.0`, in `TelemetryConfig`. The appender is built on one
+OpenTelemetry API, and must be the release built on the one Boot manages: 2.34.0-alpha on 1.68.0 for Boot 4.2.0
+(it was 2.28.0-alpha on 1.62.0 for Boot 4.1.2). A mismatch starts no context: `NoClassDefFoundError` inside
+`OpenTelemetrySdkAutoConfiguration` (Dependabot #11) or `ClassNotFoundException` for an incubator class (#8). So
+each pom declares the API its appender is built on (`opentelemetry-logback-appender.built-on`, from the appender's
+pom), and a Maven Enforcer `requireProperty` rule fails the build, naming both versions, unless it equals Boot's
+`opentelemetry.version`. Enforcer's `requireUpperBoundDeps` was tried and does not see the mismatch: it skips versions
+set by dependency management, which is how Boot sets every OpenTelemetry artifact.
 
 - **Export is off unless the `otlp` Spring profile is on** (the observability compose profile sets it, ADR 0032).
   Spans are still created and sampled, so trace and span ids reach every log line and every outbox row without a
