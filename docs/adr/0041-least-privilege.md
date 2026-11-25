@@ -59,6 +59,20 @@ non-root users, the partner simulator and Mailpit 1000).
 - **Checked on the running containers**, not on the file: `scripts/check_hardening.py` inspects every one (read-only
   root, `CapDrop` ALL and nothing added, `no-new-privileges`, user, socket mounts), in CI after both stacks start.
 
+## Decision: Keycloak's Admin Console on the internal network only
+Keycloak served its login pages, its Admin Console and its Admin REST API on the one port it published (8180), and
+it has no option to serve them apart. Its own guides (keycloak.org/server/reverseproxy and /hostname, read
+2026-11-26, Keycloak 26.8) say to expose only `/realms/`, `/resources/` and `/.well-known/`, to keep `/admin/` and
+`/realms/master/` "only internally", and that `hostname-admin` "does not prevent accessing the Administration REST API
+endpoints via the frontend URL": that is "the reverse proxy level".
+
+- **The gateway is that proxy.** Keycloak publishes no port. The gateway routes `/realms/**` and `/resources/**` to
+  `https://keycloak:8443` without a token, under its own TLS, limits and HSTS, and answers `/realms/master/**` with a
+  404 itself; `/admin/` has no route. Keycloak takes `X-Forwarded-*` from it (`proxy-headers=xforwarded`) and reaches
+  nothing else on the public side. `KeycloakRoutesTest` pins both halves.
+- **The issuer follows**: `https://127.0.0.1:8080/realms/freightflow`, the gateway's address.
+- **An administrator** reaches the console on 127.0.0.1:8443 with `--profile debug` (`hostname-admin`).
+
 ## Consequences
 - Inspect, which docker_stats needs, shows a container's environment: Keycloak's admin and client secrets reach it
   through `env_file`, so the collector could read them. Keycloak cannot read those values from files; a deployment

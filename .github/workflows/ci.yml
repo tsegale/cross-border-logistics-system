@@ -86,7 +86,7 @@ jobs:
             test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q "$service")")" = healthy
           done
           # A TCP connect, not curl: Postgres doesn't speak HTTP, so curl fails against a published database port too.
-          for port in 8081 8082 8083 5441 5442 5443 9092 29092 1025 8025; do
+          for port in 8081 8082 8083 5441 5442 5443 9092 29092 1025 8025 8180 8443 9000; do
             if timeout 2 bash -c "</dev/tcp/127.0.0.1/$port" 2>/dev/null; then echo "::error::port $port is published"; exit 1; fi
           done
       # Straight after --wait and before anything else warms the stack: what the first users of a fresh start get.

@@ -76,6 +76,8 @@ public class SecurityConfig {
                         // Carriers push DCSA notifications signed with their subscription's secret, not with a token;
                         // logistics checks the signature before it stores anything (ADR 0037).
                         .pathMatchers(HttpMethod.POST, "/api/v1/dcsa/notifications/*").permitAll()
+                        // Keycloak's own pages and endpoints: logging in is how a caller gets a token (ADR 0041).
+                        .pathMatchers("/realms/**", "/resources/**").permitAll()
                         // Only served on the management port; on the public port there is no handler, so a 404.
                         .pathMatchers("/actuator/health", "/actuator/health/**", "/actuator/info",
                                 "/actuator/prometheus").permitAll()

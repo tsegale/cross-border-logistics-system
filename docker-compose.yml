@@ -4,7 +4,8 @@
 # (ADR 0001), Kafka, and Mailpit as the SMTP server.
 #   --profile debug           publishes the services, databases and Mailpit's web UI on 127.0.0.1 (ADR 0019)
 # Kafka (KRaft, ADR 0003) is in the default stack, with a SCRAM credential per service and ACLs (ADR 0022).
-# By default only the gateway (8080, management 8085) and Keycloak (8180, for logins) publish a port, on 127.0.0.1.
+# By default only the gateway publishes a port (8080, which also carries Keycloak's logins, and management 8085),
+# on 127.0.0.1; Keycloak's Admin Console is on the internal network only (ADR 0041).
 # Every secret is a file in secrets/ mounted as a compose secret; none is in this file or an image (ADR 0019).
 # Every container has a memory limit sized from measured peaks (ADR 0029): the default stack fits a 3.7 GiB Docker VM.
 # Each JVM sizes its heap from its own limit (MaxRAMPercentage) with Serial GC; JAVA_GC switches every service's
@@ -250,9 +251,13 @@ services:
       KC_DB_URL_PROPERTIES: "?sslmode=verify-full&sslrootcert=/opt/keycloak/tls/ca.pem"
       KC_DB_USERNAME: keycloak
       # The public URL becomes the iss of every token, so clients and services must use exactly this.
-      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8080}
       # Services fetch keys from keycloak:8443 on the compose network; the tokens still say the public issuer.
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      # Reached only through the gateway (ADR 0041), which forwards its public paths and sets X-Forwarded-*; it
+      # publishes no port. The Admin Console's own address: 8443 on 127.0.0.1 with --profile debug.
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME_ADMIN: https://127.0.0.1:8443
       # HTTPS only, TLS 1.3 or 1.2 (Keycloak's default protocols), with the agent's certificate, re-read every hour:
       # a renewal leaves 8 h, so the new one is served well before the old expires (ADR 0039). The management port
       # (health, metrics) inherits the same TLS.
@@ -273,8 +278,6 @@ services:
         read_only: true
         volume:
           subpath: keycloak
-    ports:
-      - "127.0.0.1:8180:8443"
     depends_on:
       cert-agent:
         condition: service_healthy
@@ -320,7 +323,7 @@ services:
       # The scheduled ledger reconciliation (ADR 0031); the alert fire drill turns it off to see it noticed.
       FREIGHTFLOW_BANKING_RECONCILIATION_ENABLED: ${FREIGHTFLOW_BANKING_RECONCILIATION_ENABLED:-true}
       # banking validates the relayed token itself, for its own audience (ADR 0017).
-      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8080}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
       # Its own SCRAM user; the password is its own secret only, mounted as kafka_password (ADR 0022).
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
@@ -389,7 +392,7 @@ services:
       # Its database password and its client secret for Keycloak are secret files (ADR 0019).
       # Internal network only: holds and captures are not routed by the gateway.
       BANKING_SERVICE_URI: https://banking-service:8081
-      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8080}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
       # Its own client-credentials token for banking, from Keycloak on the compose network (ADR 0019).
       KEYCLOAK_TOKEN_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/token
@@ -487,8 +490,9 @@ services:
       BANKING_SERVICE_URI: https://banking-service:8081
       LOGISTICS_SERVICE_URI: https://logistics-service:8082
       NOTIFICATION_SERVICE_URI: https://notification-service:8083
+      KEYCLOAK_SERVICE_URI: https://keycloak:8443
       # The iss in every token is Keycloak's public URL; keys come from inside the network (ADR 0017).
-      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8080}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
       REDIS_HOST: redis
       RATE_LIMIT_MONEY_RPS: ${RATE_LIMIT_MONEY_RPS:-5}
@@ -550,6 +554,7 @@ services:
         socat TCP-LISTEN:8083,fork,reuseaddr TCP:notification-service:8083 &
         socat TCP-LISTEN:5443,fork,reuseaddr TCP:notification-db:5432 &
         socat TCP-LISTEN:8025,fork,reuseaddr TCP:mailpit:8025 &
+        socat TCP-LISTEN:8443,fork,reuseaddr TCP:keycloak:8443 &
         wait
     ports:
       - "127.0.0.1:8081:8081"
@@ -560,6 +565,8 @@ services:
       - "127.0.0.1:5443:5443"
       # Mailpit's web UI and API: the emails the stack sent (ADR 0027).
       - "127.0.0.1:8025:8025"
+      # Keycloak's Admin Console, for an administrator on this machine only (ADR 0041).
+      - "127.0.0.1:8443:8443"
 
   # ---------------- Events ----------------
   # Single-node Kafka 4 in KRaft mode (ADR 0003): SCRAM-SHA-512 per service, ACLs, nothing published (ADR 0022).
@@ -720,7 +727,7 @@ services:
         -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
       NOTIFICATION_DB_URL: jdbc:postgresql://notification-db:5432/notification?sslmode=verify-full&sslrootcert=/tls/ca.pem
       NOTIFICATION_DB_USER: ${NOTIFICATION_DB_USER:?set in .env}
-      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}/realms/freightflow
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8080}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_USERNAME: notification

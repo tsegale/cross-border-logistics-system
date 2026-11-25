@@ -134,6 +134,21 @@ spring:
                 - Path=/api/v1/notification-settings,/api/v1/notifications,/api/v1/notifications/**,/api/v1/dead-letters,/api/v1/dead-letters/**
               filters:
                 - PreserveHostHeader
+            # Keycloak's public face (ADR 0041), its documented exposed paths: logins, tokens, keys and its static
+            # resources, under the gateway's TLS, limits and HSTS. The Admin Console and Admin REST API (/admin/) are
+            # not routed, and the master realm is refused here: Keycloak serves them on the internal network only.
+            - id: keycloak-master-realm
+              order: 0
+              uri: no://op
+              predicates:
+                - Path=/realms/master,/realms/master/**
+              filters:
+                - SetStatus=404
+            - id: keycloak
+              order: 10
+              uri: ${KEYCLOAK_SERVICE_URI:https://127.0.0.1:8443}
+              predicates:
+                - Path=/realms/**,/resources/**
 
 freightflow:
   gateway:

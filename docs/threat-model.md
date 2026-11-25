@@ -6,7 +6,7 @@ control works. "Residual" is what remains, and where it is addressed.
 ```mermaid
 flowchart LR
     I((Internet)) -->|1 HTTPS, :8080| G[api-gateway]
-    I -->|5 logins, :8180| K[Keycloak]
+    G -->|5 logins, /realms only| K[Keycloak]
     G -->|2 token relay| B[banking-service]
     G -->|2 token relay| L[logistics-service]
     L -->|3 client credentials| B
@@ -85,8 +85,10 @@ Residual: one database user per service owns its schema; separate migration and 
 | Tampering | A long-lived token keeps working after a role change | 5-minute access tokens, single-use refresh tokens | `KeycloakRealmIntegrationTest.logisticsGetsATokenForBankingOnlyWithItsHoldsScope` (lifetime 300 s) |
 | Information disclosure | Realm secrets in git | Placeholders resolved from `secrets/keycloak.env` | gitleaks |
 
-Residual: Keycloak's admin console is reachable on 8180 locally; production exposes only the realm's public
-endpoints and keeps the admin console on an internal network.
+| Elevation of privilege | The Admin Console or the master realm reached from outside | Keycloak publishes no port; the gateway forwards only `/realms/` and `/resources/` (Keycloak's documented exposed paths) and refuses `/realms/master/`; `/admin/` has no route (ADR 0041) | `KeycloakRoutesTest` |
+
+Residual: an administrator reaches the console on 127.0.0.1:8443 with `--profile debug`; in production it sits on an
+internal network behind its own access control.
 
 ## 6. Insider misuse (staff with valid credentials)
 

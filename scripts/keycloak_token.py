@@ -34,7 +34,8 @@ from generate_secrets import read_env_file, read_secret  # noqa: E402
 from internal_ca import ssl_context  # noqa: E402
 
 # HTTPS, verified against the internal CA's root (ADR 0039).
-BASE_URL = os.environ.get("KEYCLOAK_URL", "https://127.0.0.1:8180")
+# Through the gateway: Keycloak publishes no port of its own (ADR 0041).
+BASE_URL = os.environ.get("KEYCLOAK_URL", "https://127.0.0.1:8080")
 REALM_URL = f"{BASE_URL}/realms/freightflow/protocol/openid-connect"
 PUBLIC_CLIENT = "freightflow-web"
 REDIRECT_URI = os.environ.get("KEYCLOAK_WEB_ORIGIN", "http://127.0.0.1:3000") + "/callback"

@@ -43,7 +43,7 @@ spring:
             scope: banking.holds
         provider:
           keycloak:
-            token-uri: ${KEYCLOAK_TOKEN_URI:https://127.0.0.1:8180/realms/freightflow/protocol/openid-connect/token}
+            token-uri: ${KEYCLOAK_TOKEN_URI:https://127.0.0.1:8080/realms/freightflow/protocol/openid-connect/token}
   application:
     name: logistics-service
   datasource:
