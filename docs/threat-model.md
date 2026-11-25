@@ -5,7 +5,7 @@ control works. "Residual" is what remains, and where it is addressed.
 
 ```mermaid
 flowchart LR
-    I((Internet)) -->|1 HTTPS in prod, :8080| G[api-gateway]
+    I((Internet)) -->|1 HTTPS, :8080| G[api-gateway]
     I -->|5 logins, :8180| K[Keycloak]
     G -->|2 token relay| B[banking-service]
     G -->|2 token relay| L[logistics-service]
@@ -35,8 +35,9 @@ flowchart LR
 | Denial of service | A caller floods money-moving routes | Per-caller Redis token buckets, fail closed (ADR 0017) | `RateLimitTest`, `RateLimitRedisDownTest` |
 | Denial of service | Forged key ids make the gateway hammer Keycloak | Unknown key ids refetch at most once per 30 s | `IssuerOutageTest.unknownKeyIdsDoNotRefetchTheKeysAgainWithinTheMinimumInterval` |
 | Elevation of privilege | A customer calls an operator route | Edge role rules, then the service's own rules | `GatewaySecurityTest.coarseRoleRulesAtTheEdge` |
+| Information disclosure | A token or a body read or changed on the way to the gateway | HTTPS only, Mozilla intermediate (TLS 1.2 and 1.3, AEAD suites), HSTS for two years, a certificate from the internal CA renewed without a restart (ADR 0039) | `GatewayTlsTest` |
 
-Residual: plain HTTP in compose. Production terminates TLS in front of the gateway (ADR 0019).
+Residual: the gateway's certificate comes from the internal CA, so a browser or client outside the stack has to be given the root; production puts a certificate from a public CA on the same listener (ADR 0039). HSTS is ignored by browsers for an IP address such as `127.0.0.1`: it protects the production host name.
 
 ## 2. Gateway to services
 

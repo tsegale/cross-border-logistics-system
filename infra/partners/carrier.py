@@ -23,6 +23,7 @@ import hashlib
 import hmac
 import json
 import os
+import ssl
 import threading
 import time
 import urllib.error
@@ -33,6 +34,8 @@ SUBSCRIPTION_ID = os.environ.get("CARRIER_SUBSCRIPTION_ID", "6f2d0a6e-1c1d-4f53-
 CALLBACK_URL = os.environ.get("CARRIER_CALLBACK_URL", "http://logistics-service:8082/api/v1/dcsa/notifications/"
                                                       "carrier-kalahari-freight")
 SECRET_FILE = os.environ.get("CARRIER_SECRET_FILE", "/run/secrets/dcsa_carrier_secret")
+# The gateway is HTTPS with a certificate from the internal CA (ADR 0039): verified against its root, by name.
+CA_FILE = os.environ.get("CARRIER_CA_FILE", "/tls/ca.pem")
 
 lock = threading.Lock()
 events = []
@@ -103,7 +106,9 @@ def push(body, signature):
         "Content-Type": "application/json", "Subscription-ID": SUBSCRIPTION_ID, "API-Version": "2.2.0",
         "Notification-Signature": signature})
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        # Read for each push: the root lives as long as the stack's CA, and may appear after this process starts.
+        context = ssl.create_default_context(cafile=CA_FILE) if CALLBACK_URL.startswith("https:") else None
+        with urllib.request.urlopen(request, timeout=10, context=context) as response:
             status = response.status
     except urllib.error.HTTPError as error:
         status = error.code

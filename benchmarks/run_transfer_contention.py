@@ -48,7 +48,8 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = Path(__file__).resolve().parent / "out"
 K6_SCRIPT = Path(__file__).resolve().parent / "k6" / "transfer_contention.js"
 
-GATEWAY_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8080")
+# HTTPS, verified against the internal CA's root (ADR 0039); k6 gets the root through SSL_CERT_FILE.
+GATEWAY_URL = os.environ.get("BASE_URL", "https://127.0.0.1:8080")
 BANKING_URL = os.environ.get("BANKING_URL", "http://127.0.0.1:8081")
 ROUNDS = int(os.environ.get("BENCH_ROUNDS", "3"))
 VU_LEVELS = [int(v) for v in os.environ.get("BENCH_VUS", "32,100").split(",")]
@@ -69,6 +70,7 @@ COMPOSE = ["docker", "compose", "-f", str(ROOT / "docker-compose.yml"), "-f", st
 # are renewed after 4.
 sys.path.insert(0, str(ROOT / "scripts"))
 from keycloak_token import token_for  # noqa: E402
+from internal_ca import root_path, ssl_context  # noqa: E402
 
 NAMIB = "0193a0e0-0000-7000-8000-00000000a001"
 _TOKENS: dict[str, tuple[float, str]] = {}
@@ -96,7 +98,7 @@ def http_json(method: str, url: str, body: dict[str, Any] | None = None,
     if url.startswith(GATEWAY_URL) and not any(k.lower() == "authorization" for k in (headers or {})):
         req.add_header("Authorization", "Bearer " + bearer("operator"))
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as resp:
             raw = resp.read()
             return resp.status, json.loads(raw) if raw else None
     except urllib.error.HTTPError as err:
@@ -296,6 +298,8 @@ def run_k6(accounts_file: Path, workload: str, vus: int, iterations_per_vu: int,
          "-e", f"TOKEN={bearer('operator' if workload == 'deposits' else 'customer-namib-exports')}",
          "-e", f"CHECKER_TOKEN={bearer('second-operator')}",
          str(K6_SCRIPT)],
+        # k6 is Go: SSL_CERT_FILE replaces its roots with the internal CA's, the only one the gateway's chain needs.
+        env={**os.environ, "SSL_CERT_FILE": str(root_path())},
         cwd=ROOT, check=True, capture_output=True, text=True)
     return json.loads(summary_file.read_text(encoding="utf-8"))
 

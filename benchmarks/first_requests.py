@@ -25,8 +25,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import keycloak_token  # noqa: E402
+from internal_ca import ssl_context  # noqa: E402
 
-GATEWAY = os.environ.get("GATEWAY_URL", "http://127.0.0.1:8080")
+# HTTPS, verified against the internal CA's root (ADR 0039).
+GATEWAY = os.environ.get("GATEWAY_URL", "https://127.0.0.1:8080")
 QUOTE = json.dumps({
     "origin": "NAWVB", "destination": "DEHAM", "mode": "SEA_LCL", "incoterm": "FCA", "payerRole": "CONSIGNEE",
     "packages": [{"lengthCm": 120, "widthCm": 100, "heightCm": 150, "weightKg": 500, "quantity": 2}],
@@ -50,7 +52,7 @@ def timed(token: str, method: str, path: str, body: bytes | None) -> tuple[int, 
         **({"Content-Type": "application/json"} if body else {})})
     started = time.perf_counter()
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=60, context=ssl_context()) as response:
             response.read()
             status = response.status
     except urllib.error.HTTPError as error:

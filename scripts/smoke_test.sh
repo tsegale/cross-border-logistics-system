@@ -12,7 +12,7 @@
 # =============================================================================
 set -euo pipefail
 
-GATEWAY="${GATEWAY_URL:-http://127.0.0.1:8080}"
+GATEWAY="${GATEWAY_URL:-https://127.0.0.1:8080}"
 RUN_ID="$(date +%s)-$$"
 SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 PYTHON=""
@@ -27,6 +27,10 @@ if [[ -z "$PYTHON" ]]; then
   echo "smoke_test: python3 is required to read JSON responses and fetch tokens" >&2
   exit 2
 fi
+# The gateway is HTTPS: every curl verifies it against the internal CA's root, copied out of the stack, through
+# a .curlrc (scripts/internal_ca.py; Windows' Schannel curl ignores CURL_CA_BUNDLE) (ADR 0039).
+CURL_HOME="$("$PYTHON" "${SCRIPTS}/internal_ca.py" --curl-home)"
+export CURL_HOME
 
 STEP=0
 BODY=""
@@ -143,7 +147,7 @@ NAMIB="0193a0e0-0000-7000-8000-00000000a001"
 echo "==> FreightFlow smoke test against ${GATEWAY} (run ${RUN_ID})"
 
 # ---------------------------------------------------------------- edge (ADR 0015, ADR 0017)
-MANAGEMENT="${GATEWAY_MANAGEMENT_URL:-http://127.0.0.1:8085}"
+MANAGEMENT="${GATEWAY_MANAGEMENT_URL:-https://127.0.0.1:8085}"
 curl -fsS "${MANAGEMENT}/actuator/health/readiness" >/dev/null
 STEP=$((STEP + 1)); echo "ok   ${STEP}: gateway readiness on the management port"
 as anonymous

@@ -452,7 +452,9 @@ services:
       notification-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8085/actuator/health/readiness > /dev/null || exit 1"]
+      # Management takes the same TLS as the public listener (ADR 0039).
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "--cacert", "/tls/ca.pem",
+             "https://localhost:8085/actuator/health/readiness"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -570,12 +572,22 @@ services:
     command: ["python", "-I", "/app/simulator.py"]
     volumes:
       - ./infra/partners:/app:ro
+      # The internal CA's root: the carrier's notifications go to the gateway over HTTPS (ADR 0039).
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: trust
+    depends_on:
+      cert-agent:
+        condition: service_healthy
     environment:
       ECB_LAG_WORKING_DAYS: ${SIMULATOR_ECB_LAG_WORKING_DAYS:-0}
       BON_FACTOR: ${SIMULATOR_BON_FACTOR:-1.0016}
       # A carrier in DCSA Track and Trace 2.2 (ADR 0037): pushes signed notifications through the gateway, as a real
       # carrier would, and serves /carrier/v2/events for polling.
-      CARRIER_CALLBACK_URL: http://api-gateway:8080/api/v1/dcsa/notifications/carrier-kalahari-freight
+      CARRIER_CALLBACK_URL: https://api-gateway:8080/api/v1/dcsa/notifications/carrier-kalahari-freight
       CARRIER_SECRET_FILE: /run/secrets/dcsa_carrier_secret
     secrets: [dcsa_carrier_secret]
     healthcheck:

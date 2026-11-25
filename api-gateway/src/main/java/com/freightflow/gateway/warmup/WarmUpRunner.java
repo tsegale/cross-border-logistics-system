@@ -110,7 +110,8 @@ public class WarmUpRunner implements ApplicationRunner {
             }
             if (port != null) {
                 for (String path : properties.paths()) {
-                    URI own = URI.create("http://127.0.0.1:" + port + path);
+                    // Its own listener is HTTPS; the client trusts the internal CA (httpclient.ssl.ssl-bundle).
+                    URI own = URI.create("https://127.0.0.1:" + port + path);
                     step(path, steps, failed, () -> {
                         get(own, "Bearer " + PROBE_TOKEN);
                         get(own, null);

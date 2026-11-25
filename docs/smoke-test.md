@@ -16,7 +16,9 @@ through the same flow by hand.
 ## Prerequisites
 
 ```bash
-export GATEWAY="http://127.0.0.1:8080"
+export GATEWAY="https://127.0.0.1:8080"
+# HTTPS from the internal CA (ADR 0039): curl verifies the gateway against its root, copied out of the stack.
+export CURL_HOME="$(python scripts/internal_ca.py --curl-home)"
 export RUN_ID="$(date +%s)"
 export NAMIB="0193a0e0-0000-7000-8000-00000000a001"
 OPERATOR="Authorization: Bearer $(scripts/token.sh operator)"
@@ -40,7 +42,7 @@ curl -s -H "$CUSTOMER" "${GATEWAY}/api/v1/ledger/reconciliation"
 curl -s -X POST -H "$OPERATOR" "${GATEWAY}/api/v1/holds"
 # 404: holds are internal; only logistics-service's own token reaches them, inside the network (ADR 0019)
 
-curl -s http://127.0.0.1:8085/actuator/health    # the gateway's management port
+curl -s https://127.0.0.1:8085/actuator/health   # the gateway's management port, same TLS
 ```
 
 ## 2. Accounts: the operator opens them, the customer sees its own

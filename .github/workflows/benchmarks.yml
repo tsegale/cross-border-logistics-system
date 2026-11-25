@@ -114,6 +114,9 @@ jobs:
         if: contains(inputs.suites, 'payment-flow')
         run: |
           mkdir -p benchmarks/out/payment-flow
+          # The gateway is HTTPS (ADR 0039): k6 (Go) takes the internal CA's root as its roots, curl as its CA file.
+          SSL_CERT_FILE="$(python3 scripts/internal_ca.py)"
+          export SSL_CERT_FILE
           # Warm-up, discarded: the first run after a start measures the JIT, not the relay.
           # Fresh tokens for each run (they live 5 minutes); a token that cannot be fetched fails the step.
           tokens() {
@@ -131,7 +134,8 @@ jobs:
               -e SUMMARY_FILE="benchmarks/out/payment-flow/payment-$vus.json" benchmarks/k6/payment_flow.js
           done
           operator="$(scripts/token.sh operator)"
-          curl -fsS -H "Authorization: Bearer $operator" http://127.0.0.1:8080/api/v1/ledger/reconciliation \
+          curl -fsS --cacert "$SSL_CERT_FILE" -H "Authorization: Bearer $operator" \
+            https://127.0.0.1:8080/api/v1/ledger/reconciliation \
             | tee benchmarks/out/payment-flow/reconciliation.json
           grep -q '"balanced":true' benchmarks/out/payment-flow/reconciliation.json
 

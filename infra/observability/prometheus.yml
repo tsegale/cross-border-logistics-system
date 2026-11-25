@@ -27,7 +27,16 @@ scrape_configs:
         labels: {service: logistics-service}
       - targets: [notification-service:8083]
         labels: {service: notification-service}
-      # The gateway's actuator is on its management port (ADR 0015).
+
+  # The gateway's actuator is on its management port (ADR 0015), over the same TLS as its public listener (ADR 0039).
+  - job_name: gateway
+    metrics_path: /actuator/prometheus
+    scrape_protocols: [OpenMetricsText1.0.0, OpenMetricsText0.0.1, PrometheusText0.0.4]
+    scheme: https
+    tls_config:
+      ca_file: /tls/ca.pem
+      min_version: TLS12
+    static_configs:
       - targets: [api-gateway:8085]
         labels: {service: api-gateway}
 

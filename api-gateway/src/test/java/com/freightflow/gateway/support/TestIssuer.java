@@ -12,17 +12,26 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.web.reactive.server.WebTestClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
+import reactor.netty.http.Http11SslContextSpec;
 
+import javax.net.ssl.TrustManagerFactory;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.GeneralSecurityException;
+import java.security.KeyStore;
+import java.security.cert.CertificateFactory;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
@@ -48,6 +57,8 @@ public final class TestIssuer {
     public static final WireMockServer JWKS = new WireMockServer(wireMockConfig().dynamicPort());
     @SuppressWarnings("resource") // one Redis for the whole test JVM, stopped by Testcontainers' reaper
     public static final GenericContainer<?> REDIS = redis();
+    /** The gateway's own certificate in the tests, from the test CA, for 127.0.0.1. */
+    public static final TestCertificates.Identity GATEWAY = TestCertificates.issue("api-gateway");
 
     static {
         JWKS.start();
@@ -100,6 +111,24 @@ public final class TestIssuer {
         throw new IllegalStateException("no image for " + service + " in " + compose.toAbsolutePath());
     }
 
+    /** A client for the gateway under test: HTTPS, trusting only the test CA, as a caller trusts the real one. */
+    public static WebTestClient.Builder gateway(int port) {
+        try {
+            KeyStore roots = KeyStore.getInstance(KeyStore.getDefaultType());
+            roots.load(null, null);
+            roots.setCertificateEntry("test-ca", CertificateFactory.getInstance("X.509").generateCertificate(
+                    new ByteArrayInputStream(TestCertificates.caPem().getBytes(StandardCharsets.US_ASCII))));
+            TrustManagerFactory trust = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            trust.init(roots);
+            reactor.netty.http.client.HttpClient https = reactor.netty.http.client.HttpClient.create()
+                    .secure(tls -> tls.sslContext(Http11SslContextSpec.forClient()
+                            .configure(builder -> builder.trustManager(trust))));
+            return WebTestClient.bindToServer(new ReactorClientHttpConnector(https)).baseUrl("https://127.0.0.1:" + port);
+        } catch (GeneralSecurityException | IOException e) {
+            throw new IllegalStateException("could not trust the test CA", e);
+        }
+    }
+
     public static void serveKeys(RSAKey... keys) {
         JWKS.stubFor(get(urlPathEqualTo("/certs"))
                 .willReturn(okJson(new JWKSet(List.of(keys)).toPublicJWKSet().toString())));
@@ -113,8 +142,12 @@ public final class TestIssuer {
         // "localhost" resolves to ::1 first on Windows, and the first handshake then misses the 1 s timeout.
         registry.add("REDIS_HOST", () -> "localhost".equals(REDIS.getHost()) ? "127.0.0.1" : REDIS.getHost());
         registry.add("REDIS_PORT", () -> REDIS.getMappedPort(6379));
-        // Redis's TLS, verified against this JVM's test CA.
+        // Redis's TLS and the gateway's own, verified against this JVM's test CA.
         registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
+        registry.add("TLS_CERTIFICATE", GATEWAY::certificatePem);
+        registry.add("TLS_PRIVATE_KEY", GATEWAY::privateKeyPem);
+        // Boot reloads only files; these are PEM content.
+        registry.add("TLS_RELOAD_ON_UPDATE", () -> "false");
         // The JVM's first Redis connection also loads Lettuce and Netty; production keeps the 1 s default.
         registry.add("REDIS_TIMEOUT", () -> "5s");
         // On only in WarmUpIntegrationTest: elsewhere its requests would land in the upstream stubs' journals.

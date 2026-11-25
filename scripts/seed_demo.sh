@@ -8,11 +8,15 @@
 # =============================================================================
 set -euo pipefail
 
-GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:8080}"
+GATEWAY_URL="${GATEWAY_URL:-https://127.0.0.1:8080}"
 RUN_TAG="$(date +%s)-$$"
 SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 PYTHON=python3
 "$PYTHON" -c "" 2>/dev/null || PYTHON=python
+# The gateway is HTTPS: every curl verifies it against the internal CA's root, copied out of the stack, through
+# a .curlrc (scripts/internal_ca.py; Windows' Schannel curl ignores CURL_CA_BUNDLE) (ADR 0039).
+CURL_HOME="$("$PYTHON" "${SCRIPTS}/internal_ca.py" --curl-home)"
+export CURL_HOME
 NAMIB="0193a0e0-0000-7000-8000-00000000a001"
 HANSEATIC="0193a0e0-0000-7000-8000-00000000a002"
 OPERATOR_AUTH="Authorization: Bearer $("$PYTHON" "${SCRIPTS}/keycloak_token.py" operator)"

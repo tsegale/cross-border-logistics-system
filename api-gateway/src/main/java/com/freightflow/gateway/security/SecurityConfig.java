@@ -40,6 +40,7 @@ import reactor.netty.http.client.HttpClient;
 
 import javax.net.ssl.TrustManagerFactory;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -60,6 +61,10 @@ public class SecurityConfig {
         return http
                 // Stateless bearer-token API: no cookies, so no CSRF; no sessions to store.
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                // HTTPS only: browsers keep to it for two years, Mozilla's intermediate profile (ADR 0039). Written on
+                // secure requests only, which every request to this listener is.
+                .headers(headers -> headers.hsts(hsts -> hsts.maxAge(Duration.ofSeconds(63_072_000))
+                        .includeSubdomains(true)))
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
                 .logout(ServerHttpSecurity.LogoutSpec::disable)

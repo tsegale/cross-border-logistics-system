@@ -61,7 +61,7 @@ class RateLimitRedisDownTest {
     }
 
     private WebTestClient client() {
-        return WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port).responseTimeout(Duration.ofSeconds(10))
+        return TestIssuer.gateway(port).responseTimeout(Duration.ofSeconds(10))
                 .defaultHeader(HttpHeaders.AUTHORIZATION, bearer(TestIssuer.customer())).build();
     }
 

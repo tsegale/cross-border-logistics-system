@@ -69,7 +69,7 @@ class IssuerOutageTest {
     private int port;
 
     private WebTestClient client() {
-        return WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port)
+        return TestIssuer.gateway(port)
                 .responseTimeout(Duration.ofSeconds(15)).build();
     }
 

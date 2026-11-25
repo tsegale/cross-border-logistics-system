@@ -66,7 +66,7 @@ class GatewayEdgeTest {
 
     /** An operator: allowed every route here but transfers, so these tests exercise the edge policy, not the roles. */
     private WebTestClient client() {
-        return WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port)
+        return TestIssuer.gateway(port)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, TestIssuer.bearer(TestIssuer.role("operator")))
                 .responseTimeout(Duration.ofSeconds(10)).build();
     }
@@ -181,7 +181,7 @@ class GatewayEdgeTest {
         BANKING.stubFor(post(urlPathEqualTo("/api/v1/transfers")).willReturn(aResponse().withStatus(503)));
 
         // Transfers are a customer's (ADR 0021); every other route here is the operator's.
-        WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port)
+        TestIssuer.gateway(port)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, TestIssuer.bearer(TestIssuer.customer()))
                 .responseTimeout(Duration.ofSeconds(10)).build()
                 .post().uri("/api/v1/transfers").contentType(MediaType.APPLICATION_JSON)

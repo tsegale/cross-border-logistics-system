@@ -36,8 +36,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import keycloak_token  # noqa: E402
+from internal_ca import ssl_context  # noqa: E402
 
-GATEWAY = os.environ.get("GATEWAY_URL", "http://127.0.0.1:8080")
+# HTTPS, verified against the internal CA's root (ADR 0039).
+GATEWAY = os.environ.get("GATEWAY_URL", "https://127.0.0.1:8080")
 MAILPIT = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025")
 ACTUATORS = {"banking": "http://127.0.0.1:8081", "logistics": "http://127.0.0.1:8082"}
 COMPOSE = os.environ.get("COMPOSE", "docker compose -f docker-compose.yml -f benchmarks/compose.bench.yml").split()
@@ -77,7 +79,7 @@ def call(persona: str, method: str, path: str, body: dict | str | None = None, h
     request = urllib.request.Request(GATEWAY + path, data=data, method=method, headers={
         "Authorization": f"Bearer {TOKENS.get(persona)}", "Content-Type": "application/json",
         "Accept": "application/json", **(headers or {})})
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=30, context=ssl_context()) as response:
         if response.status != expect:
             raise RuntimeError(f"{method} {path}: {response.status}, expected {expect}")
         return json.loads(response.read() or b"{}")

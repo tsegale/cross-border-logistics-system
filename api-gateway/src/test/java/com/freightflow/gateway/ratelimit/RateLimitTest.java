@@ -55,7 +55,7 @@ class RateLimitTest {
     private int port;
 
     private WebTestClient.ResponseSpec transfer(String token) {
-        return WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port).responseTimeout(Duration.ofSeconds(10))
+        return TestIssuer.gateway(port).responseTimeout(Duration.ofSeconds(10))
                 .build().post().uri("/api/v1/transfers").header(HttpHeaders.AUTHORIZATION, bearer(token))
                 .contentType(MediaType.APPLICATION_JSON).bodyValue("{}").exchange();
     }

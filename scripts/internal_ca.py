@@ -4,8 +4,9 @@
 copied out of the running cert-agent into .tls/ca.pem (gitignored) on every call: a stack recreated with a new CA
 never leaves a stale root behind.
 
-    python scripts/internal_ca.py          # prints the path of the root, for curl --cacert
-    from internal_ca import ssl_context    # an SSLContext that trusts only that root
+    python scripts/internal_ca.py               # prints the path of the root, for curl --cacert
+    python scripts/internal_ca.py --curl-home   # prints a CURL_HOME whose .curlrc trusts it (any platform)
+    from internal_ca import ssl_context         # an SSLContext that trusts only that root
 
 Standard library only.
 """
@@ -45,6 +46,16 @@ def ssl_context() -> ssl.SSLContext:
     return context
 
 
+def curl_home() -> Path:
+    """A directory whose .curlrc makes every curl verify against the root (export CURL_HOME=<it>). Windows' curl is
+    built on Schannel: it ignores CURL_CA_BUNDLE, takes --cacert, and then asks for revocation data an internal CA
+    without CRL or OCSP cannot give, so the file also says ssl-no-revoke, which other TLS backends ignore."""
+    home = root_path().parent
+    (home / ".curlrc").write_text(f'cacert = "{root_path().as_posix()}"\nssl-no-revoke\n', encoding="ascii",
+                                  newline="\n")
+    return home
+
+
 if __name__ == "__main__":
-    print(root_path())
+    print(curl_home() if "--curl-home" in sys.argv[1:] else root_path())
     sys.exit(0)

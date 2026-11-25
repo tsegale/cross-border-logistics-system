@@ -67,10 +67,19 @@ def containers() -> dict[str, float]:
     return usage
 
 
+# The ports that take TLS, verified inside the container against its own copy of the internal root (ADR 0039).
+TLS = {"api-gateway"}
+
+
+def actuator_metrics(service: str, port: int) -> subprocess.CompletedProcess:
+    scheme = "https" if service in TLS else "http"
+    return subprocess.run([*COMPOSE, "exec", "-T", service, "curl", "-fsS", "--cacert", "/tls/ca.pem",
+                           f"{scheme}://localhost:{port}/actuator/prometheus"],
+                          capture_output=True, text=True, timeout=20)
+
+
 def scrape(service: str, port: int) -> dict[str, float]:
-    result = subprocess.run([*COMPOSE, "exec", "-T", service, "wget", "-qO-",
-                             f"http://127.0.0.1:{port}/actuator/prometheus"],
-                            capture_output=True, text=True, timeout=20)
+    result = actuator_metrics(service, port)
     if result.returncode != 0:
         return {}
     values: dict[str, float] = {"heap_used": 0.0, "heap_committed": 0.0, "nonheap_used": 0.0, "metaspace_used": 0.0,
@@ -98,9 +107,7 @@ def scrape(service: str, port: int) -> dict[str, float]:
 
 
 def collectors(service: str, port: int) -> list[str]:
-    result = subprocess.run([*COMPOSE, "exec", "-T", service, "wget", "-qO-",
-                             f"http://127.0.0.1:{port}/actuator/prometheus"],
-                            capture_output=True, text=True, timeout=20)
+    result = actuator_metrics(service, port)
     names = set(re.findall(r'jvm_gc_pause_seconds_count\{[^}]*gc="([^"]+)"', result.stdout))
     return sorted(names)
 

@@ -21,7 +21,8 @@ import { check } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
 import exec from 'k6/execution';
 
-const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:8080';
+// HTTPS (ADR 0039): run with SSL_CERT_FILE set to the internal CA's root (python scripts/internal_ca.py).
+const BASE_URL = __ENV.BASE_URL || 'https://127.0.0.1:8080';
 const WORKLOAD = __ENV.WORKLOAD || 'disjoint_pairs';
 const VUS = parseInt(__ENV.VUS || '32', 10);
 const ITERATIONS_PER_VU = parseInt(__ENV.ITERATIONS_PER_VU || '30', 10);

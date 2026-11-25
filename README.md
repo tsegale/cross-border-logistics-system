@@ -13,7 +13,7 @@ with tests, CI, architecture decision records and measured numbers.
 
 ```
                     ┌──────────────────────────┐
-  client ──HTTP──▶  │ api-gateway        :8080 │   routes /api/v1/**, /docs/banking/**, /docs/logistics/**
+  client ─HTTPS─▶  │ api-gateway        :8080 │   routes /api/v1/**, /docs/banking/**, /docs/logistics/**
                     └─────┬───────────────┬────┘
                           │               │
              ┌────────────▼───┐       ┌───▼──────────────┐
@@ -80,7 +80,7 @@ two operators record and confirm the notice, and banking pays the assessed amoun
 settles the difference with the consignee.
 
 ```bash
-curl -s http://127.0.0.1:8080/api/v1/quotes -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
+curl -s https://127.0.0.1:8080/api/v1/quotes -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
   "origin":"NAWVB","destination":"DEHAM","mode":"SEA_LCL","incoterm":"FCA","payerRole":"CONSIGNEE",
   "packages":[{"lengthCm":120,"widthCm":100,"heightCm":150,"weightKg":500,"quantity":2}],
   "goods":[{"hsCode":"0304741100","description":"Frozen Cape hake fillets","originCountry":"NA","quantity":1200,
@@ -276,7 +276,7 @@ python scripts/generate_secrets.py                  # once: passwords and client
 scripts/token.sh customer-namib-exports             # a real access token on stdout
 scripts/token.sh operator --claims                  # the decoded claims
 TOKEN=$(scripts/token.sh customer-namib-exports)
-curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/shipments
+curl -H "Authorization: Bearer $TOKEN" https://127.0.0.1:8080/api/v1/shipments
 ```
 
 ### What it guarantees, and how it is tested
@@ -363,10 +363,10 @@ sequenceDiagram
 
 ```bash
 # Book: 201 AWAITING_PAYMENT; the relay authorises a hold a moment later
-curl -s -X POST http://127.0.0.1:8080/api/v1/shipments -H "Content-Type: application/json" \
+curl -s -X POST https://127.0.0.1:8080/api/v1/shipments -H "Content-Type: application/json" \
   -H "Idempotency-Key: book-42" -d '{"quoteId":"<quote id>","payerAccountNumber":"<EUR account>", ...}'
 
-curl -s http://127.0.0.1:8080/api/v1/shipments/<id>
+curl -s https://127.0.0.1:8080/api/v1/shipments/<id>
 ```
 
 ```json
@@ -385,17 +385,17 @@ curl -s http://127.0.0.1:8080/api/v1/shipments/<id>
 
 ```bash
 # The payer's account: ledger balance unchanged, available balance reduced by the hold
-curl -s http://127.0.0.1:8080/api/v1/accounts/<EUR account>
+curl -s https://127.0.0.1:8080/api/v1/accounts/<EUR account>
 # {"ledgerBalance": 5000.00, "availableBalance": 4475.25, ...}
 
 # A missed pickup scan: the departure skips two milestones, is applied, and triggers the capture
-curl -s -X POST http://127.0.0.1:8080/api/v1/shipments/<id>/tracking-events -H "Content-Type: application/json" \
+curl -s -X POST https://127.0.0.1:8080/api/v1/shipments/<id>/tracking-events -H "Content-Type: application/json" \
   -d '{"carrierEventId":"VSL-1","eventType":"DEPARTED","targetStatus":"IN_TRANSIT","location":"NAWVB",
        "description":"Vessel departed","occurredAt":"2026-04-21T06:00:00Z"}'
 # {"outcome":"APPLIED","skippedStatuses":["PICKED_UP","AT_ORIGIN_PORT"], ...}  then payment.status CAPTURED
 
 # Internal endpoints are not reachable at the edge
-curl -s -X POST http://127.0.0.1:8080/api/v1/holds
+curl -s -X POST https://127.0.0.1:8080/api/v1/holds
 # 404 {"type":"https://freightflow.dev/problems/not-found", ...}
 ```
 
@@ -433,15 +433,21 @@ Needs Docker and JDK 21 (only for running tests outside Docker). No local Maven:
 cp .env.example .env              # non-secret settings
 python scripts/generate_secrets.py   # every password and client secret, into the git-ignored secrets/
 docker compose up -d --build --wait
-curl http://127.0.0.1:8085/actuator/health   # the gateway's management port
+export CURL_HOME="$(python scripts/internal_ca.py --curl-home)"   # curl trusts the stack's CA (below)
+curl https://127.0.0.1:8085/actuator/health   # the gateway's management port, same TLS
 ./scripts/seed_demo.sh            # as the personas: accounts, FX transfer and a shipment
 ./scripts/smoke_test.sh           # the whole flow as every persona, refusals included
 docker compose --profile debug up -d   # optional: publish services and databases on 127.0.0.1 for local tools
 ```
 
+The gateway takes HTTPS only, with a certificate from the stack's internal CA (ADR 0039). curl trusts that root with
+`export CURL_HOME="$(python scripts/internal_ca.py --curl-home)"`, which copies it out of the running stack into
+`.tls/ca.pem` and writes a `.curlrc` beside it (on Windows too, where curl ignores `CURL_CA_BUNDLE`); a browser needs
+that file imported as a trusted root, or shows a warning.
+
 Interactive OpenAPI docs through the gateway:
-- **Banking API**: `http://127.0.0.1:8080/docs/banking/swagger-ui.html`
-- **Logistics API**: `http://127.0.0.1:8080/docs/logistics/swagger-ui.html`
+- **Banking API**: `https://127.0.0.1:8080/docs/banking/swagger-ui.html`
+- **Logistics API**: `https://127.0.0.1:8080/docs/logistics/swagger-ui.html`
 - **Full curl walkthrough**: [`docs/smoke-test.md`](docs/smoke-test.md)
 
 The default stack includes Kafka, with a SCRAM user per service and ACLs (ADR 0022). Measured with `docker stats`
@@ -459,7 +465,7 @@ books. The examples show the bodies; [`docs/smoke-test.md`](docs/smoke-test.md) 
 
 ```bash
 # Open a NAD exporter account (ISO 7064 MOD 97-10 check digits)
-curl -s -X POST http://127.0.0.1:8080/api/v1/accounts \
+curl -s -X POST https://127.0.0.1:8080/api/v1/accounts \
   -H "Authorization: Bearer $(scripts/token.sh operator)" -H "Content-Type: application/json" \
   -d '{"currency":"NAD","organizationId":"0193a0e0-0000-7000-8000-00000000a001"}'
 ```
@@ -478,7 +484,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/accounts \
 
 ```bash
 # Lock a 5-minute FX quote (50,000.00 NAD -> EUR)
-curl -s -X POST http://127.0.0.1:8080/api/v1/fx-quotes \
+curl -s -X POST https://127.0.0.1:8080/api/v1/fx-quotes \
   -H "Content-Type: application/json" \
   -d '{"sellCurrency":"NAD","buyCurrency":"EUR","sellAmount":50000.00}'
 ```
@@ -501,7 +507,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/fx-quotes \
 
 ```bash
 # Quote 2 pallets of frozen hake (120x100x150 cm, 500 kg each -> 3.6000 CBM / 1.0 t -> 3.6 WM_TON)
-curl -s -X POST http://127.0.0.1:8080/api/v1/quotes \
+curl -s -X POST https://127.0.0.1:8080/api/v1/quotes \
   -H "Content-Type: application/json" \
   -d '{
     "origin": "NAWVB",
@@ -537,7 +543,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/quotes \
 
 ```bash
 # Public tracking by Crockford Base32 tracking number (local IANA time zones, zero customer PII)
-curl -s http://127.0.0.1:8080/api/v1/shipments/track/FF-00010000-6
+curl -s https://127.0.0.1:8080/api/v1/shipments/track/FF-00010000-6
 ```
 
 ## Benchmarks

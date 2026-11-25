@@ -62,6 +62,9 @@ RUN --mount=type=cache,id=m2-logistics-service,target=/root/.m2 mvn -B -q packag
 FROM eclipse-temurin:21-jre-alpine
 # A fixed uid and gid (10001): the certificate agent gives this group its key (ADR 0039).
 RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
+# curl for the healthcheck: HTTPS verified against the internal CA, with a client certificate where the port
+# asks for one (ADR 0039). BusyBox wget checks no certificate.
+RUN apk add --no-cache curl
 WORKDIR /app
 # Layered jar: dependencies change rarely, so they get their own cached image layers.
 COPY --from=build /src/target/extracted/dependencies/ ./
