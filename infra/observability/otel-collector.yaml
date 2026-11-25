@@ -70,6 +70,10 @@ receivers:
   redis:
     endpoint: redis:6379
     collection_interval: 15s
+    # TLS only (infra/redis/start.sh): the receiver's default is plaintext, so verification is switched on here.
+    tls:
+      insecure: false
+      ca_file: /tls/ca.pem
 
   # Each container's memory and its limit (ADR 0029), from the Docker socket, mounted read-only.
   docker_stats:

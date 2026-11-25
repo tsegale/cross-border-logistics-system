@@ -153,8 +153,13 @@ jobs:
           for name in banking_db_password logistics_db_password notification_db_password kafka_monitoring_password; do
             echo ci-only > "$RUNNER_TEMP/secrets/$name"
           done
+          # The Redis receiver reads its CA file when the pipeline is built: a throwaway root stands in for the CA's.
+          mkdir -p "$RUNNER_TEMP/tls"
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$RUNNER_TEMP/tls/ca.key" \
+            -subj /CN=ci-only -days 1 -out "$RUNNER_TEMP/tls/ca.pem" 2> /dev/null
           docker run --rm -v "$PWD/infra/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro" \
-            -v "$RUNNER_TEMP/secrets:/run/secrets:ro" -e BANKING_DB_USER=banking -e LOGISTICS_DB_USER=logistics \
+            -v "$RUNNER_TEMP/secrets:/run/secrets:ro" -v "$RUNNER_TEMP/tls:/tls:ro" \
+            -e BANKING_DB_USER=banking -e LOGISTICS_DB_USER=logistics \
             -e NOTIFICATION_DB_USER=notification -e TAIL_SAMPLING_PERCENTAGE=100 \
             "$COLLECTOR_IMAGE" validate --config=/etc/otelcol/config.yaml
 
