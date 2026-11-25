@@ -51,7 +51,10 @@ the internal CA, verified by name. The services take only mutual TLS, and only f
 - **No plaintext on the network.** What stays plaintext is inside one container: Kafka's controller listener on the
   container's loopback, Redis's Unix socket for its healthcheck and reload, Postgres's Unix socket for its
   initialisation and `pg_isready`. A plaintext request to a TLS port is refused before the application sees it:
-  Tomcat answers 400, Netty, Kafka, Redis and Postgres close the connection.
+  Tomcat and Go answer 400, Netty and Python close the connection, Kafka sends a TLS alert, Redis resets, Postgres
+  refuses in `pg_hba.conf`, Mailpit's SMTP answers 530. `scripts/tls_probe.py` checks every endpoint for this, for a
+  certificate that verifies by name, and, on the services' ports, for refusing no client certificate and one from
+  another CA that carries an allowed name; CI runs it against the default stack.
 - **Healthchecks** use curl with the container's own files (the images gain curl: BusyBox wget checks no
   certificate); Keycloak's image has no curl, so it gets a small Java client (`infra/keycloak/HealthCheck.java`).
 - **The host** trusts the root through `scripts/internal_ca.py`, which copies it out of the running stack. Windows'
