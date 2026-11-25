@@ -46,12 +46,6 @@ jobs:
         run: |
           mkdir -p drill
           echo "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1), $(nproc) vCPUs, $(free -m | awk '/^Mem:/ {print $2}') MiB" | tee drill/runner.txt
-      - name: One booking's trace first, and the screenshots of it
-        run: |
-          ./scripts/seed_demo.sh
-          python3 scripts/trace_booking.py --json drill/trace.json
-          pip install --quiet playwright==1.65.2 && python3 -m playwright install --with-deps chromium > /dev/null
-          python3 scripts/grafana_screenshots.py --trace-json drill/trace.json --out drill/images || echo "::warning::screenshots failed"
       - name: Fire drill
         run: |
           set -o pipefail
@@ -59,7 +53,16 @@ jobs:
           { echo "## Alert fire drill"; echo; echo "Runner: $(cat drill/runner.txt)"; echo; echo '```'; cat drill/drill.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Screenshots of the alerts it fired
         if: always()
-        run: python3 scripts/grafana_screenshots.py --alerts --out drill/images || true
+        run: |
+          pip install --quiet playwright==1.65.2 && python3 -m playwright install --with-deps chromium > /dev/null
+          python3 scripts/grafana_screenshots.py --alerts --out drill/images || true
+      # After the drill, not before: the stack starts with no usable reference rate (phase 4), so the demo's FX
+      # transfer can only run once the drill has put the rates right. Every fault is undone by then.
+      - name: One booking's trace, and the screenshots of it
+        run: |
+          ./scripts/seed_demo.sh
+          python3 scripts/trace_booking.py --json drill/trace.json
+          python3 scripts/grafana_screenshots.py --trace-json drill/trace.json --out drill/images || echo "::warning::screenshots failed"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
