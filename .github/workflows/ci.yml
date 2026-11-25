@@ -137,10 +137,16 @@ jobs:
             check rules /obs/rules/slo.yml /obs/rules/symptoms.yml
           docker run --rm -v "$PWD/infra/observability:/obs:ro" -w /obs/rules/tests --entrypoint promtool \
             "$PROMETHEUS_IMAGE" test rules slo.test.yml symptoms.test.yml
-          # check config resolves rule_files from the path in prometheus.yml.
+          # check config resolves rule_files from the path in prometheus.yml, and opens the scrape jobs' TLS files: a
+          # throwaway certificate stands in for Prometheus's own and for the CA's root (ADR 0040).
+          mkdir -p "$RUNNER_TEMP/prom-tls"
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$RUNNER_TEMP/prom-tls/key.pem" \
+            -subj /CN=prometheus -days 1 -out "$RUNNER_TEMP/prom-tls/cert.pem" 2> /dev/null
+          cp "$RUNNER_TEMP/prom-tls/cert.pem" "$RUNNER_TEMP/prom-tls/ca.pem"
+          chmod 0644 "$RUNNER_TEMP/prom-tls/key.pem"
           docker run --rm -v "$PWD/infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
-            -v "$PWD/infra/observability/rules:/etc/prometheus/rules:ro" --entrypoint promtool "$PROMETHEUS_IMAGE" \
-            check config /etc/prometheus/prometheus.yml
+            -v "$PWD/infra/observability/rules:/etc/prometheus/rules:ro" -v "$RUNNER_TEMP/prom-tls:/tls:ro" \
+            --entrypoint promtool "$PROMETHEUS_IMAGE" check config /etc/prometheus/prometheus.yml
       - name: amtool checks Alertmanager's config
         run: |
           mkdir -p "$RUNNER_TEMP/secrets" "$RUNNER_TEMP/am-tls" && echo ci-only > "$RUNNER_TEMP/secrets/smtp_password"
