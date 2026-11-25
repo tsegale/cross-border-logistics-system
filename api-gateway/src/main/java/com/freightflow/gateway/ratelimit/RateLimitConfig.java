@@ -37,14 +37,18 @@ public class RateLimitConfig {
 
     /**
      * When Redis is unreachable, fail the command at once instead of queueing it until the timeout: the limiter then
-     * decides fail-open or fail-closed immediately, per route.
+     * decides fail-open or fail-closed immediately, per route. Changes the options Boot built rather than replacing
+     * them: those carry the TLS settings from the SSL bundle (ADR 0039), and new options would connect without them.
      */
     @Bean
     LettuceClientConfigurationBuilderCustomizer failFastWhenRedisIsDown() {
-        return builder -> builder.clientOptions(ClientOptions.builder()
-                .disconnectedBehavior(ClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
-                .autoReconnect(true)
-                .timeoutOptions(TimeoutOptions.enabled())
-                .build());
+        return builder -> {
+            ClientOptions current = builder.build().getClientOptions().orElseGet(ClientOptions::create);
+            builder.clientOptions(current.mutate()
+                    .disconnectedBehavior(ClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
+                    .autoReconnect(true)
+                    .timeoutOptions(TimeoutOptions.enabled())
+                    .build());
+        };
     }
 }

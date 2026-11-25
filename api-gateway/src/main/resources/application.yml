@@ -8,10 +8,20 @@ spring:
     context-propagation: auto
   application:
     name: api-gateway
+  # The internal CA's root (ADR 0039): /tls/ca.pem in the container, a test CA's in the tests.
+  ssl:
+    bundle:
+      pem:
+        internal:
+          truststore:
+            certificate: ${TLS_TRUST_CERTIFICATE:file:/tls/ca.pem}
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
+      # TLS only (infra/redis/start.sh), the server verified against the internal CA's root.
+      ssl:
+        bundle: internal
       # Bounds what a slow Redis adds to a money-moving request; a Redis that is down is rejected at once.
       timeout: ${REDIS_TIMEOUT:1s}
   cloud:

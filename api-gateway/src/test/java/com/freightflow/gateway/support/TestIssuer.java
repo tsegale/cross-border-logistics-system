@@ -14,7 +14,10 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -44,8 +47,7 @@ public final class TestIssuer {
     public static final RSAKey OTHER_KEY = generate("test-key-2");
     public static final WireMockServer JWKS = new WireMockServer(wireMockConfig().dynamicPort());
     @SuppressWarnings("resource") // one Redis for the whole test JVM, stopped by Testcontainers' reaper
-    public static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse(composeImage("redis"))).withExposedPorts(6379);
+    public static final GenericContainer<?> REDIS = redis();
 
     static {
         JWKS.start();
@@ -54,6 +56,24 @@ public final class TestIssuer {
     }
 
     private TestIssuer() {
+    }
+
+    /**
+     * Redis as compose runs it: {@code infra/redis/start.sh}, TLS only, as the image's own user, with a certificate
+     * from this JVM's test CA in the agent's layout (ADR 0039).
+     */
+    private static GenericContainer<?> redis() {
+        TestCertificates.Identity redis = TestCertificates.issue("redis");
+        return new GenericContainer<>(DockerImageName.parse(composeImage("redis")))
+                .withCopyFileToContainer(MountableFile.forHostPath(Path.of("..", "infra", "redis").toAbsolutePath()
+                        .normalize()), "/etc/freightflow/redis")
+                .withCopyToContainer(Transferable.of(redis.certificatePem(), 0644), "/tls/cert.pem")
+                .withCopyToContainer(Transferable.of(redis.privateKeyPem(), 0644), "/tls/key.pem")
+                .withCopyToContainer(Transferable.of(TestCertificates.caPem(), 0644), "/tls/ca.pem")
+                .withCreateContainerCmdModifier(cmd -> cmd.withUser("999:1000")
+                        .withEntrypoint("sh", "/etc/freightflow/redis/start.sh"))
+                .withExposedPorts(6379)
+                .waitingFor(Wait.forLogMessage(".*Ready to accept connections.*", 1));
     }
 
     /**
@@ -93,6 +113,8 @@ public final class TestIssuer {
         // "localhost" resolves to ::1 first on Windows, and the first handshake then misses the 1 s timeout.
         registry.add("REDIS_HOST", () -> "localhost".equals(REDIS.getHost()) ? "127.0.0.1" : REDIS.getHost());
         registry.add("REDIS_PORT", () -> REDIS.getMappedPort(6379));
+        // Redis's TLS, verified against this JVM's test CA.
+        registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
         // The JVM's first Redis connection also loads Lettuce and Netty; production keeps the 1 s default.
         registry.add("REDIS_TIMEOUT", () -> "5s");
         // On only in WarmUpIntegrationTest: elsewhere its requests would land in the upstream stubs' journals.

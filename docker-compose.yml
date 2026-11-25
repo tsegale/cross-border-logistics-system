@@ -371,12 +371,27 @@ services:
 
   # Token buckets for the gateway's rate limits on money-moving routes (ADR 0017). Not published. The gateway's tests
   # run on this same image: TestIssuer reads it from this file. Redis 8 is used under the AGPLv3 (ADR 0017).
+  # TLS only, with its certificate from the internal CA, reloaded on renewal (infra/redis/start.sh, ADR 0039).
   redis:
     mem_limit: 32m
     image: redis:8.10-alpine
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    # The image's own user; it reads its key through the group the agent gives it (infra/tls/identities.conf).
+    user: "999:1000"
+    entrypoint: ["sh", "/etc/freightflow/redis/start.sh"]
+    volumes:
+      - ./infra/redis:/etc/freightflow/redis:ro
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: redis
+    depends_on:
+      cert-agent:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # Over the container's Unix socket: the TCP port takes TLS only.
+      test: ["CMD", "redis-cli", "-s", "/tmp/redis.sock", "ping"]
       interval: 5s
       timeout: 3s
       retries: 12
