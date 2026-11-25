@@ -83,7 +83,9 @@ class HoldTraceIntegrationTest extends IntegrationTest {
         }
         assertThat(unpublished(hold)).as("the hold's event was relayed").isZero();
 
-        List<SpanData> spans = TestSpans.trace(traceId, found -> TestSpans.names(found).contains("event-outbox relay"));
+        // Spans are exported as they end, the server span after the response: wait for both, not only the relay's.
+        List<SpanData> spans = TestSpans.trace(traceId, found -> TestSpans.names(found)
+                .containsAll(List.of("event-outbox relay", "http post /api/v1/holds")));
         assertThat(spans).filteredOn(span -> span.getName().equals("http post /api/v1/holds")).singleElement()
                 .satisfies(span -> assertThat(span.getAttributes().asMap().toString())
                         .contains("freightflow.hold.id=" + hold, "freightflow.request_id="));

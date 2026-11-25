@@ -36,6 +36,9 @@ public abstract class IntegrationTest {
     static void bankingStub(DynamicPropertyRegistry registry) {
         registry.add("spring.http.serviceclient.banking.base-url", BankingStub::baseUrl);
         registry.add("KEYCLOAK_TOKEN_URI", () -> BankingStub.baseUrl() + "/token");
+        // The test CA's root for every internal TLS client (ADR 0039), before the context starts: SharedContainers'
+        // own registration applies only once its registrar bean runs, after a bean like the warm-up may need it.
+        registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
     }
 
     @Autowired
