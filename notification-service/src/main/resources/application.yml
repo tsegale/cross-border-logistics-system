@@ -1,18 +1,29 @@
 server:
   port: ${SERVER_PORT:8083}
   shutdown: graceful
+  # Mutual TLS only (ADR 0040): this service's certificate, renewed by the agent and reloaded, and a certificate from
+  # the internal CA asked of every client; TLS 1.3 and 1.2. Who may call is freightflow.tls.allowed-callers.
+  ssl:
+    bundle: internal
+    client-auth: need
+    enabled-protocols: [TLSv1.3, TLSv1.2]
   request:
     header:
       forwarded:
         strategy: framework
 
 spring:
-  # The internal CA's root (ADR 0039): /tls/ca.pem in the container, a test CA's in the tests. Kafka, Keycloak
-  # and every other internal TLS peer is verified against it.
+  # This service's certificate and key from the agent, and the internal CA's root (ADR 0039): /tls in the container,
+  # a test CA's in the tests. Its own port, its calls to banking, Kafka, Keycloak and every other internal TLS peer
+  # use it; Spring Boot reloads it when the agent renews the certificate.
   ssl:
     bundle:
       pem:
         internal:
+          reload-on-update: ${TLS_RELOAD_ON_UPDATE:true}
+          keystore:
+            certificate: ${TLS_CERTIFICATE:file:/tls/cert.pem}
+            private-key: ${TLS_PRIVATE_KEY:file:/tls/key.pem}
           truststore:
             certificate: ${TLS_TRUST_CERTIFICATE:file:/tls/ca.pem}
   # Compose secrets are files under /run/secrets; each file name becomes a property (ADR 0019).
@@ -93,6 +104,13 @@ spring:
       thread-name-prefix: notification-sched-
 
 freightflow:
+  # Whose client certificate this service takes (ADR 0040):
+  # the gateway's routes, Prometheus, and itself (its healthcheck).
+  tls:
+    allowed-callers:
+      - api-gateway
+      - prometheus
+      - notification-service
   kafka:
     password: ${kafka_password:${KAFKA_PASSWORD:}}
     replication-factor: ${KAFKA_REPLICATION_FACTOR:1}

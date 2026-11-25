@@ -44,7 +44,9 @@ services:
     environment:
       TLS_DIR: /home/step
     # The consumers' groups, so the agent can give each its own key: app 10001, postgres 70, appuser 1000.
-    group_add: ["10001", "70", "1000"]
+    # The consumers' groups: services (10001), Postgres (70), the step, Kafka and Redis images (1000), Prometheus
+    # (65534, nobody).
+    group_add: ["10001", "70", "1000", "65534"]
     secrets: [ca_password]
     volumes:
       - ./infra/tls:/etc/freightflow/tls:ro
@@ -307,7 +309,9 @@ services:
       partner-simulator:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/actuator/health/readiness > /dev/null || exit 1"]
+      # Mutual TLS on its one port (ADR 0040): the healthcheck presents the service's own certificate.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "--cacert", "/tls/ca.pem", "--cert", "/tls/cert.pem",
+             "--key", "/tls/key.pem", "https://localhost:8081/actuator/health/readiness"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -333,7 +337,7 @@ services:
       LOGISTICS_DB_USER: ${LOGISTICS_DB_USER:?set in .env}
       # Its database password and its client secret for Keycloak are secret files (ADR 0019).
       # Internal network only: holds and captures are not routed by the gateway.
-      BANKING_SERVICE_URI: http://banking-service:8081
+      BANKING_SERVICE_URI: https://banking-service:8081
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
       # Its own client-credentials token for banking, from Keycloak on the compose network (ADR 0019).
@@ -367,7 +371,9 @@ services:
       logistics-db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8082/actuator/health/readiness > /dev/null || exit 1"]
+      # Mutual TLS on its one port (ADR 0040): the healthcheck presents the service's own certificate.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "--cacert", "/tls/ca.pem", "--cert", "/tls/cert.pem",
+             "--key", "/tls/key.pem", "https://localhost:8082/actuator/health/readiness"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -416,9 +422,9 @@ services:
       JAVA_OPTS: >-
         -XX:MaxRAMPercentage=45 -XX:InitialRAMPercentage=20 -XX:MaxMetaspaceSize=192m -Xss512k
         -XX:+ExitOnOutOfMemoryError ${JAVA_GC:--XX:+UseSerialGC}
-      BANKING_SERVICE_URI: http://banking-service:8081
-      LOGISTICS_SERVICE_URI: http://logistics-service:8082
-      NOTIFICATION_SERVICE_URI: http://notification-service:8083
+      BANKING_SERVICE_URI: https://banking-service:8081
+      LOGISTICS_SERVICE_URI: https://logistics-service:8082
+      NOTIFICATION_SERVICE_URI: https://notification-service:8083
       # The iss in every token is Keycloak's public URL; keys come from inside the network (ADR 0017).
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8180}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
@@ -642,7 +648,9 @@ services:
       mailpit:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8083/actuator/health/readiness > /dev/null || exit 1"]
+      # Mutual TLS on its one port (ADR 0040): the healthcheck presents the service's own certificate.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "--cacert", "/tls/ca.pem", "--cert", "/tls/cert.pem",
+             "--key", "/tls/key.pem", "https://localhost:8083/actuator/health/readiness"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -735,13 +743,13 @@ services:
       - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infra/observability/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
-      # The internal CA's root, for the targets that answer over TLS (ADR 0039).
+      # Its client certificate for the services' mutual TLS and the internal CA's root (ADR 0039, ADR 0040).
       - type: volume
         source: certs
         target: /tls
         read_only: true
         volume:
-          subpath: trust
+          subpath: prometheus
     ports:
       - "127.0.0.1:9090:9090"
 

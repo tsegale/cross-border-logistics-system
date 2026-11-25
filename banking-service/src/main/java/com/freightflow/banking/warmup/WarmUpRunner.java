@@ -7,6 +7,7 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.metamodel.EntityType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.freightflow.banking.tls.InternalTls;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.availability.ApplicationAvailability;
@@ -14,6 +15,7 @@ import org.springframework.boot.availability.ReadinessState;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -63,6 +65,8 @@ public class WarmUpRunner implements ApplicationRunner {
     private final TransactionTemplate readOnly;
     private final WarmUpProperties properties;
     private final MeterRegistry meters;
+    private final InternalTls tls;
+    private final boolean ownPortTakesTls;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -70,7 +74,8 @@ public class WarmUpRunner implements ApplicationRunner {
     private volatile Result lastResult;
 
     public WarmUpRunner(ApplicationContext context, ApplicationAvailability availability, JwtDecoder decoder,
-                        PlatformTransactionManager transactions, WarmUpProperties properties, MeterRegistry meters) {
+                        PlatformTransactionManager transactions, WarmUpProperties properties, MeterRegistry meters,
+                        InternalTls tls, Environment environment) {
         this.context = context;
         this.availability = availability;
         this.decoder = decoder;
@@ -78,6 +83,11 @@ public class WarmUpRunner implements ApplicationRunner {
         this.readOnly.setReadOnly(true);
         this.properties = properties;
         this.meters = meters;
+        this.tls = tls;
+        // Its own port takes mutual TLS wherever server.ssl is on (ADR 0040); the tests that start it without TLS
+        // turn it off.
+        this.ownPortTakesTls = environment.getProperty("server.ssl.enabled", Boolean.class, true)
+                && environment.getProperty("server.ssl.bundle") != null;
     }
 
     /** What the last warm-up did; null if it didn't run. */
@@ -170,11 +180,15 @@ public class WarmUpRunner implements ApplicationRunner {
                 || web.getWebServer().getPort() <= 0) {
             return null;
         }
-        HttpClient http = HttpClient.newBuilder().connectTimeout(properties.requestTimeout()).build();
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(http);
+        HttpClient.Builder http = HttpClient.newBuilder().connectTimeout(properties.requestTimeout());
+        if (ownPortTakesTls) {
+            // As any caller: its own certificate, the internal root, and the name checked (127.0.0.1 is on it).
+            http.sslContext(tls.sslContext()).sslParameters(tls.sslParameters());
+        }
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(http.build());
         factory.setReadTimeout(properties.requestTimeout());
-        return RestClient.builder().baseUrl("http://127.0.0.1:" + web.getWebServer().getPort())
-                .requestFactory(factory).build();
+        String origin = (ownPortTakesTls ? "https" : "http") + "://127.0.0.1:" + web.getWebServer().getPort();
+        return RestClient.builder().baseUrl(origin).requestFactory(factory).build();
     }
 
     private static String encode(String value) {

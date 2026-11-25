@@ -50,7 +50,8 @@ K6_SCRIPT = Path(__file__).resolve().parent / "k6" / "transfer_contention.js"
 
 # HTTPS, verified against the internal CA's root (ADR 0039); k6 gets the root through SSL_CERT_FILE.
 GATEWAY_URL = os.environ.get("BASE_URL", "https://127.0.0.1:8080")
-BANKING_URL = os.environ.get("BANKING_URL", "http://127.0.0.1:8081")
+# banking takes mutual TLS only (ADR 0040): its actuator is read from inside its container, with its own certificate.
+BANKING_URL = "https://localhost:8081"
 ROUNDS = int(os.environ.get("BENCH_ROUNDS", "3"))
 VU_LEVELS = [int(v) for v in os.environ.get("BENCH_VUS", "32,100").split(",")]
 REQUESTS_PER_RUN = int(os.environ.get("BENCH_REQUESTS_PER_RUN", "1000"))
@@ -109,9 +110,11 @@ def http_json(method: str, url: str, body: dict[str, Any] | None = None,
             return err.code, raw.decode(errors="replace")
 
 
-def http_text(url: str) -> str:
-    with urllib.request.urlopen(url, timeout=30) as resp:
-        return resp.read().decode()
+def banking_actuator(path: str, timeout: float = 30) -> str:
+    result = subprocess.run([*COMPOSE, "exec", "-T", "banking-service", "curl", "-fsS", "--cacert", "/tls/ca.pem",
+                             "--cert", "/tls/cert.pem", "--key", "/tls/key.pem", f"{BANKING_URL}{path}"],
+                            capture_output=True, text=True, timeout=timeout, check=True)
+    return result.stdout
 
 
 # ---------------------------------------------------------------------------- stack control
@@ -134,7 +137,7 @@ def restart_banking(strategy: str) -> None:
     deadline = time.time() + 600
     while time.time() < deadline:
         try:
-            status, info = http_json("GET", f"{BANKING_URL}/actuator/info", timeout=5)
+            status, info = 200, json.loads(banking_actuator("/actuator/info", timeout=15))
             if status == 200:
                 active: Any = info
                 for key in SWITCH_INFO.split("."):
@@ -214,7 +217,7 @@ PROM_LINE = re.compile(r'^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]
 def scrape_prometheus() -> dict[str, float]:
     """Sums the counters this report needs. Keys are metric names, filtered by labels where it matters."""
     wanted: dict[str, float] = {}
-    for line in http_text(f"{BANKING_URL}/actuator/prometheus").splitlines():
+    for line in banking_actuator("/actuator/prometheus").splitlines():
         m = PROM_LINE.match(line)
         if not m:
             continue

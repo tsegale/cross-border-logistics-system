@@ -12,6 +12,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * as in production; retries are quick.
  */
 @SpringBootTest(properties = {
+        // No TLS connector in these contexts (MockMvc, and the warm-up's own port): CallerCertificateIntegrationTest
+        // starts the service with its mutual TLS (ADR 0040).
+        "server.ssl.enabled=false",
+        "freightflow.tls.mutual=false",
         "freightflow.events.consumer.retry-delay=200",
         "freightflow.events.consumer.retry-multiplier=2",
         "freightflow.events.consumer.retry-max-delay=1000",
@@ -34,5 +38,12 @@ public abstract class IntegrationTest {
     @DynamicPropertySource
     static void internalCa(DynamicPropertyRegistry registry) {
         registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
+        // This service's identity from the test CA: its bundle holds a certificate wherever it runs (ADR 0040).
+        registry.add("spring.ssl.bundle.pem.internal.keystore.certificate",
+                () -> TestCertificates.of("notification-service").certificatePem());
+        registry.add("spring.ssl.bundle.pem.internal.keystore.private-key",
+                () -> TestCertificates.of("notification-service").privateKeyPem());
+        // Boot reloads only files; these are PEM content.
+        registry.add("spring.ssl.bundle.pem.internal.reload-on-update", () -> "false");
     }
 }

@@ -41,7 +41,9 @@ from internal_ca import ssl_context  # noqa: E402
 # HTTPS, verified against the internal CA's root (ADR 0039).
 GATEWAY = os.environ.get("GATEWAY_URL", "https://127.0.0.1:8080")
 MAILPIT = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025")
-ACTUATORS = {"banking": "http://127.0.0.1:8081", "logistics": "http://127.0.0.1:8082"}
+# The services take mutual TLS only (ADR 0040): their actuators are read from inside each container, with the
+# certificate it accepts as itself.
+ACTUATORS = {"banking": 8081, "logistics": 8082}
 COMPOSE = os.environ.get("COMPOSE", "docker compose -f docker-compose.yml -f benchmarks/compose.bench.yml").split()
 HANSEATIC = "0193a0e0-0000-7000-8000-00000000a002"
 QUOTE = json.dumps({
@@ -90,14 +92,21 @@ def get_json(url: str) -> dict:
         return json.loads(response.read())
 
 
+def actuator(service: str, path: str = "/actuator/prometheus") -> str:
+    result = subprocess.run([*COMPOSE, "exec", "-T", f"{service}-service", "curl", "-fsS", "--cacert", "/tls/ca.pem",
+                             "--cert", "/tls/cert.pem", "--key", "/tls/key.pem",
+                             f"https://localhost:{ACTUATORS[service]}{path}"],
+                            capture_output=True, text=True, timeout=30, check=True)
+    return result.stdout
+
+
 def metric(service: str, name: str, labels: str = "") -> float:
     """Sum of a Prometheus metric's samples whose label set contains `labels`."""
-    with urllib.request.urlopen(ACTUATORS[service] + "/actuator/prometheus", timeout=10) as response:
-        total = 0.0
-        for line in response.read().decode().splitlines():
-            if line.startswith(name) and (line[len(name)] in "{ ") and labels in line:
-                total += float(line.rsplit(" ", 1)[1])
-        return total
+    total = 0.0
+    for line in actuator(service).splitlines():
+        if line.startswith(name) and (line[len(name)] in "{ ") and labels in line:
+            total += float(line.rsplit(" ", 1)[1])
+    return total
 
 
 def mail_received(recipient: str) -> dict[str, datetime]:
@@ -213,11 +222,10 @@ def summary(values: list[float]) -> dict[str, float]:
 def lag_buckets(service: str) -> dict[float, float]:
     """The relay's lag histogram: upper bound in seconds -> cumulative count (Prometheus `le` buckets)."""
     buckets: dict[float, float] = {}
-    with urllib.request.urlopen(ACTUATORS[service] + "/actuator/prometheus", timeout=10) as response:
-        for line in response.read().decode().splitlines():
-            if line.startswith("freightflow_outbox_lag_seconds_bucket{"):
-                bound = line.split('le="', 1)[1].split('"', 1)[0]
-                buckets[float("inf") if bound == "+Inf" else float(bound)] = float(line.rsplit(" ", 1)[1])
+    for line in actuator(service).splitlines():
+        if line.startswith("freightflow_outbox_lag_seconds_bucket{"):
+            bound = line.split('le="', 1)[1].split('"', 1)[0]
+            buckets[float("inf") if bound == "+Inf" else float(bound)] = float(line.rsplit(" ", 1)[1])
     return buckets
 
 

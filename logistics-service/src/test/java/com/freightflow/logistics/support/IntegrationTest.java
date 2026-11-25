@@ -11,6 +11,10 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest(properties = {
+        // No TLS connector in these contexts (MockMvc, and the warm-up's own port): CallerCertificateIntegrationTest
+        // starts the service with its mutual TLS (ADR 0040).
+        "server.ssl.enabled=false",
+        "freightflow.tls.mutual=false",
         "spring.datasource.hikari.maximum-pool-size=32",
         "spring.datasource.hikari.connection-timeout=60000",
         "spring.datasource.hikari.minimum-idle=2",
@@ -39,6 +43,13 @@ public abstract class IntegrationTest {
         // The test CA's root for every internal TLS client (ADR 0039), before the context starts: SharedContainers'
         // own registration applies only once its registrar bean runs, after a bean like the warm-up may need it.
         registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
+        // This service's identity from the test CA: its bundle holds a certificate wherever it runs (ADR 0040).
+        registry.add("spring.ssl.bundle.pem.internal.keystore.certificate",
+                () -> TestCertificates.of("logistics-service").certificatePem());
+        registry.add("spring.ssl.bundle.pem.internal.keystore.private-key",
+                () -> TestCertificates.of("logistics-service").privateKeyPem());
+        // Boot reloads only files; these are PEM content.
+        registry.add("spring.ssl.bundle.pem.internal.reload-on-update", () -> "false");
     }
 
     @Autowired

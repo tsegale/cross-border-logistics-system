@@ -44,3 +44,4 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | [0037](0037-dcsa-track-and-trace.md) | Carrier tracking in DCSA Track and Trace 2.2: signed webhooks, a polling fallback, and a carrier simulator | Accepted |
 | [0038](0038-namibian-duties-in-their-own-hold.md) | Duties into Namibia are collected in NAD, in a hold of their own | Accepted |
 | [0039](0039-internal-ca-and-short-lived-certificates.md) | An internal CA with short-lived certificates, renewed by one agent | Accepted |
+| [0040](0040-tls-on-every-hop-and-mutual-tls-between-services.md) | TLS on every hop, mutual TLS between the services | Accepted |

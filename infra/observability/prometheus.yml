@@ -20,6 +20,13 @@ scrape_configs:
   - job_name: services
     metrics_path: /actuator/prometheus
     scrape_protocols: [OpenMetricsText1.0.0, OpenMetricsText0.0.1, PrometheusText0.0.4]
+    # Mutual TLS (ADR 0040): Prometheus's own certificate, re-read when the agent renews it, and the internal root.
+    scheme: https
+    tls_config:
+      ca_file: /tls/ca.pem
+      cert_file: /tls/cert.pem
+      key_file: /tls/key.pem
+      min_version: TLS12
     static_configs:
       - targets: [banking-service:8081]
         labels: {service: banking-service}

@@ -66,6 +66,13 @@ public final class SharedContainers {
         registry.add("spring.kafka.bootstrap-servers", KAFKA::bootstrapServers);
         // Every internal TLS peer (the broker, KafkaBroker) is verified against this JVM's test CA.
         registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
+        // This service's identity from the test CA: its bundle holds a certificate wherever it runs (ADR 0040).
+        registry.add("spring.ssl.bundle.pem.internal.keystore.certificate",
+                () -> TestCertificates.of("notification-service").certificatePem());
+        registry.add("spring.ssl.bundle.pem.internal.keystore.private-key",
+                () -> TestCertificates.of("notification-service").privateKeyPem());
+        // Boot reloads only files; these are PEM content.
+        registry.add("spring.ssl.bundle.pem.internal.reload-on-update", () -> "false");
         registry.add("KAFKA_USERNAME", () -> "notification");
         registry.add("freightflow.kafka.password", () -> KAFKA.password("notification"));
         registry.add("spring.mail.host", () -> "127.0.0.1");

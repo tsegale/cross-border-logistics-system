@@ -26,6 +26,7 @@ Every error emitted by `banking-service`, `logistics-service` and `notification-
 | `https://freightflow.dev/problems/unauthenticated` | `401 Unauthorized` (`WWW-Authenticate: Bearer`) | Authentication required | none | No bearer token, or one the service rejects: not RS256 from the realm, wrong issuer, not for this service's audience, expired (ADR 0017) |
 | `https://freightflow.dev/problems/forbidden` | `403 Forbidden` | Forbidden | none | The caller's role may not use this endpoint, or a customer acts for an organisation other than its own (ADR 0018). Someone else's object is a 404 instead |
 | `https://freightflow.dev/problems/issuer-unavailable` | `503 Service Unavailable` (`Retry-After: 5`) | Token cannot be verified right now | none | Keycloak's keys cannot be fetched: retry with the same token |
+| `https://freightflow.dev/problems/caller-not-allowed` | `403 Forbidden` | Caller not allowed | none | The client certificate is from the internal CA but not one this service takes requests from (`freightflow.tls.allowed-callers`, ADR 0040). Checked before the bearer token; a client without a certificate from the CA does not get past the TLS handshake |
 | `https://freightflow.dev/problems/internal-error` | `500 Internal Server Error` | Internal error | — | Anything unexpected. The detail is generic; the cause is only in the service log |
 
 ---

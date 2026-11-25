@@ -1,5 +1,6 @@
 package com.freightflow.logistics.banking;
 
+import com.freightflow.logistics.tls.InternalTls;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,8 +19,12 @@ public class BankingClientConfig {
      * unknown payment outcome. Boot still applies the connect and read timeouts to this builder.
      */
     @Bean
-    ClientHttpRequestFactoryBuilder<?> clientHttpRequestFactoryBuilder() {
+    ClientHttpRequestFactoryBuilder<?> clientHttpRequestFactoryBuilder(InternalTls tls) {
+        // Mutual TLS to banking (ADR 0040): logistics' own certificate, followed through each renewal, and banking's
+        // checked against the internal root by name. Only the banking group is built from this builder; the DCSA
+        // poller, the token and the key clients build their own, so a public endpoint is never held to this root.
         return ClientHttpRequestFactoryBuilder.jdk()
-                .withHttpClientCustomizer(builder -> builder.version(HttpClient.Version.HTTP_1_1));
+                .withHttpClientCustomizer(builder -> builder.version(HttpClient.Version.HTTP_1_1)
+                        .sslContext(tls.sslContext()).sslParameters(tls.sslParameters()));
     }
 }

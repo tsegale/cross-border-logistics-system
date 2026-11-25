@@ -16,7 +16,13 @@ spring:
   ssl:
     bundle:
       pem:
+        # The gateway's identity towards the services (mutual TLS, ADR 0040) and the internal root it checks them,
+        # Redis and Keycloak against; renewed by the agent and reloaded.
         internal:
+          reload-on-update: ${TLS_RELOAD_ON_UPDATE:true}
+          keystore:
+            certificate: ${TLS_CERTIFICATE:file:/tls/cert.pem}
+            private-key: ${TLS_PRIVATE_KEY:file:/tls/key.pem}
           truststore:
             certificate: ${TLS_TRUST_CERTIFICATE:file:/tls/ca.pem}
         # The public listener. Mozilla intermediate, guidelines 6.0 (ssl-config.mozilla.org, checked 2026-11-25):
@@ -57,9 +63,7 @@ spring:
           httpclient:
             connect-timeout: ${GATEWAY_CONNECT_TIMEOUT_MS:2000}
             response-timeout: ${GATEWAY_RESPONSE_TIMEOUT:15s}
-            # An https upstream (and the warm-up's calls to this gateway) is verified against the internal CA's root.
-            ssl:
-              ssl-bundle: internal
+            # Mutual TLS to the services: TlsConfig's HttpClientCustomizer (ADR 0040).
           default-filters:
             # Only idempotent reads are retried at the edge. A POST is never retried here, even with an
             # Idempotency-Key: the client owns that retry.

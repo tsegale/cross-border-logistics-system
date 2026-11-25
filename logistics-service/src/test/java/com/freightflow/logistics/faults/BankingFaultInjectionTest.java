@@ -61,6 +61,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Needs the banking image: {@code docker compose build banking-service} (or {@code -Dbanking.image=...}).
  */
 @SpringBootTest(properties = {
+        // MockMvc, no TLS connector: no client certificate to check here. Banking's image checks logistics'.
+        "freightflow.tls.mutual=false",
         "spring.datasource.hikari.minimum-idle=2",
         "freightflow.logistics.payments.relay-enabled=false",
         "freightflow.logistics.dcsa.processing-enabled=false",
@@ -101,11 +103,20 @@ class BankingFaultInjectionTest {
     static final GenericContainer<?> BANKING = new GenericContainer<>(DockerImageName.parse(BANKING_IMAGE))
             .withNetwork(NETWORK)
             .withNetworkAliases("banking-service")
-            // The internal CA's root where compose mounts it: banking's SSL bundle reads it at start (ADR 0039).
+            // banking's identity and the internal root where compose mounts them, from the test CA: its port takes
+            // mutual TLS, and logistics calls it as logistics-service (ADR 0040).
             .withCopyToContainer(org.testcontainers.images.builder.Transferable.of(
                     com.freightflow.logistics.support.TestCertificates.caPem(), 0644), "/tls/ca.pem")
+            .withCopyToContainer(org.testcontainers.images.builder.Transferable.of(
+                    com.freightflow.logistics.support.TestCertificates.of("banking-service").certificatePem(), 0644),
+                    "/tls/cert.pem")
+            .withCopyToContainer(org.testcontainers.images.builder.Transferable.of(
+                    com.freightflow.logistics.support.TestCertificates.of("banking-service").privateKeyPem(), 0644),
+                    "/tls/key.pem")
             .withExposedPorts(8081)
-            .waitingFor(Wait.forHttp("/actuator/health/readiness").forPort(8081)
+            // Readiness is behind mutual TLS, which the wait strategy cannot present: the warm-up's last line is
+            // logged as the service goes ready.
+            .waitingFor(Wait.forLogMessage(".*Warm-up (finished|disabled).*", 1)
                     .withStartupTimeout(Duration.ofMinutes(5)));
 
     static final ToxiproxyContainer TOXIPROXY = new ToxiproxyContainer(
@@ -141,8 +152,16 @@ class BankingFaultInjectionTest {
 
     @DynamicPropertySource
     static void bankingBehindToxiproxy(DynamicPropertyRegistry registry) {
+        // Mutual TLS through the proxy, which passes the bytes on: banking's certificate names 127.0.0.1.
         registry.add("spring.http.serviceclient.banking.base-url",
-                () -> "http://" + TOXIPROXY.getHost() + ":" + TOXIPROXY.getMappedPort(8666));
+                () -> "https://127.0.0.1:" + TOXIPROXY.getMappedPort(8666));
+        registry.add("spring.ssl.bundle.pem.internal.truststore.certificate",
+                com.freightflow.logistics.support.TestCertificates::caPem);
+        registry.add("spring.ssl.bundle.pem.internal.keystore.certificate",
+                () -> com.freightflow.logistics.support.TestCertificates.of("logistics-service").certificatePem());
+        registry.add("spring.ssl.bundle.pem.internal.keystore.private-key",
+                () -> com.freightflow.logistics.support.TestCertificates.of("logistics-service").privateKeyPem());
+        registry.add("spring.ssl.bundle.pem.internal.reload-on-update", () -> "false");
         registry.add("KEYCLOAK_TOKEN_URI", () -> com.freightflow.logistics.support.RealmKeycloak.tokenUri(KEYCLOAK));
         registry.add("spring.security.oauth2.client.registration.banking.client-secret",
                 () -> com.freightflow.logistics.support.RealmKeycloak.LOGISTICS_SECRET);
@@ -174,9 +193,20 @@ class BankingFaultInjectionTest {
     @Autowired
     private BankingTokenCache bankingTokens;
 
+    /**
+     * Mutual TLS straight to banking's port, around the proxy (ADR 0040): an operator's requests come through the
+     * gateway, so they present its certificate; logistics' present logistics'.
+     */
+    private static org.springframework.http.client.ClientHttpRequestFactory direct(String identity) {
+        return new org.springframework.http.client.JdkClientHttpRequestFactory(java.net.http.HttpClient.newBuilder()
+                .sslContext(com.freightflow.logistics.support.TestCertificates.clientContext(
+                        com.freightflow.logistics.support.TestCertificates.of(identity)))
+                .version(java.net.http.HttpClient.Version.HTTP_1_1).build());
+    }
+
     /** Talks to banking directly, around the proxy, as an operator: sets accounts up and checks the ledger. */
     private final RestClient banking = RestClient.builder()
-            .baseUrl("http://" + BANKING.getHost() + ":" + BANKING.getMappedPort(8081))
+            .baseUrl("https://127.0.0.1:" + BANKING.getMappedPort(8081)).requestFactory(direct("api-gateway"))
             .requestInterceptor((request, body, execution) -> {
                 request.getHeaders().setBearerAuth(com.freightflow.logistics.support.RealmKeycloak.clientToken(
                         KEYCLOAK, TEST_OPERATOR, TEST_OPERATOR_SECRET));
@@ -186,7 +216,7 @@ class BankingFaultInjectionTest {
 
     /** The second operator: approves what {@link #banking} requests. */
     private final RestClient bankingAsChecker = RestClient.builder()
-            .baseUrl("http://" + BANKING.getHost() + ":" + BANKING.getMappedPort(8081))
+            .baseUrl("https://127.0.0.1:" + BANKING.getMappedPort(8081)).requestFactory(direct("api-gateway"))
             .requestInterceptor((request, body, execution) -> {
                 request.getHeaders().setBearerAuth(com.freightflow.logistics.support.RealmKeycloak.clientToken(
                         KEYCLOAK, TEST_CHECKER, TEST_CHECKER_SECRET));
@@ -196,7 +226,7 @@ class BankingFaultInjectionTest {
 
     /** Holds are logistics' to read (ADR 0019): its own token. */
     private final RestClient bankingAsLogistics = RestClient.builder()
-            .baseUrl("http://" + BANKING.getHost() + ":" + BANKING.getMappedPort(8081))
+            .baseUrl("https://127.0.0.1:" + BANKING.getMappedPort(8081)).requestFactory(direct("logistics-service"))
             .requestInterceptor((request, body, execution) -> {
                 request.getHeaders().setBearerAuth(com.freightflow.logistics.support.RealmKeycloak.clientToken(
                         KEYCLOAK, "logistics-service", com.freightflow.logistics.support.RealmKeycloak.LOGISTICS_SECRET));

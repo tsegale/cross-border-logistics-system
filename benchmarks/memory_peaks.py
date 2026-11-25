@@ -67,14 +67,12 @@ def containers() -> dict[str, float]:
     return usage
 
 
-# The ports that take TLS, verified inside the container against its own copy of the internal root (ADR 0039).
-TLS = {"api-gateway"}
-
-
 def actuator_metrics(service: str, port: int) -> subprocess.CompletedProcess:
-    scheme = "https" if service in TLS else "http"
+    # TLS everywhere, verified inside the container against its own copy of the internal root (ADR 0039); the services
+    # take mutual TLS and accept their own certificate (ADR 0040), the gateway's management port asks for none.
     return subprocess.run([*COMPOSE, "exec", "-T", service, "curl", "-fsS", "--cacert", "/tls/ca.pem",
-                           f"{scheme}://localhost:{port}/actuator/prometheus"],
+                           "--cert", "/tls/cert.pem", "--key", "/tls/key.pem",
+                           f"https://localhost:{port}/actuator/prometheus"],
                           capture_output=True, text=True, timeout=20)
 
 

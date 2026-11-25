@@ -49,8 +49,10 @@ Residual: the gateway's certificate comes from the internal CA, so a browser or 
 | Information disclosure | Lists include other tenants' shipments | Visibility in the query | `AuthorisationMatrixTest.listsOnlyShowWhatTheCallerMaySee` |
 | Tampering | Idempotency key reuse across tenants returns another tenant's response | Keys scoped to the caller (ADR 0020) | `AuthorisationMatrixTest.sameKeyFromTwoTenantsIs...` (both services) |
 | Denial of service | Keycloak down makes services answer 500 or 401 | 503 `issuer-unavailable` when keys cannot be fetched | `IssuerOutageTest`; `IssuerOutageFilter` in both services |
+| Spoofing | A container on the network, with or without a stolen token, calls a service directly | Mutual TLS on every service port: a certificate from the internal CA or no handshake, then only the listed callers (`freightflow.tls.allowed-callers`), then the token as before (ADR 0040) | `CallerCertificateIntegrationTest` (all three services), `GatewayMutualTlsTest` |
+| Information disclosure | Tokens and bodies read on the wire between containers | TLS 1.2 or 1.3 on every hop, verified by name against the internal root (ADR 0040) | each hop's test in ADR 0040 |
 
-Residual: no mTLS between containers locally; Phase 7.
+Residual: a container whose key leaks can call what its identity is allowed until its certificate expires (24 h at most, ADR 0039); the allowlists keep that to its own callers' rights.
 
 ## 3. logistics-service to banking-service, and to Keycloak
 

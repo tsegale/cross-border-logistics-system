@@ -67,6 +67,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * never deleted, so this test owns every row of the table it sees.
  */
 @SpringBootTest(properties = {
+        // MockMvc, no TLS connector: no client certificate to check (ADR 0040).
+        "server.ssl.enabled=false",
+        "freightflow.tls.mutual=false",
         "freightflow.banking.fx.reference.provider=ecb",
         // The test calls the refresher itself; the schedule never fires during it.
         "freightflow.banking.fx.reference.initial-delay=1h",
@@ -97,6 +100,11 @@ class ReferenceRateFlowIntegrationTest {
         registry.add("spring.kafka.bootstrap-servers", SharedContainers.KAFKA::bootstrapServers);
         // Every internal TLS peer (the broker, KafkaBroker) is verified against this JVM's test CA.
         registry.add("spring.ssl.bundle.pem.internal.truststore.certificate", TestCertificates::caPem);
+        registry.add("spring.ssl.bundle.pem.internal.keystore.certificate",
+                () -> TestCertificates.of("banking-service").certificatePem());
+        registry.add("spring.ssl.bundle.pem.internal.keystore.private-key",
+                () -> TestCertificates.of("banking-service").privateKeyPem());
+        registry.add("spring.ssl.bundle.pem.internal.reload-on-update", () -> "false");
         registry.add("KAFKA_USERNAME", () -> "banking");
         registry.add("freightflow.kafka.password", () -> SharedContainers.KAFKA.password("banking"));
         registry.add("freightflow.banking.fx.reference.ecb-base-url", () -> "http://127.0.0.1:" + SOURCES.port());
