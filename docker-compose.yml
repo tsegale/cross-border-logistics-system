@@ -694,6 +694,9 @@ services:
         volume:
           subpath: public
     depends_on:
+      # Its certificate directories (subpaths of the certs volume) exist once the agent has issued them.
+      cert-agent:
+        condition: service_healthy
       # The monitoring user exists only once kafka-init has run; a first login that fails is not retried by the
       # kafka_metrics receiver's client.
       kafka-init:
@@ -757,6 +760,11 @@ services:
         read_only: true
         volume:
           subpath: prometheus
+    depends_on:
+      # Its directory of the certs volume exists once the agent has issued its certificate: a subpath must exist when
+      # the container is created.
+      cert-agent:
+        condition: service_healthy
     ports:
       - "127.0.0.1:9090:9090"
 
