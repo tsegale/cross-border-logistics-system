@@ -82,7 +82,7 @@ jobs:
         run: |
           sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
           python3 scripts/generate_secrets.py
-          $COMPOSE up -d --wait --build
+          $COMPOSE up -d --wait --wait-timeout 900 --build
 
       # Every container's memory peak and each JVM's heap, non-heap and threads across every suite (ADR 0029).
       - name: Start sampling memory
@@ -110,7 +110,7 @@ jobs:
           mkdir -p benchmarks/out/hot-accounts
           find benchmarks/out -maxdepth 1 -name '*.json' ! -name runner.json -exec mv {} benchmarks/out/hot-accounts/ \;
           # Back to the default mode for the suites that follow.
-          $COMPOSE up -d --wait --force-recreate banking-service
+          $COMPOSE up -d --wait --wait-timeout 900 --force-recreate banking-service
 
       - name: Payment flow (ADR 0012)
         if: contains(inputs.suites, 'payment-flow')
@@ -165,7 +165,7 @@ jobs:
         run: |
           mkdir -p benchmarks/out/cdc
           set -o pipefail
-          $COMPOSE up -d --wait
+          $COMPOSE up -d --wait --wait-timeout 900
           $COMPOSE exec -T logistics-db sh -c 'psql -U "$POSTGRES_USER" -d logistics -tAc "SHOW wal_level"'
           python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 30 --cdc --json benchmarks/out/cdc/cdc.json 2>&1 | tee benchmarks/out/cdc/cdc.log             || { docker inspect --format 'restarts: {{.RestartCount}}' "$($COMPOSE ps -aq debezium)";
                  $COMPOSE logs --no-log-prefix debezium | grep -E '"level":"(ERROR|WARN)"' | head -40;
@@ -180,7 +180,7 @@ jobs:
         run: |
           mkdir -p benchmarks/out/observability
           set -o pipefail
-          $OBS up -d --wait
+          $OBS up -d --wait --wait-timeout 900
           COMPOSE="$OBS" nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/obs.stop" --json benchmarks/out/observability/memory.json > benchmarks/out/observability/memory.md 2>&1 &
           COMPOSE="$OBS" python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 0 --json benchmarks/out/observability/events.json 2>&1 | tee benchmarks/out/observability/events.log
           touch "$RUNNER_TEMP/obs.stop"; for _ in $(seq 60); do [ -s benchmarks/out/observability/memory.json ] && break; sleep 1; done
@@ -194,7 +194,7 @@ jobs:
         run: |
           mkdir -p benchmarks/out/lgtm
           set -o pipefail
-          $LGTM up -d --wait
+          $LGTM up -d --wait --wait-timeout 900
           COMPOSE="$LGTM" nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/lgtm.stop" --json benchmarks/out/lgtm/memory.json > benchmarks/out/lgtm/memory.md 2>&1 &
           COMPOSE="$LGTM" python3 benchmarks/events_to_email.py --rate 2 --seconds 120 --outage 0 --json benchmarks/out/lgtm/events.json 2>&1 | tee benchmarks/out/lgtm/events.log
           touch "$RUNNER_TEMP/lgtm.stop"; for _ in $(seq 60); do [ -s benchmarks/out/lgtm/memory.json ] && break; sleep 1; done

@@ -43,7 +43,7 @@ jobs:
         run: |
           sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
           python3 scripts/generate_secrets.py
-          $COMPOSE up -d --wait --build
+          $COMPOSE up -d --wait --wait-timeout 900 --build
       - name: Record the runner
         run: |
           mkdir -p drill
