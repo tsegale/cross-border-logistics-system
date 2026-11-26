@@ -71,7 +71,8 @@ class Attempt:
 class Traffic(threading.Thread):
     """A customer booking a shipment every second, as the steady state."""
     account: str
-    run: str
+    # Not "run": a field of that name would replace Thread.run, and the thread would never book anything.
+    tag: str
     attempts: list[Attempt] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -84,7 +85,7 @@ class Traffic(threading.Thread):
             number += 1
             started = time.monotonic()
             try:
-                tracking, _ = harness.book(self.account, f"chaos-{self.run}", number)
+                tracking, _ = harness.book(self.account, f"chaos-{self.tag}", number)
                 self.attempts.append(Attempt(time.time(), True, time.monotonic() - started, tracking))
             except Exception as error:  # noqa: BLE001 every failure is counted with its reason
                 reason = f"{error.code} {error.reason}" if isinstance(error, urllib.error.HTTPError) else type(error).__name__
