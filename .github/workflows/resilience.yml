@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
     inputs:
       suites:
-        description: "Comma-separated: knee, soak, chaos, restore"
-        default: "knee,soak,chaos,restore"
+        description: "Comma-separated: knee, soak, chaos, restore, base-images"
+        default: "knee,soak,chaos,restore,base-images"
         required: true
       soak_hours:
         description: "Soak length in hours"
@@ -201,3 +201,30 @@ jobs:
           retention-days: 90
       - if: failure()
         run: docker compose logs --tail 200 banking-db banking-service objectstore logistics-service
+
+  base-images:
+    name: Runtime bases compared
+    if: contains(inputs.suites, 'base-images')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record the runner
+        run: |
+          mkdir -p base-images
+          echo "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1), $(nproc) vCPUs, $(free -m | awk '/^Mem:/ {print $2}') MiB"             | tee base-images/runner.txt
+      - name: Start the stack
+        run: |
+          sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
+          python3 scripts/generate_secrets.py
+          docker compose up -d --wait --wait-timeout 900 --build
+      - name: Build, scan and run banking on each base
+        run: |
+          set -o pipefail
+          python3 benchmarks/base_images.py --json base-images/base-images.json | tee base-images/base-images.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: base-images-${{ github.run_id }}
+          path: base-images/
+          retention-days: 90

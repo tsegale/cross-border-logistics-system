@@ -1,0 +1,13 @@
+# banking-service on another runtime base, for the comparison in ADR 0047 (benchmarks/base_images.py). The build
+# stage is banking-service/Dockerfile's, built first as freightflow/banking-build. No shell in this base: the JVM's
+# options come from JDK_JAVA_OPTIONS, and there is no curl for compose's healthcheck.
+FROM freightflow/banking-build AS build
+FROM gcr.io/distroless/java21-debian12:nonroot@sha256:7e37784d94dccbf5ccb195c73b295f5ad00cd266512dfbac12eb9c3c28f8077d
+WORKDIR /app
+COPY --from=build /src/target/extracted/dependencies/ ./
+COPY --from=build /src/target/extracted/spring-boot-loader/ ./
+COPY --from=build /src/target/extracted/snapshot-dependencies/ ./
+COPY --from=build /src/target/extracted/application/ ./
+USER 10001:10001
+EXPOSE 8081
+ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
