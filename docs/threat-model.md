@@ -1,4 +1,4 @@
-# Threat model (Phase 3; insider misuse and the broker added in Phase 4, telemetry in Phase 5, outside data in Phase 6, bounded inputs and the OWASP API Top 10 in Phase 7)
+# Threat model (Phase 3; insider misuse and the broker added in Phase 4, telemetry in Phase 5, outside data in Phase 6; bounded inputs, the OWASP API Top 10, the supply chain and backups in Phase 7)
 
 STRIDE per trust boundary. Every threat names the control that stops it and the test or check that proves the
 control works. "Residual" is what remains, and where it is addressed.
@@ -75,7 +75,11 @@ Residual: a container whose key leaks can call what its identity is allowed unti
 | Tampering | A forged balance checkpoint | Reconciliation recomputes the latest checkpoint | `SystemBalanceCheckpointsIntegrationTest.aTamperedCheckpointIsADiscrepancy` |
 | Spoofing | Default database passwords | Generated passwords, `POSTGRES_PASSWORD_FILE` | `RequiredSecretsTest.theRealConfigurationHasNoDefaultSecret` |
 
-Residual: one database user per service owns its schema; separate migration and runtime roles are Phase 7.
+| Elevation of privilege | A bug or an injection in a service changes the schema, or rewrites the ledger past its triggers | The service connects as `<service>_app`, rows only; Flyway as the owner; append-only tables without `UPDATE` or `DELETE` for the runtime role; reference data `SELECT` only (ADR 0041) | `DatabaseRolesIntegrationTest` (each service); tests run as the runtime role |
+| Information disclosure | A connection to a database read or changed on the way | TLS required (`hostssl` only), certificates from the internal CA verified by name (`verify-full`) (ADR 0039, 0040) | `tls_probe.py` (plaintext refused by `pg_hba`) in CI |
+
+Residual: Flyway runs inside each service, so the service's container holds the owner's password at start. Phase 8
+moves migrations to a job of their own, so the running service never has it (ADR 0041).
 
 ## 5. Keycloak
 
@@ -164,8 +168,10 @@ people than the databases. ADRs 0030 to 0033.
 | Elevation of privilege | The collector's Docker socket mount (container memory) used to control containers | Mounted read-only; the collector publishes no port and is reachable only on the compose network | compose `otel-collector`; ADR 0031 |
 | Information disclosure | The Kafka monitoring credential reads events | The `monitoring` user may Describe the cluster, topics and groups, and nothing else: no Read, no Write | `infra/kafka/init.sh`; ADR 0031 |
 
-Residual: a read-only Docker socket still lets the collector list and inspect every container on the host (their
-environment included); in Kubernetes the kubelet's metrics replace it. Tail sampling keeps 10 % of healthy traces in
+Residual: the collector no longer mounts the Docker socket. It reads container memory through `docker-api`, a proxy
+that passes GET on an allowlist and nothing else, on an internal network of its own (ADR 0041). Inspect is on that
+list, and it shows a container's environment, Keycloak's secrets included. In Kubernetes the kubelet's metrics replace
+it. Tail sampling keeps 10 % of healthy traces in
 production, so an exemplar can point at a trace that was dropped.
 
 ## 10. Outside data: exchange rates, tariffs and carrier events
@@ -210,3 +216,30 @@ proves it. ZAP's API scan (ADR 0042) runs over the public edge on every CI build
 
 Residual: the scan uses a customer's token only; the edge's limits are per address as the gateway sees it, which
 behind a load balancer needs its forwarded header trusted (Phase 8).
+
+## 12. Supply chain
+
+| STRIDE | Threat | Control | Proof |
+| --- | --- | --- | --- |
+| Tampering | A third-party action's tag is moved to malicious code, which then runs with the job's token | Every action is pinned to a full commit SHA, its version beside it for Dependabot; top-level `contents: read`, wider permissions per job only (ADR 0043) | The line-endings job fails on an unpinned `uses:`; OpenSSF Scorecard (Pinned-Dependencies, Token-Permissions) |
+| Tampering | A base or service image's tag is pushed again with other content | Every image in compose, the Dockerfiles, CI and the scripts is pinned by its index digest; Dependabot moves tag and digest together | `docker compose config`; the digests in the files |
+| Tampering | An image between build and run is swapped or altered | On main, each service image is signed keyless with cosign, its SBOM a signed SPDX attestation, SLSA v1 provenance from attest-build-provenance; the stack test verifies all three against this workflow's identity and runs the digests only (ADR 0043) | `scripts/verify_images.py` in CI, with its self-test refusing another workflow's identity |
+| Information disclosure | A dependency with a known vulnerability ships | Trivy fails the build on a fixable CRITICAL; SBOMs kept per image; Dependabot weekly; Scorecard weekly | `Docker image` jobs in CI |
+| Spoofing | A developer runs an image that is not what CI built | Locally compose still builds from source; CI alone verifies | Residual below |
+
+Residual: a developer's `docker compose up` builds from source and verifies nothing, and no admission control
+enforces signatures where the stack runs. Phase 8 deploys from the registry with a policy controller on the same
+identity. The `ca` and `keycloak` images are built in compose over pinned upstream images, and are not signed.
+
+## 13. Backups and restore
+
+| STRIDE | Threat | Control | Proof |
+| --- | --- | --- | --- |
+| Denial of service | A database volume is lost or corrupted | WAL archived continuously (at least every 60 s) and daily full backups to the object store, for every database; restore to the latest WAL or to a point in time (ADR 0046) | `scripts/restore_drill.py` (RPO and RTO measured, docs/benchmarks/restore.md) |
+| Information disclosure | The backups are read: the ledger, the customers' shipments | Encrypted by pgBackRest (AES-256-CBC) with a passphrase from `secrets/`; the object store takes TLS only, one S3 identity that may read, write and list; its other ports on its loopback | `infra/objectstore/start.sh`; `tls_probe.py` |
+| Tampering | Restoring to an earlier point pays something twice, or loses what consumers did | Idempotency keys, which go back with the ledger; a REAUTHORISE per lost hold, keyed per hold; sequences moved past the topics; a restored consumer's offsets reset to the point (`after_restore.py`) | The drill: no shipment holds twice, `after_restore.py` a second time changes nothing, the invariant audit passes |
+| Repudiation | A restore silently drops money movements | The restore runbook lists every capture the restore lost, to collect by hand; the audit's capture totals compare both services | docs/runbooks/restore.md; `audit_invariants.py` |
+
+Residual: the object store runs on the same host as the databases. A lost host loses both, and the passphrase with
+the secrets. Production puts the repository in another region, with object lock, and the passphrase in a secrets
+manager (Phase 8).
