@@ -7,6 +7,13 @@ server:
     bundle: internal
     client-auth: need
     enabled-protocols: [TLSv1.3, TLSv1.2]
+  # As the gateway's (ADR 0042), though only callers with a certificate reach this port: headers to 16 KB, 10 s for a
+  # client to send its request, 20 s idle between requests, and at most 2 MB of a refused body read to drain it.
+  max-http-request-header-size: 16KB
+  tomcat:
+    connection-timeout: 10s
+    keep-alive-timeout: 20s
+    max-swallow-size: 2MB
   request:
     header:
       forwarded:

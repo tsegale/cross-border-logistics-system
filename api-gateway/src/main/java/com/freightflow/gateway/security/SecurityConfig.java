@@ -63,8 +63,16 @@ public class SecurityConfig {
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 // HTTPS only: browsers keep to it for two years, Mozilla's intermediate profile (ADR 0039). Written on
                 // secure requests only, which every request to this listener is.
+                // A JSON API: nothing to render, frame or refer onwards (OWASP REST Security, ADR 0042). Spring writes
+                // a header only when the response has none, so Keycloak's login pages keep their own policy.
                 .headers(headers -> headers.hsts(hsts -> hsts.maxAge(Duration.ofSeconds(63_072_000))
-                        .includeSubdomains(true)))
+                                .includeSubdomains(true))
+                        .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
+                        .referrerPolicy(referrer -> referrer.policy(
+                                org.springframework.security.web.server.header.ReferrerPolicyServerHttpHeadersWriter
+                                        .ReferrerPolicy.NO_REFERRER)))
+                // No CorsConfigurationSource: no origin is allowed, and a preflight gets no Access-Control-* fields.
+                .cors(ServerHttpSecurity.CorsSpec::disable)
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
                 .logout(ServerHttpSecurity.LogoutSpec::disable)

@@ -1,6 +1,13 @@
 server:
   port: ${SERVER_PORT:8080}
   shutdown: graceful
+  # What one client may hold (ADR 0042): a bearer token and the usual fields fit in 16 KB. Until its headers are in,
+  # only the idle timeout bounds a request, so it is short: 20 s without a byte closes the connection. The body has
+  # ServerLimits' read and request timeouts.
+  max-http-request-header-size: 16KB
+  netty:
+    idle-timeout: ${GATEWAY_IDLE_TIMEOUT:20s}
+    max-keep-alive-requests: 1000
   # HTTPS only (ADR 0039): the certificate the agent issues to api-gateway, swapped in when it is renewed, and
   # Mozilla's intermediate profile (guidelines 6.0). Management (8085) has its own port and settings.
   ssl:
