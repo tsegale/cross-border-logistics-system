@@ -10,9 +10,12 @@ owner; the services never read each other's databases.
    them on its shipments. Each one gets a REAUTHORISE, the command logistics already sends for an expired hold
    (ADR 0028), with that command's key: one per lost hold, so running this twice makes no second hold. Money that
    a lost capture should have taken stays the operator's to collect: the script lists those shipments.
+3. Consumer offsets (logistics, notification). Kafka kept the restored consumer's offsets past the restore point,
+   so the events it processed after it would never be read again, and their effects stay lost. Its groups are reset
+   to the restore point; processed_events, restored with it, applies each of them once. The service must be stopped.
 
     python scripts/after_restore.py banking
-    python scripts/after_restore.py logistics
+    python scripts/after_restore.py logistics --restored-to 2026-11-27T10:15:00Z
 
 Needs the stack and Docker; reads the topics inside the broker's container, as audit_invariants.py does.
 """
@@ -30,6 +33,7 @@ import audit_invariants  # noqa: E402
 REPOSITORY = Path(__file__).resolve().parent.parent
 COMPOSE = ["docker", "compose", "--project-directory", str(REPOSITORY)]
 TOPICS = {
+    "notification": [],
     "banking": ["freightflow.account.v1", "freightflow.hold.v1", "freightflow.journal-entry.v1",
                 "freightflow.approval.v1"],
     "logistics": ["freightflow.shipment.v1"],
@@ -105,9 +109,23 @@ def reauthorise_lost_holds() -> tuple[int, list[str]]:
     return len(lost), [tracking for _, _, tracking in uncollected]
 
 
+def reset_offsets(service: str, restored_to: str) -> list[str]:
+    groups = [group for group in audit_invariants.kafka(
+        f"/opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 "
+        f"--command-config {audit_invariants.ADMIN_CLIENT} --list").split() if group.startswith(f"{service}-service")]
+    for group in groups:
+        audit_invariants.kafka(
+            f"/opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 "
+            f"--command-config {audit_invariants.ADMIN_CLIENT} --group {group} --reset-offsets --all-topics "
+            f"--to-datetime {restored_to.replace('Z', '').split('.')[0]}.000 --execute")
+    return groups
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("service", choices=sorted(TOPICS))
+    parser.add_argument("--restored-to", help="logistics, notification: the restore point, UTC, e.g. "
+                                              "2026-11-27T10:15:00Z; resets the service's consumer groups to it")
     parser.add_argument("--json", help="write what was done here")
     args = parser.parse_args()
     done = {"service": args.service, "sequences_moved": realign_sequences(args.service)}
@@ -117,6 +135,9 @@ def main() -> None:
         done.update(reauthorised=reauthorised, captures_to_collect=uncollected)
         print(f"banking: {reauthorised} lost holds reauthorised; {len(uncollected)} captured shipments whose capture "
               f"was lost, to collect by hand: {', '.join(uncollected) or 'none'}")
+    if args.service != "banking" and args.restored_to:
+        done["offsets_reset"] = reset_offsets(args.service, args.restored_to)
+        print(f"{args.service}: consumer groups reset to {args.restored_to}: {', '.join(done['offsets_reset'])}")
     if args.json:
         Path(args.json).write_text(json.dumps(done, indent=2))
 
