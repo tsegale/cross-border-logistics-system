@@ -1,0 +1,174 @@
+name: Resilience
+
+# Phase 7 (ADR 0045): the knee, a soak of at least two hours, and the chaos experiments, each on a hosted runner of
+# its own, so the numbers describe the system on a machine doing nothing else. Started by hand; never on push.
+# The runner's CPU, vCPUs and memory are recorded with each job's results.
+
+on:
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: "Comma-separated: knee, soak, chaos"
+        default: "knee,soak,chaos"
+        required: true
+      soak_hours:
+        description: "Soak length in hours"
+        default: "2"
+        required: true
+      soak_rate:
+        description: "Soak bookings per second"
+        default: "5"
+        required: true
+      experiments:
+        description: "chaos: all, or one of kill-banking, kill-kafka, partition-banking, slow-banking-db, keycloak-down, redis-down, clock-skew, certificate-expiry"
+        default: "all"
+        required: true
+
+concurrency:
+  group: resilience
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ECB_BASE_URL: https://partner-simulator:8090/ecb
+  BON_RATES_URL: https://partner-simulator:8090/bon/ratestable/api/rates
+  REFERENCE_RATES_SSL_BUNDLE: internal
+  K6_VERSION: v2.3.0
+
+jobs:
+  knee:
+    name: The knee
+    if: contains(inputs.suites, 'knee')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      COMPOSE: docker compose -f docker-compose.yml -f benchmarks/compose.bench.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record the runner
+        run: |
+          mkdir -p benchmarks/out/knee
+          echo "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1), $(nproc) vCPUs, $(free -m | awk '/^Mem:/ {print $2}') MiB" \
+            | tee benchmarks/out/knee/runner.txt
+      - name: Install k6 ${{ env.K6_VERSION }}
+        run: |
+          curl -fsSL "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/k6-${K6_VERSION}-linux-amd64" >> "$GITHUB_PATH"
+      - name: Start the stack with the benchmark overrides
+        run: |
+          sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
+          python3 scripts/generate_secrets.py
+          $COMPOSE up -d --wait --wait-timeout 900 --build
+      - name: Raise the offered rate until the stack stops keeping up
+        run: |
+          SSL_CERT_FILE="$(python3 scripts/internal_ca.py)"
+          export SSL_CERT_FILE
+          tokens() {
+            printf -- '-e OPERATOR_TOKEN=%s -e CHECKER_TOKEN=%s -e CUSTOMER_TOKEN=%s' \
+              "$(scripts/token.sh operator)" "$(scripts/token.sh second-operator)" "$(scripts/token.sh customer-namib-exports)"
+          }
+          # Warm-up, discarded: the JIT, the pools and the caches, not the system's capacity.
+          k6 run -q $(tokens) -e RATE=4 -e DURATION=1m -e RUN_TAG="warmup-$GITHUB_RUN_ID" benchmarks/k6/booking_knee.js || true
+          missed=0
+          for rate in 4 8 16 24 32 48 64 96 128; do
+            k6 run -q $(tokens) -e RATE=$rate -e DURATION=2m -e RUN_TAG="knee-$GITHUB_RUN_ID-$rate" \
+              -e SUMMARY_FILE="benchmarks/out/knee/knee-$rate.json" benchmarks/k6/booking_knee.js || true
+            python3 benchmarks/knee_report.py benchmarks/out/knee > benchmarks/out/knee/knee.md
+            if tail -n +3 benchmarks/out/knee/knee.md | grep -q "^| $rate |.*| no |$"; then
+              missed=$((missed + 1))
+              # Two rates in a row that did not keep up: past the knee.
+              [ "$missed" -ge 2 ] && break
+            else
+              missed=0
+            fi
+          done
+          cat benchmarks/out/knee/knee.md
+          { echo "## The knee"; echo; echo "Runner: $(cat benchmarks/out/knee/runner.txt)"; echo; cat benchmarks/out/knee/knee.md; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Invariants hold after the load
+        run: python3 scripts/audit_invariants.py --json benchmarks/out/knee/invariants.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: knee-${{ github.run_id }}
+          path: benchmarks/out/knee/
+          retention-days: 90
+
+  soak:
+    name: The soak
+    if: contains(inputs.suites, 'soak')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      COMPOSE: docker compose -f docker-compose.yml -f benchmarks/compose.bench.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record the runner
+        run: |
+          mkdir -p benchmarks/out/soak
+          echo "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1), $(nproc) vCPUs, $(free -m | awk '/^Mem:/ {print $2}') MiB" \
+            | tee benchmarks/out/soak/runner.txt
+      - name: Start the stack with the benchmark overrides
+        run: |
+          sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
+          python3 scripts/generate_secrets.py
+          $COMPOSE up -d --wait --wait-timeout 900 --build
+      - name: Start sampling memory
+        run: nohup python3 benchmarks/memory_peaks.py --stop-file "$RUNNER_TEMP/memory.stop" --json benchmarks/out/soak/memory-peaks.json > benchmarks/out/soak/memory-peaks.md 2> benchmarks/out/soak/memory-peaks.err &
+      - name: Soak
+        run: |
+          set -o pipefail
+          python3 benchmarks/soak.py --rate "${{ inputs.soak_rate }}" --hours "${{ inputs.soak_hours }}" \
+            --json benchmarks/out/soak/soak.json | tee benchmarks/out/soak/soak.log
+      - name: Memory peaks
+        if: always()
+        run: |
+          touch "$RUNNER_TEMP/memory.stop"
+          for _ in $(seq 60); do [ -s benchmarks/out/soak/memory-peaks.json ] && break; sleep 1; done
+          cat benchmarks/out/soak/memory-peaks.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: soak-${{ github.run_id }}
+          path: benchmarks/out/soak/
+          retention-days: 90
+      - if: failure()
+        run: $COMPOSE logs --tail 200
+
+  chaos:
+    name: Chaos experiments
+    if: contains(inputs.suites, 'chaos')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record the runner
+        run: |
+          mkdir -p chaos
+          echo "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1), $(nproc) vCPUs, $(free -m | awk '/^Mem:/ {print $2}') MiB" \
+            | tee chaos/runner.txt
+      - name: Start the stack with Toxiproxy in two paths
+        run: |
+          sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
+          python3 scripts/generate_secrets.py
+          docker compose -f docker-compose.yml -f infra/chaos/compose.chaos.yml up -d --wait --wait-timeout 900 --build
+      - name: Experiments
+        run: |
+          set -o pipefail
+          python3 scripts/chaos.py "${{ inputs.experiments }}" --out chaos | tee chaos/chaos.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: chaos-${{ github.run_id }}
+          path: chaos/
+          retention-days: 90
+      - if: failure()
+        run: |
+          docker inspect -f '{{.Name}} running={{.State.Running}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' $(docker compose ps -aq)
+          docker compose -f docker-compose.yml -f infra/chaos/compose.chaos.yml logs --tail 200
