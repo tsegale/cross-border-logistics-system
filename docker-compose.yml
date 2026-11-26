@@ -92,7 +92,7 @@ services:
     <<: *hardened
     tmpfs:
       - /tmp:size=16m,uid=1000,gid=1000,mode=0770
-    mem_limit: 256m
+    mem_limit: 512m
     image: chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
     user: "1000:1000"
     entrypoint: ["/bin/sh", "/etc/freightflow/objectstore/start.sh"]

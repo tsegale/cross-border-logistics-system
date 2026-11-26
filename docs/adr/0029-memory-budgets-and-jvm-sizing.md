@@ -33,6 +33,7 @@ and the benchmarks, with headroom; **every JVM sizes its heap from its own limit
 | kafka-init | 256m | 137 | (exits first) | 84 | `KAFKA_HEAP_OPTS=-Xmx128m` |
 | ca | 96m | | | | step-ca (ADR 0039). 64m until the Kafka TLS commit: `memory.peak` 67.2 MiB on the laptop, the 54 MB binary's pages counted against the limit |
 | cert-agent | 48m | | | | step CLI and sh (ADR 0039). 32m until the Kafka TLS commit: `memory.peak` 35.2 MiB renewing all 14 certificates on the laptop; at 32m the 44 MB `step` binary was paged out between calls and each certificate took 48 s |
+| objectstore | 512m | | | | SeaweedFS 4.55, master, volume server, filer and S3 gateway in one process (ADR 0046). At its first limit, 256m, it hit the limit 15,405 times during banking's first full backup, with 98 MiB anonymous resident and 256 MiB swapped: about 350 MiB in use, measured on the laptop |
 | debug-ports (profile debug) | 32m | | | | socat |
 | docker-api (profile observability) | 32m | | | | HAProxy, the read-only Docker API for the collector (ADR 0041) |
 
