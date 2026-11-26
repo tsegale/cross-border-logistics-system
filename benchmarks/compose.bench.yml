@@ -3,8 +3,8 @@
 # pg_stat_statements shows where a transfer spends its database time; track_io_timing adds I/O waits to it.
 services:
   banking-db:
+    # Arguments to Postgres: infra/postgres/start.sh runs postgres itself, with TLS, and appends these.
     command:
-      - postgres
       - -c
       - shared_preload_libraries=pg_stat_statements
       - -c
