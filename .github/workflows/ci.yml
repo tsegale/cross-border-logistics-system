@@ -157,6 +157,13 @@ jobs:
           set -o pipefail
           python3 scripts/rotation_test.py --json tls-probe/rotation.json | tee tls-probe/rotation.txt
           { echo "## Certificate rotation under traffic"; echo; echo '```'; cat tls-probe/rotation.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # ADR 0044: after the smoke test, the rotation and their traffic, every invariant holds across both services
+      # and the topics.
+      - name: Invariants hold
+        run: |
+          set -o pipefail
+          python3 scripts/audit_invariants.py --json tls-probe/invariants.json | tee tls-probe/invariants.txt
+          { echo "## Invariant audit (ADR 0044)"; echo; echo '```'; cat tls-probe/invariants.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       # ADR 0042: ZAP's API scan of the edge with a customer's token, judged by the reviewed baseline
       # (infra/zap/rules.tsv). The full rule list is written too, so a rule a new ZAP release adds can be judged.
       - name: ZAP API scan

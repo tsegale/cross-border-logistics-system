@@ -1,0 +1,4 @@
+[
+  {"name": "banking", "listen": "0.0.0.0:8081", "upstream": "banking-service:8081", "enabled": true},
+  {"name": "banking-db", "listen": "0.0.0.0:5432", "upstream": "banking-db:5432", "enabled": true}
+]

@@ -1,0 +1,53 @@
+# Chaos experiments (docs/chaos, ADR 0045): Toxiproxy in two paths, for the experiments that partition or slow them.
+#   docker compose -f docker-compose.yml -f infra/chaos/compose.chaos.yml up -d --wait
+#
+# Toxiproxy relays TCP; TLS runs through it end to end. It listens on a fixed address of its own network, and the
+# hosts file of one container at a time points a name at it: logistics' banking-service and banking's banking-db.
+# Their certificates are checked against those names as always (ADR 0040); every other container reaches the real
+# ones. Paths are relative to the project directory (the first compose file's).
+networks:
+  chaos:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.13.0@sha256:5d3dae09bc185dcc5ff6cf43abf6062a4a720aff0c4306a471e773acdcd107aa
+    command: ["-host=0.0.0.0", "-config=/etc/toxiproxy/proxies.json"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 32m
+    volumes:
+      - ./infra/chaos/proxies.json:/etc/toxiproxy/proxies.json:ro
+    networks:
+      default: {}
+      chaos:
+        ipv4_address: 172.31.250.10
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  logistics-service:
+    networks:
+      default: {}
+      chaos: {}
+    extra_hosts:
+      - "banking-service:172.31.250.10"
+    depends_on:
+      toxiproxy:
+        condition: service_healthy
+
+  banking-service:
+    networks:
+      default: {}
+      chaos: {}
+    extra_hosts:
+      - "banking-db:172.31.250.10"
+    depends_on:
+      toxiproxy:
+        condition: service_healthy
