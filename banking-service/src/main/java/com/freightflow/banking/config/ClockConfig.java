@@ -16,8 +16,14 @@ import java.time.Clock;
         OutboxProperties.class})
 public class ClockConfig {
 
+    /**
+     * The service's clock, which every time decision and the token lifetime check read. {@code freightflow.clock.offset}
+     * moves it, as a host whose clock drifted would: for the clock-skew experiment only (docs/chaos, ADR 0045), zero in
+     * every deployment.
+     */
     @Bean
-    public Clock clock() {
-        return Clock.systemUTC();
+    public Clock clock(@org.springframework.beans.factory.annotation.Value("${freightflow.clock.offset:0s}")
+                       java.time.Duration offset) {
+        return offset.isZero() ? Clock.systemUTC() : Clock.offset(Clock.systemUTC(), offset);
     }
 }

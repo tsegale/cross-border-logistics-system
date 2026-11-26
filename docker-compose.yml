@@ -325,6 +325,8 @@ services:
       # The invariant audit (ADR 0044): daily; the fire drill shortens it and turns it off to see it noticed.
       FREIGHTFLOW_INVARIANTS_ENABLED: ${FREIGHTFLOW_INVARIANTS_ENABLED:-true}
       FREIGHTFLOW_INVARIANTS_INTERVAL: ${FREIGHTFLOW_INVARIANTS_INTERVAL:-24h}
+      # The clock-skew experiment (docs/chaos) moves this service's clock; zero otherwise.
+      FREIGHTFLOW_CLOCK_OFFSET: ${BANKING_CLOCK_OFFSET:-0s}
       # banking validates the relayed token itself, for its own audience (ADR 0017).
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8080}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
@@ -395,6 +397,8 @@ services:
       # Its database password and its client secret for Keycloak are secret files (ADR 0019).
       # Internal network only: holds and captures are not routed by the gateway.
       BANKING_SERVICE_URI: https://banking-service:8081
+      # The clock-skew experiment (docs/chaos) moves this service's clock; zero otherwise.
+      FREIGHTFLOW_CLOCK_OFFSET: ${LOGISTICS_CLOCK_OFFSET:-0s}
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8080}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs
       # Its own client-credentials token for banking, from Keycloak on the compose network (ADR 0019).
