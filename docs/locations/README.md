@@ -62,8 +62,16 @@ release stays in the table: shipments may name it.
 
 ## Terms
 
-The brief requires UNECE's terms for redistributing UN/LOCODE to be checked before a subset is committed. They
-could not be confirmed on 2026-11-26: unece.org refuses automated requests and shows a bot check in the browser.
-UNECE's Recommendation 16, the standard that UN/LOCODE implements, disclaims liability for use of the code list but
-states no licence. This section is to be completed with the terms, quoted from UNECE's site, before V19 is
-published.
+Checked 2026-11-26 on UNECE's UN/LOCODE page (unece.org/trade/uncefact/unlocode, read in a browser, since the site
+refuses automated requests):
+- **The release.** The page lists 2025-1 as the current release, with cut-off dates of 31 March and 30 September.
+- **The download.** It offers the complete release as a public download: codes, support codes, manual and
+  secretariat note, as Access, text, CSV and HTML files.
+- **No licence.** The page states no licence and no restriction on reuse or redistribution.
+- **UNECE's Recommendation 16**, the formal basis of UN/LOCODE, disclaims responsibility for consequences of its use
+  and states no licence either.
+
+**Decision.** With no restriction stated, this repository commits a subset of the 2025-1 release, about a fifth of
+the list. It names UNECE as its source here and in the migration's header, and is not presented as UNECE's.
+If UNECE publishes terms that forbid it, the fallback is to remove the data from the repository and keep only the
+generator. A Flyway migration already applied is not edited, so that would be a new migration plus a history note.
