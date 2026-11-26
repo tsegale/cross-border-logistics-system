@@ -69,7 +69,9 @@ class RetryTraceIntegrationTest extends IntegrationTest {
 
         await(60, () -> Mailpit.to(recipient).stream()
                 .filter(message -> message.subject().startsWith("Reservation released")).findFirst().orElse(null));
-        List<SpanData> spans = TestSpans.trace(traceId, found -> TestSpans.names(found).contains("email send"));
+        // Spans are exported as they end, the consumers' possibly after the send: wait for all three.
+        List<SpanData> spans = TestSpans.trace(traceId, found -> TestSpans.names(found).contains("email send")
+                && found.stream().filter(span -> span.getKind() == SpanKind.CONSUMER).count() >= 2);
         assertThat(spans).filteredOn(span -> span.getName().equals("email send")).singleElement()
                 .satisfies(span -> assertThat(span.getAttributes().asMap().toString())
                         .contains("freightflow.notification.kind=payment-released"));
