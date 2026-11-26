@@ -316,8 +316,12 @@ class BankingFaultInjectionTest {
         assertThat(holds(shipment)).as("banking committed the hold before the answer was lost").hasSize(1);
 
         proxy.toxics().get("lose-the-answer").remove();
-        makeDue(shipment);
-        relayFor(shipment);
+        // The first retry may meet the connection the toxic closed and fail like any transport error; the relay
+        // tries again, with the same key, until banking's stored answer comes back.
+        for (int round = 0; round < 3 && !"BOOKED".equals(shipmentStatus(shipment)); round++) {
+            makeDue(shipment);
+            relayFor(shipment);
+        }
 
         assertThat(shipmentStatus(shipment)).isEqualTo("BOOKED");
         String holdId = jdbcTemplate.queryForObject("SELECT hold_id::text FROM shipments WHERE id = ?::uuid",
