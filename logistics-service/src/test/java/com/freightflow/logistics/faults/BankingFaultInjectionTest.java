@@ -301,6 +301,12 @@ class BankingFaultInjectionTest {
 
     @Test
     void connectionResetAfterBankingCommittedIsReplayedNotDuplicated() throws Exception {
+        // Banking takes TLS (ADR 0040): on a fresh connection the one byte below would be the server's handshake, and
+        // banking would never see the request. A booking of its own opens the relay's pooled connection first, so
+        // the toxic cuts an answer, whatever ran before this test.
+        String warm = book();
+        relayFor(warm);
+        assertThat(shipmentStatus(warm)).isEqualTo("BOOKED");
         String shipment = book();
         // Banking reads the request, commits the hold and answers; the proxy cuts the answer after one byte.
         proxy.toxics().limitData("lose-the-answer", ToxicDirection.DOWNSTREAM, 1);
