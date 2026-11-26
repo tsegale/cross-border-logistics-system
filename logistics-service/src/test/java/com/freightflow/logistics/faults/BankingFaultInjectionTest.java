@@ -316,14 +316,16 @@ class BankingFaultInjectionTest {
         assertThat(holds(shipment)).as("banking committed the hold before the answer was lost").hasSize(1);
 
         proxy.toxics().get("lose-the-answer").remove();
-        // The first retry may meet the connection the toxic closed and fail like any transport error; the relay
-        // tries again, with the same key, until banking's stored answer comes back.
-        for (int round = 0; round < 3 && !"BOOKED".equals(shipmentStatus(shipment)); round++) {
+        // For a moment after the cut, new TLS handshakes through the proxy are refused (measured: every immediate
+        // retry failed with "Remote host terminated the handshake", one 2 s later succeeded). The relay retries with
+        // the same key, as it would after any transport error, until banking's stored answer comes back.
+        for (int round = 0; round < 5 && !"BOOKED".equals(shipmentStatus(shipment)); round++) {
+            Thread.sleep(2_000);
             makeDue(shipment);
             relayFor(shipment);
         }
 
-        assertThat(shipmentStatus(shipment)).isEqualTo("BOOKED");
+        assertThat(shipmentStatus(shipment)).as("last error: %s", lastError(shipment)).isEqualTo("BOOKED");
         String holdId = jdbcTemplate.queryForObject("SELECT hold_id::text FROM shipments WHERE id = ?::uuid",
                 String.class, shipment);
         assertThat(holds(shipment).getFirst().get("id").asString()).isEqualTo(holdId);
