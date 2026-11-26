@@ -75,6 +75,9 @@ public class SecurityConfig {
                                 .hasRole(Caller.OPERATOR)
                         .requestMatchers(HttpMethod.GET, "/api/v1/logistics/dead-letters",
                                 "/api/v1/logistics/dead-letters/**").hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
+                        // The invariant audit (ADR 0044): staff only.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/logistics/invariants")
+                                .hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
                         .requestMatchers("/api/v1/payment-commands", "/api/v1/payment-commands/**")
                                 .hasAnyRole(Caller.OPERATOR, Caller.AUDITOR)
                         .requestMatchers(HttpMethod.GET, "/api/v1/shipments", "/api/v1/shipments/**")

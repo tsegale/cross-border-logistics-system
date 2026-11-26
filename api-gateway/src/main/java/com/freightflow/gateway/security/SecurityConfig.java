@@ -108,6 +108,8 @@ public class SecurityConfig {
                                 "/api/v1/logistics/dead-letters/*/redrive").hasRole("operator")
                         // An UNKNOWN email sent again, with the duplicate acknowledged (ADR 0027).
                         .pathMatchers(HttpMethod.POST, "/api/v1/notifications/*/resend").hasRole("operator")
+                        // The invariant audits (ADR 0044): staff only, in each service too.
+                        .pathMatchers(HttpMethod.GET, "/api/v1/logistics/invariants").hasAnyRole("operator", "auditor")
                         .pathMatchers("/api/v1/dead-letters", "/api/v1/dead-letters/**",
                                 "/api/v1/logistics/dead-letters", "/api/v1/logistics/dead-letters/**")
                                 .hasAnyRole("operator", "auditor")

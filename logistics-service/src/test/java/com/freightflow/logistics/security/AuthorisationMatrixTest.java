@@ -91,6 +91,7 @@ class AuthorisationMatrixTest extends IntegrationTest {
         table.put("GET public tracking",     new int[] {200, 200, 200, 200, 200, 200, 200});
         table.put("GET api docs",            new int[] {200, 200, 200, 200, 403, 403, 401});
         table.put("GET dead letters",        new int[] {403, 403, 200, 200, 403, 403, 401});
+        table.put("GET invariants",          new int[] {403, 403, 200, 200, 403, 403, 401});
         table.put("GET dead letter",         new int[] {403, 403, 200, 200, 403, 403, 401});
         table.put("POST dead letter redrive", new int[] {403, 403, 200, 403, 403, 403, 401});
         List<Arguments> cases = new ArrayList<>();
@@ -172,6 +173,7 @@ class AuthorisationMatrixTest extends IntegrationTest {
             case "GET public tracking" -> get("/api/v1/shipments/track/{tn}", f.trackingNumber());
             case "GET api docs" -> get("/docs/logistics/v3/api-docs");
             case "GET dead letters" -> get("/api/v1/logistics/dead-letters");
+            case "GET invariants" -> get("/api/v1/logistics/invariants");
             case "GET dead letter" -> get("/api/v1/logistics/dead-letters/{id}", f.deadLetter());
             case "POST dead letter redrive" -> post("/api/v1/logistics/dead-letters/{id}/redrive", f.deadLetter());
             default -> throw new IllegalArgumentException(endpoint);
