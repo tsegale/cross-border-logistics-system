@@ -28,8 +28,8 @@ jobs:
       matrix:
         service: [api-gateway, banking-service, logistics-service, notification-service]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin
           java-version: "21"
@@ -46,7 +46,7 @@ jobs:
     name: docker compose config
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Catches broken interpolation or references before anyone runs the stack.
       - run: |
           cp .env.example .env
@@ -66,7 +66,7 @@ jobs:
     name: Default stack starts
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
       - name: Generate the stack's secrets into secrets/
         run: python3 scripts/generate_secrets.py
@@ -138,7 +138,7 @@ jobs:
           cat memory/memory.err
           { echo "## Memory peaks, smoke test"; echo; cat memory/memory.md; } >> "$GITHUB_STEP_SUMMARY"
           cat memory/memory.md
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: memory-${{ github.run_id }}
@@ -164,7 +164,7 @@ jobs:
       ALERTMANAGER_IMAGE: prom/alertmanager:v0.35.0
       COLLECTOR_IMAGE: otel/opentelemetry-collector-contrib:0.165.0
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Generated SLO rules, their tests and the dashboards match their generators
         run: |
           python3 infra/observability/rules/generate_slo_rules.py
@@ -226,7 +226,7 @@ jobs:
       SERVICE_VERSION: ${{ github.sha }}
       DEPLOYMENT_ENVIRONMENT: ci
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
       - run: python3 scripts/generate_secrets.py
       - run: $COMPOSE up -d --wait --wait-timeout 900 --build
@@ -251,7 +251,7 @@ jobs:
           cat observability/memory.err || true
           { echo "## Memory peaks, observability profile"; echo; cat observability/memory.md; } >> "$GITHUB_STEP_SUMMARY"
           cat observability/memory.md
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: observability-${{ github.run_id }}
@@ -266,7 +266,7 @@ jobs:
     name: Files stored with LF, text as UTF-8
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: |
           crlf="$(git ls-files --eol | awk '$3 != "attr/-text" && ($1 == "i/crlf" || $1 == "i/mixed") {print $NF}')"
           if [ -n "$crlf" ]; then
@@ -279,6 +279,13 @@ jobs:
           if [ -n "$bad" ]; then
             echo "::error::not UTF-8:"; echo "$bad"; exit 1
           fi
+      # Phase 7: every action is pinned to a full commit SHA, with its version beside it for Dependabot; a tag can
+      # be moved by whoever controls the action's repository, a commit cannot.
+      - run: |
+          unpinned="$(grep -nE '^\s*(-\s*)?uses:' .github/workflows/*.yml | grep -vE '@[0-9a-f]{40} # v[0-9.]+$' || true)"
+          if [ -n "$unpinned" ]; then
+            echo "::error::actions not pinned to a commit SHA with its version:"; echo "$unpinned"; exit 1
+          fi
 
   # A changed event schema must stay compatible with the one already on main (ADR 0023): consumers built against
   # either read events written under the other. A breaking change goes to a new topic version instead.
@@ -286,7 +293,7 @@ jobs:
     name: Event schemas stay compatible
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: python3 scripts/check_event_schemas.py --self-test
@@ -306,7 +313,7 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: >-
@@ -322,9 +329,9 @@ jobs:
       matrix:
         service: [api-gateway, banking-service, logistics-service, notification-service]
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.service }}
           push: false

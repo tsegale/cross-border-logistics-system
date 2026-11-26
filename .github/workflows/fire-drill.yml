@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Start the stack with the observability profile
         run: |
           sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
@@ -65,7 +65,7 @@ jobs:
           ./scripts/seed_demo.sh
           python3 scripts/trace_booking.py --json drill/trace.json
           python3 scripts/grafana_screenshots.py --trace-json drill/trace.json --out drill/images || echo "::warning::screenshots failed"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: fire-drill-${{ github.run_id }}
