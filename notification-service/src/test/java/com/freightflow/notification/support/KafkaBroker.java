@@ -34,7 +34,8 @@ public final class KafkaBroker extends GenericContainer<KafkaBroker> {
     public static final String IMAGE = "apache/kafka:4.3.1";
     private static final int EXTERNAL_PORT = 9094;
     private static final Path INFRA = Path.of("..", "infra", "kafka").toAbsolutePath().normalize();
-    private static final String[] USERS = {"admin", "banking", "logistics", "notification"};
+    // monitoring: the collector's describe-only user (ADR 0031), so its ACLs are tested too.
+    private static final String[] USERS = {"admin", "banking", "logistics", "notification", "monitoring"};
 
     private final Map<String, String> passwords = new LinkedHashMap<>();
 
