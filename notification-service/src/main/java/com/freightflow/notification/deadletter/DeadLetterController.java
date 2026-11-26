@@ -1,5 +1,6 @@
 package com.freightflow.notification.deadletter;
 
+import com.freightflow.notification.common.InvalidRequestException;
 import com.freightflow.notification.deadletter.DeadLetterExceptions.DeadLetterAlreadyRedrivenException;
 import com.freightflow.notification.deadletter.DeadLetterExceptions.DeadLetterNotFoundException;
 import com.freightflow.notification.deadletter.DeadLetterExceptions.RedriveFailedException;
@@ -64,10 +65,10 @@ public class DeadLetterController {
     public DeadLetterList list(@RequestParam(required = false) String status,
                                @RequestParam(defaultValue = "50") int limit) {
         if (status != null && !STATUSES.contains(status)) {
-            throw new IllegalArgumentException("status must be one of " + STATUSES);
+            throw new InvalidRequestException("status must be one of " + STATUSES);
         }
         if (limit < 1 || limit > 200) {
-            throw new IllegalArgumentException("limit must be between 1 and 200");
+            throw new InvalidRequestException("limit must be between 1 and 200");
         }
         return new DeadLetterList(store.list(status, limit).stream().map(DeadLetterResponse::of).toList());
     }

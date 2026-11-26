@@ -12,7 +12,7 @@ Every error emitted by `banking-service`, `logistics-service` and `notification-
 | --- | --- | --- | --- | --- |
 | `https://freightflow.dev/problems/validation-failed` | `400 Bad Request` | Request validation failed | `errors: [{field, message}]` | Bean Validation constraint failure on request DTO fields |
 | `https://freightflow.dev/problems/invalid-request-body` | `400 Bad Request` | Invalid request body | — | Malformed JSON body or unrecognized enum value |
-| `https://freightflow.dev/problems/invalid-argument` | `400 Bad Request` | Invalid request argument | — | Domain argument violation (e.g., excess minor-unit precision) |
+| `https://freightflow.dev/problems/invalid-argument` | `400 Bad Request` | Invalid request argument | — | Domain argument violation (e.g., excess minor-unit precision). The detail is passed on only when it was written for the caller (`InvalidRequestException`); any other illegal argument gets a generic detail (ADR 0042) |
 | `https://freightflow.dev/problems/unsupported-currency` | `400 Bad Request` | Unsupported currency | `currency`, `supportedCurrencies` | Currency is not in `{NAD, ZAR, EUR}` |
 | `https://freightflow.dev/problems/invalid-account-number` | `400 Bad Request` | Invalid account number | `accountNumber` | Account number fails `FF<2 check digits><CCY><9 digits>` format or ISO 7064 MOD 97-10 check digits |
 | `https://freightflow.dev/problems/invalid-cursor` | `400 Bad Request` | Invalid pagination cursor | — | Malformed Base64URL keyset cursor, mismatched scope/filter, or invalid `size` parameter |

@@ -1,5 +1,6 @@
 package com.freightflow.logistics.quote;
 
+import com.freightflow.logistics.common.InvalidRequestException;
 import com.freightflow.logistics.quote.dto.PackageSpecDto;
 
 import java.math.BigDecimal;
@@ -44,7 +45,7 @@ public final class ChargeableWeightCalculator {
 
     public static CalculationResult calculate(TransportMode mode, List<PackageSpecDto> packages) {
         if (packages == null || packages.isEmpty()) {
-            throw new IllegalArgumentException("At least one package is required");
+            throw new InvalidRequestException("At least one package is required");
         }
 
         int totalPieces = 0;
@@ -57,7 +58,7 @@ public final class ChargeableWeightCalculator {
                     || pkg.heightCm() == null || pkg.heightCm().compareTo(BigDecimal.ZERO) <= 0
                     || pkg.weightKg() == null || pkg.weightKg().compareTo(BigDecimal.ZERO) <= 0
                     || pkg.quantity() <= 0) {
-                throw new IllegalArgumentException("Package dimensions, weight and quantity must all be positive");
+                throw new InvalidRequestException("Package dimensions, weight and quantity must all be positive");
             }
             BigDecimal qty = BigDecimal.valueOf(pkg.quantity());
             totalPieces += pkg.quantity();

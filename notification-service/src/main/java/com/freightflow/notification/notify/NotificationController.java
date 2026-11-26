@@ -1,5 +1,6 @@
 package com.freightflow.notification.notify;
 
+import com.freightflow.notification.common.InvalidRequestException;
 import com.freightflow.notification.config.NotificationProperties;
 import com.freightflow.notification.notify.NotificationExceptions.NotificationNotFoundException;
 import com.freightflow.notification.notify.NotificationExceptions.NotificationNotResendableException;
@@ -76,7 +77,7 @@ public class NotificationController {
                                  @RequestParam(required = false) String status,
                                  @RequestParam(defaultValue = "50") int limit) {
         if (limit < 1 || limit > 200) {
-            throw new IllegalArgumentException("limit must be between 1 and 200");
+            throw new InvalidRequestException("limit must be between 1 and 200");
         }
         Status wanted = status == null ? null : parseStatus(status);
         UUID scope;
@@ -115,7 +116,7 @@ public class NotificationController {
         try {
             return Status.valueOf(status);
         } catch (IllegalArgumentException ex) {
-            throw new IllegalArgumentException("status must be one of " + Arrays.toString(Status.values()));
+            throw new InvalidRequestException("status must be one of " + Arrays.toString(Status.values()));
         }
     }
 

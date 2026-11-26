@@ -119,9 +119,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 ex.getMessage());
     }
 
+    @ExceptionHandler(InvalidRequestException.class)
+    public ProblemDetail handleInvalidRequest(InvalidRequestException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "invalid-argument", "Invalid request argument", ex.getMessage());
+    }
+
+    /** Not written for a caller: the message may name a class, a column or a setting, so it goes to the log only. */
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
-        return problem(HttpStatus.BAD_REQUEST, "invalid-argument", "Invalid request argument", ex.getMessage());
+        log.warn("Request refused on an illegal argument: {}", ex.getMessage());
+        return problem(HttpStatus.BAD_REQUEST, "invalid-argument", "Invalid request argument",
+                "A request argument is not valid.");
     }
 
     @ExceptionHandler({CannotCreateTransactionException.class, DataAccessResourceFailureException.class})

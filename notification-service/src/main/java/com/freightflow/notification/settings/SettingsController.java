@@ -1,5 +1,6 @@
 package com.freightflow.notification.settings;
 
+import com.freightflow.notification.common.InvalidRequestException;
 import com.freightflow.notification.notify.NotificationKind;
 import com.freightflow.notification.security.Caller;
 import com.freightflow.notification.settings.SettingsExceptions.InvalidSettingsException;
@@ -110,7 +111,7 @@ public class SettingsController {
         try {
             return Long.parseLong(ifMatch.trim().replace("W/", "").replace("\"", ""));
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("If-Match must be the ETag of the settings, e.g. \"3\"");
+            throw new InvalidRequestException("If-Match must be the ETag of the settings, e.g. \"3\"");
         }
     }
 }

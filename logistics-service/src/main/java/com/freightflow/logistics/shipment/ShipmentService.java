@@ -1,5 +1,6 @@
 package com.freightflow.logistics.shipment;
 
+import com.freightflow.logistics.common.InvalidRequestException;
 import com.freightflow.logistics.security.Caller;
 import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.config.LogisticsProperties;
@@ -118,7 +119,7 @@ public class ShipmentService {
                 ? MoneyRounding.validateSupportedCurrency(request.declaredValueCurrency(), properties.normalizedCurrencies()).getCurrencyCode()
                 : null;
         if (requestedCurrency != null && MoneyRounding.hasExcessMinorPrecision(request.declaredValue(), requestedCurrency)) {
-            throw new IllegalArgumentException(
+            throw new InvalidRequestException(
                     "declaredValue has more than " + MoneyRounding.minorUnits(requestedCurrency)
                             + " decimal places for currency " + requestedCurrency
             );
@@ -169,7 +170,7 @@ public class ShipmentService {
         }
         if (caller.isOperator()) {
             if (requested == null) {
-                throw new IllegalArgumentException("bookingOrganizationId is required when an operator books a shipment");
+                throw new InvalidRequestException("bookingOrganizationId is required when an operator books a shipment");
             }
             return requested;
         }
@@ -192,13 +193,13 @@ public class ShipmentService {
         }
 
         if (!holdExpiry.isAcceptablePickup(request.plannedPickupDate(), now)) {
-            throw new IllegalArgumentException("plannedPickupDate must be between today and "
+            throw new InvalidRequestException("plannedPickupDate must be between today and "
                     + holdExpiry.properties().maxPickupHorizon().toDays() + " days ahead (UTC)");
         }
 
         String declaredValueCurrency = requestedCurrency != null ? requestedCurrency : quote.getCurrency();
         if (MoneyRounding.hasExcessMinorPrecision(request.declaredValue(), declaredValueCurrency)) {
-            throw new IllegalArgumentException(
+            throw new InvalidRequestException(
                     "declaredValue has more than " + MoneyRounding.minorUnits(declaredValueCurrency)
                             + " decimal places for currency " + declaredValueCurrency
             );

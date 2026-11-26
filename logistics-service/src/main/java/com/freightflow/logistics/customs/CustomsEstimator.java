@@ -1,5 +1,6 @@
 package com.freightflow.logistics.customs;
 
+import com.freightflow.logistics.common.InvalidRequestException;
 import com.freightflow.logistics.common.MoneyRounding;
 import com.freightflow.logistics.customs.dto.GoodsLineRequest;
 import com.freightflow.logistics.customs.dto.GoodsLineRequest.OriginProof;
@@ -71,7 +72,7 @@ public final class CustomsEstimator {
                                     String freightCurrency, LocalDate expectedImport, Rates rates) {
         Objects.requireNonNull(market, "market");
         if (goods.isEmpty()) {
-            throw new IllegalArgumentException("no goods to estimate");
+            throw new InvalidRequestException("no goods to estimate");
         }
         String currency = market.currency();
         BigDecimal toCustoms = rates.rate(freightCurrency, currency);
