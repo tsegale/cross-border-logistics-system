@@ -1,4 +1,4 @@
-# Threat model (Phase 3; insider misuse and the broker added in Phase 4, telemetry in Phase 5, outside data in Phase 6)
+# Threat model (Phase 3; insider misuse and the broker added in Phase 4, telemetry in Phase 5, outside data in Phase 6, bounded inputs and the OWASP API Top 10 in Phase 7)
 
 STRIDE per trust boundary. Every threat names the control that stops it and the test or check that proves the
 control works. "Residual" is what remains, and where it is addressed.
@@ -28,9 +28,11 @@ flowchart LR
 | --- | --- | --- | --- |
 | Spoofing | Request without a token, or with a forged, expired, wrongly signed or wrong-audience token | Resource server: RS256 only, issuer, audience `api-gateway`, lifetime (ADR 0017) | `GatewaySecurityTest.tokensThatAreNotExactlyRightAre401` (unknown key, other issuer, other audience, expired, HS256, `alg: none`) |
 | Spoofing | Client sends `X-User-Id`, `X-Org-Id`, `X-Roles` to impersonate | Forgeable identity headers stripped before routing; services never read identity from headers | `GatewaySecurityTest.forgedIdentityHeadersAreStrippedAndTheTokenIsRelayedUnchanged` |
-| Tampering | Oversized or slow bodies to exhaust memory | 1 MB body limit, 15 s response timeout (ADR 0015) | `GatewayEdgeTest` |
+| Tampering | Oversized or slow bodies to exhaust memory | 1 MB body limit (256 KB for carrier webhooks), 15 s response timeout (ADR 0015); headers to 16 KB, 20 s idle until the headers are in, then 10 s of silence or 30 s in all for the body (ADR 0042) | `GatewayEdgeTest`, `CarrierWebhookLimitsTest`, `EdgeHardeningTest` |
+| Denial of service | A deeply nested or enormous JSON document costs a service stack or memory | Every mapper bounded while it parses: depth 32, 1 MB, 100k-character strings, 64-digit numbers (ADR 0042) | `BoundedInputsIntegrationTest` |
+| Information disclosure | A page or script from another site reads API responses in a user's browser, or frames them | CORS closed (no origin allowed); `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` (ADR 0042) | `EdgeHardeningTest` |
 | Repudiation | Customer denies a transfer | Actor on every journal entry and hold, request id end to end (ADR 0020) | `AuthorisationMatrixTest.everyMoneyMovementRecordsWhoMadeItAndOnlyStaffSeeIt` (banking) |
-| Information disclosure | Error bodies leak internals; 401 explains why a token failed | RFC 9457 problems without stack traces; `WWW-Authenticate` with an error code only | `GatewayProblemHandlerTest`, `GatewaySecurityTest` |
+| Information disclosure | Error bodies leak internals; 401 explains why a token failed | RFC 9457 problems without stack traces; a detail is passed on only when written for the caller (`InvalidRequestException`), otherwise generic (ADR 0042); `WWW-Authenticate` with an error code only | `GatewayProblemHandlerTest`, `GatewaySecurityTest`, `ProblemLeakTest` (each service) |
 | Information disclosure | Public tracking leaks customer data | Tracking view without parties, payer or values (ADR 0009) | smoke test `expect .shipper ""` |
 | Denial of service | A caller floods money-moving routes | Per-caller Redis token buckets, fail closed (ADR 0017) | `RateLimitTest`, `RateLimitRedisDownTest` |
 | Denial of service | Forged key ids make the gateway hammer Keycloak | Unknown key ids refetch at most once per 30 s | `IssuerOutageTest.unknownKeyIdsDoNotRefetchTheKeysAgainWithinTheMinimumInterval` |
@@ -180,10 +182,31 @@ and carrier events move shipments and trigger captures. ADRs 0034 to 0037.
 | Spoofing | A forged carrier notification marks a shipment delivered or triggers a capture | Notifications are accepted only with the carrier's Subscription-ID and a Notification-Signature that is HMAC-SHA256 of the exact body with that subscription's secret (constant-time comparison); nothing is stored otherwise | `DcsaSignatureTest`, `DcsaTrackingIntegrationTest.aForgedOrForeignNotificationIsRefusedAndNothingIsStored`, gateway `aCarrierNotificationNeedsNoTokenAndReachesLogisticsUnchanged`; smoke test; alert `CarrierWebhookSignaturesFailing` |
 | Tampering | A captured genuine notification is replayed | Events created more than 24 h ago or in the future refuse the notification; within the window, each eventID is stored once, so a replay changes nothing | `DcsaTrackingIntegrationTest.aReplayedNotificationChangesNothingAndAStaleOneIsRefused` |
 | Elevation of privilege | A carrier's notifications move another carrier's shipments | An event is matched only to shipments assigned to that carrier, by their container, and recorded as that carrier, through the same object check as its own API calls (ADR 0018) | `DcsaEventProcessor.target`; logistics `AuthorisationMatrixTest` |
-| Denial of service | Flooding the public notification endpoint | The signature check runs before any database write; refusals are counted with bounded labels (unknown carriers share one); the gateway's body limit and timeouts apply | `DcsaWebhookController`; ADR 0037 |
+| Denial of service | Flooding the public notification endpoint | Gateway budgets per carrier in the path and per source address, failing closed; bodies to 256 KB at the gateway and in logistics; the signature check runs before any database write; refusals are counted with bounded labels (unknown carriers share one) | `CarrierWebhookLimitsTest`, `BoundedInputsIntegrationTest`; alert `CarrierWebhooksRateLimited`; ADR 0037, ADR 0042 |
 | Information disclosure | Personal data from carriers or customs reaches events or telemetry | DCSA events hold container and location codes, no parties; logs name carriers by whether they are known, never the path a caller typed; customs settlements carry amounts and references only | ADR 0024; `TelemetryLeaks` |
 
 Residual: the Bank of Namibia endpoint is undocumented; when it changes, the cross-check silently stops (a first
 rate then waits for two operators). A carrier's secret is shared by the carrier and FreightFlow, so either side can
-leak it; rotation replaces both together. The public notification endpoint has no per-caller rate limit at the
-gateway, since carriers have no token to key it by.
+leak it; rotation replaces both together. The notification endpoint's source budget is per address as the gateway
+sees it: behind a load balancer, the balancer's (ADR 0042).
+
+## 11. OWASP API Security Top 10 (2023)
+
+Each risk of the 2023 edition (owasp.org/API-Security/editions/2023, checked 2026-11-26), what stops it here, and what
+proves it. ZAP's API scan (ADR 0042) runs over the public edge on every CI build, judged by `infra/zap/rules.tsv`.
+
+| Risk | Control | Proof |
+| --- | --- | --- |
+| API1 Broken Object Level Authorization | Every service checks the object, not only the role; another organisation's object is a 404, never a 403 (ADR 0018); idempotency keys are scoped to the caller (ADR 0020) | `AuthorisationMatrixTest.everyEndpointRoleAndOwnershipMatchesThePolicy` (banking, logistics), `listsOnlyShowWhatTheCallerMaySee`, notification's `aCustomerSeesOnlyItsOwnOrganisationsNotificationsWhateverItAsksFor`, `sameKeyFromTwoTenants...` |
+| API2 Broken Authentication | RS256 tokens checked for issuer, audience and lifetime by the gateway and again by every service (ADR 0017); Keycloak's brute-force protection after 5 failures; its admin console not routed (ADR 0041); carriers' webhooks authenticated by HMAC signature (ADR 0037) | `GatewaySecurityTest.tokensThatAreNotExactlyRightAre401`, `KeycloakRoutesTest`, `DcsaSignatureTest` |
+| API3 Broken Object Property Level Authorization | Request records carry no owner, role or status field: identity comes from the token as a `Caller` (ADR 0017), and only an operator may name the booking organisation; response records are written per audience (the public tracking view has no parties, payer or values, ADR 0009); events carry no personal data (ADR 0024) | `AuthorisationMatrixTest` (each service), smoke test `expect .shipper ""`, `TelemetryLeaks` |
+| API4 Unrestricted Resource Consumption | Body, header and JSON limits; slow-client timeouts; per-caller budgets on money routes; per-carrier and per-address budgets on webhooks; connection pools and container memory limits (ADRs 0015, 0017, 0029, 0042) | `GatewayEdgeTest`, `EdgeHardeningTest`, `BoundedInputsIntegrationTest`, `RateLimitTest`, `CarrierWebhookLimitsTest` |
+| API5 Broken Function Level Authorization | Coarse role rules at the gateway, then the service's own; internal endpoints (`/api/v1/holds/**`, payment commands) never routed (ADR 0015); four eyes on deposits and reversals, enforced by the database too (ADR 0021) | `GatewaySecurityTest.coarseRoleRulesAtTheEdge`, `GatewayEdgeTest` (internal paths 404), `AuthorisationMatrixTest`, `aJournalEntryWithoutAnActorIsRefusedByTheDatabase` |
+| API6 Unrestricted Access to Sensitive Business Flows | Money moves only through bounded flows: idempotency keys on every money or shipment POST, per-caller budgets, holds with a TTL, no operator moving money alone (ADRs 0017, 0020, 0021) | `RateLimitTest`, `ApprovalIntegrationTest` (banking), `AuthorisationMatrixTest.sameKeyFromTwoTenants...`, `IdempotencyLockTimeoutIntegrationTest` |
+| API7 Server Side Request Forgery | No endpoint takes a URL: outbound calls go only to configured hosts (banking, Keycloak, the rate sources, the carriers' configured endpoints), over verified TLS (ADR 0040) | configuration only; `tls_probe.py` |
+| API8 Security Misconfiguration | HTTPS only with Mozilla's intermediate profile and HSTS; CORS closed; API security headers; problems that name no internals; every container read-only and unprivileged; secrets only as files (ADRs 0019, 0039, 0041, 0042) | `GatewayTlsTest`, `EdgeHardeningTest`, `ProblemLeakTest`, `check_hardening.py`, ZAP scan |
+| API9 Improper Inventory Management | One edge with an explicit route per path family, everything else 404; banking's contract is `docs/api/banking-openapi.json`, checked by contract tests on both sides (ADR 0014); the OpenAPI documents ZAP scans are the ones the services serve | `OpenApiContractTest`, `BankingContractTest`, `GatewayEdgeTest` |
+| API10 Unsafe Consumption of APIs | Partner data is checked before use: reference rates cross-checked and quarantined (ADR 0034), carrier events signed, replay-windowed and matched to their carrier's shipments (ADR 0037); partner responses parsed by the bounded mappers (ADR 0042), over verified TLS | `ReferenceRateServiceTest`, `DcsaTrackingIntegrationTest`, `BoundedInputsIntegrationTest` |
+
+Residual: the scan uses a customer's token only; the edge's limits are per address as the gateway sees it, which
+behind a load balancer needs its forwarded header trusted (Phase 8).

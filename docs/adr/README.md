@@ -46,3 +46,4 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | [0039](0039-internal-ca-and-short-lived-certificates.md) | An internal CA with short-lived certificates, renewed by one agent | Accepted |
 | [0040](0040-tls-on-every-hop-and-mutual-tls-between-services.md) | TLS on every hop, mutual TLS between the services | Accepted |
 | [0041](0041-least-privilege.md) | Least privilege: database roles, containers, consoles | Accepted |
+| [0042](0042-bounded-public-inputs.md) | Bounded public inputs: webhook budgets, JSON limits, timeouts, headers, ZAP | Accepted |
