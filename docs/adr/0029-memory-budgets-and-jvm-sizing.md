@@ -20,7 +20,7 @@ and the benchmarks, with headroom; **every JVM sizes its heap from its own limit
 | keycloak | 704m | 1,885 | 574 of 640 (first limit) | 572 | heap 50 % (`JAVA_OPTS_KC_HEAP`), kc.sh's G1 and metaspace cap |
 | logistics-service | 576m | 647 | 418 | 490 of 512 (first limit) | heap 45 %, Serial GC, metaspace 192m, 512k stacks |
 | banking-service | 512m | 609 | 377 | 419 | heap 45 %, Serial GC, metaspace 192m, 512k stacks |
-| kafka | 512m | 488 | 421 of 448 (first limit) | 415 | `-Xms256m -Xmx256m` |
+| kafka | 640m | 488 | 421 of 448 (first limit) | 415 | `-Xms256m -Xmx256m`, Serial GC, a 16 MiB cleaner dedupe buffer. 512m until the rotation fix: a certificate reload runs `kafka-configs` in the broker's cgroup, and `memory.peak` reached the 512 MiB limit with 23 MiB swapped on the laptop; CI's broker went silent in that reload. At 640m the reload peaks at 502 MiB, steady state 391 to 415 MiB, measured on the laptop (Docker Desktop, 8 CPUs, 3.7 GiB VM) |
 | notification-service | 384m | 379 | 250 | 310 (327 of 352 on the laptop) | heap 45 %, Serial GC |
 | api-gateway | 320m | 398 | 226 | 277 | heap 45 %, Serial GC |
 | banking-db | 192m | 312 | 85 | 108 | Postgres defaults (128 MB shared buffers) |

@@ -139,7 +139,11 @@ jobs:
             tls-probe/
           retention-days: 90
       - if: failure()
-        run: docker compose logs --tail 200
+        run: |
+          # A container that died (an OOM kill above all) says so here; its logs alone stop without a reason.
+          docker inspect -f '{{.Name}} running={{.State.Running}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' \
+            $(docker compose ps -aq)
+          docker compose logs --tail 200
 
   # Alert rules, the collector, Alertmanager and dashboards are code (ADR 0032, ADR 0033): each is checked by its own
   # tool, every alert has a promtool test, and the generated files match their generators.

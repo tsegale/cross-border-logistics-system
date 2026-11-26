@@ -97,6 +97,11 @@ log.dirs=${DATA_DIR}
 num.partitions=1
 default.replication.factor=1
 offsets.topic.replication.factor=1
+# The log cleaner's dedupe map is one array on the heap, 128 MiB by default: half of this broker's heap, for two
+# compacted topics (__consumer_offsets and the transaction log) of a few thousand keys. At 16 MiB it still holds
+# 699k keys (24 bytes each) per cleaning; the heap it frees is what kept old-generation pauses past the broker's
+# own heartbeat timeout, fencing it (ADR 0029).
+log.cleaner.dedupe.buffer.size=16777216
 transaction.state.log.replication.factor=1
 transaction.state.log.min.isr=1
 group.initial.rebalance.delay.ms=0

@@ -574,7 +574,7 @@ services:
     <<: *hardened
     tmpfs:
       - /tmp:size=64m,uid=1000,gid=1000,mode=0770
-    mem_limit: 512m
+    mem_limit: 640m
     image: apache/kafka:4.3.1
     entrypoint: ["bash", "/etc/freightflow/kafka/start.sh"]
     environment:
@@ -582,6 +582,9 @@ services:
       CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
       # Inside its 512m limit with page cache and metadata log buffers beside it (ADR 0029).
       KAFKA_HEAP_OPTS: -Xms256m -Xmx256m
+      # Serial GC like every other JVM here (ADR 0029), instead of Kafka's default G1 with a worker per CPU, whose
+      # pauses on a shared host ran to seconds.
+      KAFKA_JVM_PERFORMANCE_OPTS: -server -XX:+UseSerialGC -Djava.awt.headless=true
       # The root filesystem is read-only (ADR 0041): Kafka's and its tools' logs go to the tmpfs.
       LOG_DIR: /tmp/kafka-logs
     secrets: [kafka_admin_password]
