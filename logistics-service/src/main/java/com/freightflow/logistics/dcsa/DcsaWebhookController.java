@@ -40,7 +40,11 @@ import java.util.List;
 public class DcsaWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(DcsaWebhookController.class);
-    private static final JsonMapper JSON = JsonMapper.builder().build();
+    // Its own parser, bounded like Boot's (ADR 0042): the body arrives as bytes, for the signature.
+    private static final JsonMapper JSON = JsonMapper.builder(tools.jackson.core.json.JsonFactory.builder()
+            .streamReadConstraints(com.freightflow.logistics.common.JsonLimits.CONSTRAINTS).build()).build();
+    /** As the gateway's webhook limit (ADR 0041): checked here too, since the signature is computed over it all. */
+    static final int MAX_BODY_BYTES = 256 * 1024;
 
     private final DcsaProperties properties;
     private final DcsaInbox inbox;
@@ -72,6 +76,9 @@ public class DcsaWebhookController {
             @RequestBody(required = false) byte[] body) {
         DcsaProperties.Carrier carrier = properties.carriers().get(carrierId);
         byte[] bytes = body == null ? new byte[0] : body;
+        if (bytes.length > MAX_BODY_BYTES) {
+            throw new DcsaExceptions.NotificationTooLargeException(MAX_BODY_BYTES);
+        }
         if (carrier == null || carrier.secret() == null || carrier.secret().isBlank() || carrier.subscriptionId() == null
                 || !carrier.subscriptionId().toString().equalsIgnoreCase(String.valueOf(subscriptionHeader).trim())
                 || !DcsaSignature.verify(carrier.secret(), bytes, signature)) {

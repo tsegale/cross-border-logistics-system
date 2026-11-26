@@ -107,6 +107,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 ex.getMessage());
     }
 
+    @ExceptionHandler(DcsaExceptions.NotificationTooLargeException.class)
+    public ProblemDetail handleNotificationTooLarge(DcsaExceptions.NotificationTooLargeException ex) {
+        return problem(HttpStatus.CONTENT_TOO_LARGE, "request-too-large", "Request too large", ex.getMessage());
+    }
+
     @ExceptionHandler(DcsaExceptions.MalformedEventException.class)
     public ProblemDetail handleMalformedDcsaEvent(DcsaExceptions.MalformedEventException ex) {
         return problem(HttpStatus.BAD_REQUEST, "malformed-dcsa-event", "Not a DCSA event notification", ex.getMessage());

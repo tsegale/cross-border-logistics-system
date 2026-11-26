@@ -20,6 +20,13 @@ public final class DcsaExceptions {
         }
     }
 
+    /** A body over the webhook's limit (ADR 0041): refused before its signature is computed. */
+    public static class NotificationTooLargeException extends RuntimeException {
+        public NotificationTooLargeException(int limit) {
+            super("A DCSA notification is limited to " + limit + " bytes");
+        }
+    }
+
     /** A body that is not a DCSA event array. */
     public static class MalformedEventException extends RuntimeException {
         public MalformedEventException(String message) {
