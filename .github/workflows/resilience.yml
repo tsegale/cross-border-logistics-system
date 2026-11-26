@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
     inputs:
       suites:
-        description: "Comma-separated: knee, soak, chaos"
-        default: "knee,soak,chaos"
+        description: "Comma-separated: knee, soak, chaos, restore"
+        default: "knee,soak,chaos,restore"
         required: true
       soak_hours:
         description: "Soak length in hours"
@@ -172,3 +172,32 @@ jobs:
         run: |
           docker inspect -f '{{.Name}} running={{.State.Running}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' $(docker compose ps -aq)
           docker compose -f docker-compose.yml -f infra/chaos/compose.chaos.yml logs --tail 200
+
+  restore:
+    name: Restore drill
+    if: contains(inputs.suites, 'restore')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record the runner
+        run: |
+          mkdir -p restore
+          echo "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1), $(nproc) vCPUs, $(free -m | awk '/^Mem:/ {print $2}') MiB"             | tee restore/runner.txt
+      - name: Start the stack
+        run: |
+          sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
+          python3 scripts/generate_secrets.py
+          docker compose up -d --wait --wait-timeout 900 --build
+      - name: Restore banking to a point in time, then to the latest WAL after a crash
+        run: |
+          set -o pipefail
+          python3 scripts/restore_drill.py --json restore/restore.json | tee restore/restore.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: restore-${{ github.run_id }}
+          path: restore/
+          retention-days: 90
+      - if: failure()
+        run: docker compose logs --tail 200 banking-db banking-service objectstore logistics-service
