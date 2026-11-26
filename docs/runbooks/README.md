@@ -15,7 +15,7 @@ profile.
 | [approvals-near-expiry](approvals-near-expiry.md) | ApprovalsNearExpiry |
 | [fx-reference-rates](fx-reference-rates.md) | FxReferenceRateStale, FxReferenceRateQuarantined |
 | [customs-tariff-review](customs-tariff-review.md) | CustomsTariffReviewOverdue |
-| [carrier-tracking](carrier-tracking.md) | CarrierWebhookSignaturesFailing, CarrierPollingBehind |
+| [carrier-tracking](carrier-tracking.md) | CarrierWebhookSignaturesFailing, CarrierWebhooksRateLimited, CarrierPollingBehind |
 | [outbox-stuck](outbox-stuck.md) | OutboxStuck |
 | [consumer-lag](consumer-lag.md) | ConsumerLagHigh |
 | [dead-letters](dead-letters.md) | DeadLettersWaiting |

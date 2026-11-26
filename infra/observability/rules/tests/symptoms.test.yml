@@ -299,7 +299,23 @@ tests:
         values: 0x5 1x15
       - series: freightflow_dcsa_poll_age_seconds{service="logistics-service",carrier="carrier-namib-lines"}
         values: 30 60 90 30 60 90 400 460 520 580 640 700
+      # The source limit refuses 30 requests at minute 6; the carrier limit nothing.
+      - series: freightflow_gateway_rate_limited_total{service="api-gateway",route="carrier-webhooks",key="source"}
+        values: 0x5 30x15
+      - series: freightflow_gateway_rate_limited_total{service="api-gateway",route="carrier-webhooks",key="carrier"}
+        values: 0x20
     alert_rule_test:
+      - eval_time: 5m
+        alertname: CarrierWebhooksRateLimited
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: CarrierWebhooksRateLimited
+        exp_alerts:
+          - exp_labels: {severity: ticket, key: source}
+            exp_annotations:
+              summary: "30 carrier notification(s) refused by the gateway's source limit in 10 minutes"
+              description: "A carrier sending faster than its budget, or one address flooding the unauthenticated webhook."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/carrier-tracking.md
       - eval_time: 4m
         alertname: CarrierWebhookSignaturesFailing
         exp_alerts: []

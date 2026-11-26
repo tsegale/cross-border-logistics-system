@@ -109,6 +109,29 @@ spring:
                     fail-mode: closed
                     redis-rate-limiter.replenishRate: ${RATE_LIMIT_BOOKING_RPS:2}
                     redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BOOKING_BURST:10}
+            # Carriers' DCSA notifications (ADR 0037): no token, so no caller to budget. Two budgets instead, both of
+            # which a request must fit, per carrier in the path and per source address, failing closed without
+            # Redis (a carrier retries, and logistics polls as well); bodies to 256 KB (RequestSizeFilter, ADR 0041).
+            - id: carrier-webhooks
+              order: 0
+              uri: ${LOGISTICS_SERVICE_URI:http://127.0.0.1:8082}
+              predicates:
+                - Path=/api/v1/dcsa/notifications/*
+                - Method=POST
+              filters:
+                - PreserveHostHeader
+                - name: RateLimit
+                  args:
+                    key: carrier
+                    fail-mode: closed
+                    replenish-rate: ${RATE_LIMIT_WEBHOOK_CARRIER_RPS:10}
+                    burst: ${RATE_LIMIT_WEBHOOK_CARRIER_BURST:50}
+                - name: RateLimit
+                  args:
+                    key: source
+                    fail-mode: closed
+                    replenish-rate: ${RATE_LIMIT_WEBHOOK_SOURCE_RPS:5}
+                    burst: ${RATE_LIMIT_WEBHOOK_SOURCE_BURST:20}
             - id: banking
               order: 10
               uri: ${BANKING_SERVICE_URI:http://127.0.0.1:8081}
@@ -153,6 +176,8 @@ spring:
 freightflow:
   gateway:
     max-request-size: ${GATEWAY_MAX_REQUEST_SIZE:1MB}
+    # A carrier's notification is an array of DCSA events; 256 KB is hundreds of them (ADR 0041).
+    webhook-max-request-size: ${GATEWAY_WEBHOOK_MAX_REQUEST_SIZE:256KB}
     # Answered 404 at the edge whatever the routes say (ADR 0015): only logistics-service may hold money (ADR 0019).
     internal-path-prefixes: /api/v1/holds
   # Before readiness: signing keys, Redis, every route's service and its own port (WarmUpRunner).

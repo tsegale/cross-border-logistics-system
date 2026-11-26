@@ -97,7 +97,7 @@ class GatewayProblemHandlerTest {
 
     @Test
     void chunkedBodyOverTheLimitFailsWhileItIsRead() {
-        RequestSizeFilter filter = new RequestSizeFilter(DataSize.ofBytes(8));
+        RequestSizeFilter filter = new RequestSizeFilter(DataSize.ofBytes(8), DataSize.ofBytes(8));
         DataBuffer chunk = DefaultDataBufferFactory.sharedInstance.wrap("0123456789".getBytes(StandardCharsets.UTF_8));
         MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/v1/accounts")
                 .header("Transfer-Encoding", "chunked")
@@ -112,7 +112,7 @@ class GatewayProblemHandlerTest {
 
     @Test
     void bodyWithinTheLimitPassesThrough() {
-        RequestSizeFilter filter = new RequestSizeFilter(DataSize.ofKilobytes(1));
+        RequestSizeFilter filter = new RequestSizeFilter(DataSize.ofKilobytes(1), DataSize.ofKilobytes(1));
         MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/v1/accounts")
                 .contentType(MediaType.APPLICATION_JSON).body("{}"));
 

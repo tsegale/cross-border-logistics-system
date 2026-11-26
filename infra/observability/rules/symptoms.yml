@@ -83,6 +83,15 @@ groups:
           summary: "{{ $value | humanize }} carrier notification(s) refused for {{ $labels.carrier }} in 10 minutes"
           description: "A bad signature, an unknown subscription or a replayed notification: a misconfigured carrier, a rotated secret, or someone forging tracking events."
           runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/carrier-tracking.md
+      # The carriers' webhook has no token, so the gateway budgets it per carrier and per source address (ADR 0041).
+      - alert: CarrierWebhooksRateLimited
+        expr: sum by (key) (increase(freightflow_gateway_rate_limited_total{route="carrier-webhooks"}[10m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value | humanize }} carrier notification(s) refused by the gateway's {{ $labels.key }} limit in 10 minutes"
+          description: "A carrier sending faster than its budget, or one address flooding the unauthenticated webhook."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/carrier-tracking.md
       - alert: CarrierPollingBehind
         expr: max by (carrier) (freightflow_dcsa_poll_age_seconds) > 300
         for: 2m

@@ -43,6 +43,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -65,7 +66,7 @@ EXPECTED = [
     "BookingAvailabilityBudgetBurnFast", "BookingAvailabilityBudgetBurnSlow", "BookingLatencyBudgetBurnFast",
     "BookingLatencyBudgetBurnSlow", "GatewayUpstreamErrors", "ContainerMemoryNearLimit", "FxReferenceRateStale",
     "FxReferenceRateQuarantined", "CustomsTariffReviewOverdue", "CarrierWebhookSignaturesFailing",
-    "CarrierPollingBehind", "CertificateNotRenewed",
+    "CarrierPollingBehind", "CarrierWebhooksRateLimited", "CertificateNotRenewed",
 ]
 # Burn-rate alerts outlast the drill: a fast burn keeps firing up to 30 minutes after the outage (its 6 h and 30 m
 # pair), a slow burn for hours. They must fire here; that they clear is proved by the promtool recovery tests.
@@ -386,7 +387,17 @@ def phase5_carriers(watch: Watch) -> None:
     log("phase 5: a forged carrier notification, and the carrier's events API down")
     carrier("/_control/carrier/forge", {})
     carrier("/_control/carrier", {"pollStatus": 503})
-    watch.wait_fired(["CarrierWebhookSignaturesFailing", "CarrierPollingBehind"], 12)
+    # A flood of unsigned notifications from this host: the gateway's source budget refuses them before logistics.
+    refused = 0
+    for _ in range(60):
+        request = urllib.request.Request(harness.GATEWAY + "/api/v1/dcsa/notifications/carrier-kalahari-freight",
+                                         data=b"[]", method="POST", headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(request, timeout=10, context=ssl_context()).close()
+        except urllib.error.HTTPError as error:
+            refused += error.code == 429
+    log(f"webhook flood: {refused} of 60 refused with 429")
+    watch.wait_fired(["CarrierWebhookSignaturesFailing", "CarrierWebhooksRateLimited", "CarrierPollingBehind"], 12)
     carrier("/_control/carrier", {"pollStatus": 200})
     log("carrier events API answering again")
 

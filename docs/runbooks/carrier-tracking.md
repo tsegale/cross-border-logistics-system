@@ -1,6 +1,6 @@
 # Carrier tracking: refused notifications, polling behind
 
-Alerts: CarrierWebhookSignaturesFailing, CarrierPollingBehind
+Alerts: CarrierWebhookSignaturesFailing, CarrierWebhooksRateLimited, CarrierPollingBehind
 
 **What it means.** Carriers report container events in DCSA Track and Trace 2.2 (ADR 0037).
 - **CarrierWebhookSignaturesFailing.** logistics refused at least one notification in 10 minutes. The causes:
@@ -10,6 +10,12 @@ Alerts: CarrierWebhookSignaturesFailing, CarrierPollingBehind
 
   Nothing from a refused notification is stored. Either a carrier is misconfigured, typically after a secret
   rotation on one side only, or someone is sending forged tracking events.
+- **CarrierWebhooksRateLimited (ticket).** The gateway answered 429 to carrier notifications in the last 10 minutes,
+  before logistics saw them: the webhook has no token, so it is budgeted per carrier in the path
+  (`RATE_LIMIT_WEBHOOK_CARRIER_RPS`, `_BURST`) and per source address (`RATE_LIMIT_WEBHOOK_SOURCE_RPS`, `_BURST`,
+  ADR 0041). The `key` label says which. A real carrier retries a 429; one that keeps hitting its limit needs a
+  higher one, agreed with it. A source limit hit by an address that is no carrier is someone probing the webhook:
+  the gateway's logs name the route and the address. Bodies over 256 KB are refused with 413 and never counted here.
 - **CarrierPollingBehind (ticket).** A carrier configured `mode: POLL` has not answered `GET /v2/events` for over 5
   minutes. Its shipments' milestones are not moving.
 

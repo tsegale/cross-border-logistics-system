@@ -24,17 +24,24 @@ import java.util.concurrent.atomic.AtomicLong;
 @Component
 public class RequestSizeFilter implements WebFilter, Ordered {
 
-    private final long maxBytes;
+    /** Carriers' notifications, which come without a token (ADR 0041): a tighter limit than the rest. */
+    static final String WEBHOOKS = "/api/v1/dcsa/notifications/";
 
-    public RequestSizeFilter(@Value("${freightflow.gateway.max-request-size:1MB}") DataSize maxRequestSize) {
-        this.maxBytes = maxRequestSize.toBytes();
+    private final long defaultMaxBytes;
+    private final long webhookMaxBytes;
+
+    public RequestSizeFilter(@Value("${freightflow.gateway.max-request-size:1MB}") DataSize maxRequestSize,
+                             @Value("${freightflow.gateway.webhook-max-request-size:256KB}") DataSize webhookMaxSize) {
+        this.defaultMaxBytes = maxRequestSize.toBytes();
+        this.webhookMaxBytes = webhookMaxSize.toBytes();
     }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        long maxBytes = exchange.getRequest().getPath().value().startsWith(WEBHOOKS) ? webhookMaxBytes : defaultMaxBytes;
         long declared = exchange.getRequest().getHeaders().getContentLength();
         if (declared > maxBytes) {
-            return tooLarge(exchange);
+            return tooLarge(exchange, maxBytes);
         }
         if (declared >= 0) {
             return chain.filter(exchange);
@@ -55,7 +62,7 @@ public class RequestSizeFilter implements WebFilter, Ordered {
         return chain.filter(exchange.mutate().request(counting).build());
     }
 
-    private Mono<Void> tooLarge(ServerWebExchange exchange) {
+    private Mono<Void> tooLarge(ServerWebExchange exchange, long maxBytes) {
         return Problems.write(exchange, HttpStatus.CONTENT_TOO_LARGE, "request-too-large", "Request too large",
                 "Request bodies are limited to " + maxBytes + " bytes");
     }

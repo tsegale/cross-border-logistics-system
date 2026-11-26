@@ -31,8 +31,9 @@ public class RateLimitConfig {
 
     @Bean
     RateLimitGatewayFilterFactory rateLimitGatewayFilterFactory(RedisRateLimiter redisRateLimiter,
-                                                                KeyResolver callerKeyResolver) {
-        return new RateLimitGatewayFilterFactory(redisRateLimiter, callerKeyResolver);
+                                                                KeyResolver callerKeyResolver,
+                                                                io.micrometer.core.instrument.MeterRegistry meters) {
+        return new RateLimitGatewayFilterFactory(redisRateLimiter, callerKeyResolver, meters);
     }
 
     /**
