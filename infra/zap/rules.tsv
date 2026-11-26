@@ -1,0 +1,3 @@
+# ZAP's reviewed baseline for the API scan (scripts/zap_scan.py, ADR 0042). One rule per line, tab separated:
+# <rule id>, FAIL (fires: the build fails), WARN (reported) or IGNORE (reviewed: the reason follows the name).
+# A rule not listed is a WARN, so a rule a new ZAP release adds is reported before it is judged.

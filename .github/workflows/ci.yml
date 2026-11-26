@@ -122,6 +122,14 @@ jobs:
           set -o pipefail
           python3 scripts/rotation_test.py --json tls-probe/rotation.json | tee tls-probe/rotation.txt
           { echo "## Certificate rotation under traffic"; echo; echo '```'; cat tls-probe/rotation.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # ADR 0042: ZAP's API scan of the edge with a customer's token, judged by the reviewed baseline
+      # (infra/zap/rules.tsv). The full rule list is written too, so a rule a new ZAP release adds can be judged.
+      - name: ZAP API scan
+        run: |
+          set -o pipefail
+          mkdir -p zap
+          python3 scripts/zap_scan.py --out zap --generate | tee zap/scan.txt
+          { echo "## ZAP API scan"; echo; cat zap/banking.md zap/logistics.md; } >> "$GITHUB_STEP_SUMMARY"
       - name: Memory peaks
         if: always()
         run: |
@@ -137,6 +145,7 @@ jobs:
           path: |
             memory/
             tls-probe/
+            zap/
           retention-days: 90
       - if: failure()
         run: |
