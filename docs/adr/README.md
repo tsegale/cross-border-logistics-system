@@ -49,3 +49,4 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | [0042](0042-bounded-public-inputs.md) | Bounded public inputs: webhook budgets, JSON limits, timeouts, headers, ZAP | Accepted |
 | [0043](0043-signed-images-and-a-pinned-supply-chain.md) | Signed images and a pinned supply chain | Accepted |
 | [0044](0044-invariant-auditor.md) | The invariant auditor | Accepted |
+| [0046](0046-point-in-time-recovery.md) | Point-in-time recovery | Accepted |
