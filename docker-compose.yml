@@ -30,7 +30,7 @@ services:
       - /tmp:size=16m
     # Peak 67.2 MiB (memory.peak, laptop): the 54 MB step-ca binary's pages count against the limit (ADR 0029).
     mem_limit: 96m
-    # smallstep/step-ca:0.30.2 without its binary's file capability (infra/ca/Dockerfile, ADR 0041).
+    # smallstep/step-ca:0.30.2@sha256:a2b17872915c193259b75a5474c398326f41bd199f0842093e52cf4182bc8270 without its binary's file capability (infra/ca/Dockerfile, ADR 0041).
     build: ./infra/ca
     image: freightflow-ca
     environment:
@@ -56,7 +56,7 @@ services:
     # Peak 35.2 MiB renewing all 14 (memory.peak, laptop); at 32m the 44 MB step binary was paged out and back in
     # on every call, and each certificate took 48 s (ADR 0029).
     mem_limit: 48m
-    image: smallstep/step-cli:0.31.0
+    image: smallstep/step-cli:0.31.0@sha256:107e8497646c0e7c06cc5b6fd6fa13b5d2001909df6d7da3706b8541ed42bddf
     entrypoint: ["/bin/sh", "/etc/freightflow/tls/agent.sh"]
     environment:
       TLS_DIR: /home/step
@@ -93,7 +93,7 @@ services:
       - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
       - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 192m
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
     # user from the start, so the key it copies is its own.
     entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
@@ -128,7 +128,7 @@ services:
       - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
       - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 192m
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
     # user from the start, so the key it copies is its own.
     entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
@@ -163,7 +163,7 @@ services:
       - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
       - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 128m
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
     # user from the start, so the key it copies is its own.
     entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
@@ -202,7 +202,7 @@ services:
       - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
       - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 128m
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
     # user from the start, so the key it copies is its own.
     entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
@@ -449,7 +449,7 @@ services:
     tmpfs:
       - /tmp:size=1m,uid=999,gid=1000,mode=0770
     mem_limit: 32m
-    image: redis:8.10-alpine
+    image: redis:8.10-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
     # The image's own user; it reads its key through the group the agent gives it (infra/tls/identities.conf).
     user: "999:1000"
     entrypoint: ["sh", "/etc/freightflow/redis/start.sh"]
@@ -541,7 +541,7 @@ services:
     tmpfs:
       - /tmp:size=1m
     mem_limit: 32m
-    image: alpine/socat:1.8.1.1
+    image: alpine/socat:1.8.1.1@sha256:7f9a06753033f2b7de18edc2353f2c15153413d95a039163c6db270fc7a6c3b0
     # Ports above 1024 only: no root needed (ADR 0041).
     user: "65534:65534"
     entrypoint: ["/bin/sh", "-c"]
@@ -575,7 +575,7 @@ services:
     tmpfs:
       - /tmp:size=64m,uid=1000,gid=1000,mode=0770
     mem_limit: 640m
-    image: apache/kafka:4.3.1
+    image: apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837
     entrypoint: ["bash", "/etc/freightflow/kafka/start.sh"]
     environment:
       # Fixed for this one-node cluster; the storage is formatted with it once.
@@ -615,7 +615,7 @@ services:
     tmpfs:
       - /tmp:size=16m,uid=1000,gid=1000,mode=0770
     mem_limit: 256m
-    image: apache/kafka:4.3.1
+    image: apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837
     entrypoint: ["bash", "/etc/freightflow/kafka/init.sh"]
     environment:
       # The CLI tools (kafka-configs, kafka-acls) need little heap.
@@ -645,7 +645,7 @@ services:
     tmpfs:
       - /tmp:size=32m,uid=1000,gid=1000,mode=0770
     mem_limit: 48m
-    image: axllent/mailpit:v1.34.0
+    image: axllent/mailpit:v1.34.0@sha256:23a2ef85bc50853ab3093645d1d64679afd8887e89da5e48a88940c172591a4e
     # Not root: the group the agent gives its key to (infra/tls/identities.conf).
     user: "1000:1000"
     # STARTTLS required on SMTP, HTTPS on the UI and API, restarted on each renewal (infra/mailpit/start.sh).
@@ -681,7 +681,7 @@ services:
     tmpfs:
       - /tmp:size=8m
     mem_limit: 48m
-    image: python:3.15.2-alpine
+    image: python:3.15.2-alpine@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd
     command: ["python", "-I", "/app/simulator.py"]
     # The image's root user is not needed: the group the agent gives its key to (infra/tls/identities.conf).
     user: "1000:1000"
@@ -785,7 +785,7 @@ services:
     <<: *hardened
     tmpfs:
       - /tmp:size=16m
-    image: otel/opentelemetry-collector-contrib:0.165.0
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     command: ["--config=/etc/otelcol/config.yaml"]
     mem_limit: 192m
     networks: [default, docker-api]
@@ -838,7 +838,7 @@ services:
     tmpfs:
       - /tmp:size=1m
       - /var/run:size=1m
-    image: haproxy:3.4.8-alpine
+    image: haproxy:3.4.8-alpine@sha256:8aa6458a9d22a8364a2d2ee9ce93de0cc4a2789e3cf63f0b44adc972863724d7
     # The host's socket belongs to its root; read as its owner, with no capability.
     user: "0"
     mem_limit: 32m
@@ -852,7 +852,7 @@ services:
     <<: *hardened
     tmpfs:
       - /tmp:size=64m
-    image: grafana/tempo:3.1.1
+    image: grafana/tempo:3.1.1@sha256:64e2fbd56d9c2b3412a4b430a58ea59e91a670b1e75f920a0c702213ad145044
     command: ["-target=all", "-config.file=/etc/tempo.yaml"]
     mem_limit: 384m
     volumes:
@@ -866,7 +866,7 @@ services:
     <<: *hardened
     tmpfs:
       - /tmp:size=64m
-    image: grafana/loki:3.7.10
+    image: grafana/loki:3.7.10@sha256:b43c257ccfc925d4a50b8717cac61a3b51df8c48d01847936057e5c4075a24a7
     command: ["-config.file=/etc/loki/config.yaml"]
     mem_limit: 256m
     volumes:
@@ -880,7 +880,7 @@ services:
     <<: *hardened
     tmpfs:
       - /tmp:size=16m
-    image: prom/prometheus:v3.16.0
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -914,7 +914,7 @@ services:
     <<: *hardened
     tmpfs:
       - /tmp:size=8m
-    image: prom/alertmanager:v0.35.0
+    image: prom/alertmanager:v0.35.0@sha256:e638797febd034838eca8b98cdbd46f951e9bf7f178777aa8669167406a9946c
     command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
     mem_limit: 64m
     secrets: [smtp_password]
@@ -939,7 +939,7 @@ services:
     tmpfs:
       - /tmp:size=32m
       - /var/lib/grafana:size=64m,uid=472,gid=0,mode=0770
-    image: grafana/grafana:13.3.1
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
     # 13.3.1 peaked at 255.9 of 256 MiB in CI and was OOM-killed at start (ADR 0032).
     mem_limit: 384m
     environment:

@@ -34,7 +34,7 @@ ROLL_UP = ROOT / "banking-service" / "src" / "main" / "resources" / "sql" / "sys
 OUT = ROOT / "benchmarks" / "out"
 CLEARING_EUR = "01930000-0000-7000-8000-000000000007"
 FX_POSITION_EUR = "01930000-0000-7000-8000-000000000009"
-IMAGE = "postgres:17-alpine"
+IMAGE = "postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73"
 BATCH = 100_000
 
 NO_CHECKPOINT_READ = f"""

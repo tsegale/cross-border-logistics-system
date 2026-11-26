@@ -2,7 +2,7 @@
 # ---- build ----
 # Maven as the wrapper pins it (.mvn/wrapper/maven-wrapper.properties; change both together). The image carries
 # Maven, so a build never downloads it: the wrapper's one unretried fetch from Maven Central kept failing CI.
-FROM maven:3.10.2-eclipse-temurin-21 AS build
+FROM maven:3.10.2-eclipse-temurin-21@sha256:451c216d03f7cb0a0a26f61bb037fe24dcebaf6aa4e3168789911619ff9aaea0 AS build
 WORKDIR /src
 # Maven Central answers a burst of parallel CI builds with 429s: retry them 3 s apart (the fallback repository below
 # covers what still fails). Both property prefixes: Resolver 1.9 reads aether.connector.*, 2.x aether.transport.*.
@@ -59,7 +59,7 @@ RUN --mount=type=cache,id=m2-api-gateway,target=/root/.m2 mvn -B -q package -Dsk
  && java -Djarmode=tools -jar target/*.jar extract --layers --launcher --destination target/extracted
 
 # ---- runtime ----
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre-alpine@sha256:5d7689f47d670aca766b9503a70bccc2d73b4eb9221ae8f714ae958313c4ce70
 # A fixed uid and gid (10001): the certificate agent gives this group its key (ADR 0039).
 RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
 # curl for the healthcheck: HTTPS verified against the internal CA, with a client certificate where the port

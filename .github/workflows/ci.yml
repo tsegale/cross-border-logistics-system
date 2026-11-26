@@ -112,7 +112,7 @@ jobs:
             -out "$RUNNER_TEMP/untrusted/cert.pem" 2> /dev/null
           chmod 0644 "$RUNNER_TEMP/untrusted/key.pem"
           docker run --rm --network freightflow_default -v freightflow_certs:/certs:ro -v "$PWD/scripts:/probe:ro" \
-            -v "$RUNNER_TEMP/untrusted:/untrusted:ro" -v "$PWD/tls-probe:/out" python:3.15.2-alpine \
+            -v "$RUNNER_TEMP/untrusted:/untrusted:ro" -v "$PWD/tls-probe:/out" python:3.15.2-alpine@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd \
             python -I /probe/tls_probe.py --json /out/tls-probe.json | tee tls-probe/tls-probe.txt
           { echo "## Transport security (ADR 0040)"; echo; echo '```'; cat tls-probe/tls-probe.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       # ADR 0039 and 0040: every certificate renewed at once while customers book; each endpoint must serve its new one
@@ -160,9 +160,9 @@ jobs:
     name: Rules and dashboards as code
     runs-on: ubuntu-24.04
     env:
-      PROMETHEUS_IMAGE: prom/prometheus:v3.16.0
-      ALERTMANAGER_IMAGE: prom/alertmanager:v0.35.0
-      COLLECTOR_IMAGE: otel/opentelemetry-collector-contrib:0.165.0
+      PROMETHEUS_IMAGE: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+      ALERTMANAGER_IMAGE: prom/alertmanager:v0.35.0@sha256:e638797febd034838eca8b98cdbd46f951e9bf7f178777aa8669167406a9946c
+      COLLECTOR_IMAGE: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Generated SLO rules, their tests and the dashboards match their generators

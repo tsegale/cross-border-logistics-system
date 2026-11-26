@@ -34,7 +34,7 @@ def served() -> dict[str, str]:
     """The serial each endpoint presents now, read by scripts/tls_probe.py from inside the compose network."""
     result = subprocess.run(
         ["docker", "run", "--rm", "--network", "freightflow_default", "-v", "freightflow_certs:/certs:ro",
-         "-v", f"{REPOSITORY / 'scripts'}:/probe:ro", "python:3.15.2-alpine", "python", "-I", "/probe/tls_probe.py",
+         "-v", f"{REPOSITORY / 'scripts'}:/probe:ro", "python:3.15.2-alpine@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd", "python", "-I", "/probe/tls_probe.py",
          "--serials"], capture_output=True, text=True, check=True, timeout=120)
     return json.loads(result.stdout)
 

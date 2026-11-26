@@ -9,7 +9,7 @@ Run in a container on the compose network, with the certs volume's trust directo
 CA the stack does not know (CI makes one with openssl):
 
   docker run --rm --network freightflow_default -v freightflow_certs:/certs:ro -v $PWD/scripts:/probe:ro \\
-    -v /tmp/untrusted:/untrusted:ro python:3.15.2-alpine python -I /probe/tls_probe.py --json /probe-out.json
+    -v /tmp/untrusted:/untrusted:ro python:3.15.2-alpine@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd python -I /probe/tls_probe.py --json /probe-out.json
 
 Exits 1 if any check fails. Standard library only.
 """
