@@ -66,7 +66,8 @@ EXPECTED = [
     "BookingAvailabilityBudgetBurnFast", "BookingAvailabilityBudgetBurnSlow", "BookingLatencyBudgetBurnFast",
     "BookingLatencyBudgetBurnSlow", "GatewayUpstreamErrors", "ContainerMemoryNearLimit", "FxReferenceRateStale",
     "FxReferenceRateQuarantined", "CustomsTariffReviewOverdue", "CarrierWebhookSignaturesFailing",
-    "CarrierPollingBehind", "CarrierWebhooksRateLimited", "CertificateNotRenewed",
+    "CarrierPollingBehind", "CarrierWebhooksRateLimited", "CertificateNotRenewed", "InvariantViolated",
+    "InvariantAuditNotRunning",
 ]
 # Burn-rate alerts outlast the drill: a fast burn keeps firing up to 30 minutes after the outage (its 6 h and 30 m
 # pair), a slow burn for hours. They must fire here; that they clear is proved by the promtool recovery tests.
@@ -226,15 +227,21 @@ def phase0_ledger(watch: Watch, account: str) -> None:
     account_id = sql("banking", f"SELECT id FROM accounts WHERE account_number = '{account}'")
     sql("banking", f"UPDATE accounts SET balance = balance + 1.0000 WHERE id = '{account_id}'")
     harness.call("operator", "GET", "/api/v1/ledger/reconciliation")
-    watch.wait_fired(["LedgerDrift"], 2)
+    # The invariant audit sees the same drift, as balances-reconcile (ADR 0044).
+    harness.call("auditor", "GET", "/api/v1/ledger/invariants")
+    watch.wait_fired(["LedgerDrift", "InvariantViolated"], 2)
     sql("banking", f"UPDATE accounts SET balance = balance - 1.0000 WHERE id = '{account_id}'")
     report = harness.call("operator", "GET", "/api/v1/ledger/reconciliation")
     log(f"reconciled again: balanced={report.get('balanced')}")
-    watch.wait_resolved(["LedgerDrift"], 2)
-    # From now on banking runs without its scheduled check: the age climbs until ReconciliationNotRunning fires.
+    audit = harness.call("auditor", "GET", "/api/v1/ledger/invariants")
+    log(f"audited again: holds={audit.get('holds')}")
+    watch.wait_resolved(["LedgerDrift", "InvariantViolated"], 2)
+    # From now on banking runs without its scheduled checks: the reconciliation's age climbs until
+    # ReconciliationNotRunning fires, and the invariant audit's, on a 2-minute schedule, past 3 minutes.
     subprocess.run([*COMPOSE, "up", "-d", "--wait", "--no-deps", "banking-service"],
-                   env={**os.environ, "FREIGHTFLOW_BANKING_RECONCILIATION_ENABLED": "false"}, check=True)
-    log("banking-service recreated without its scheduled reconciliation")
+                   env={**os.environ, "FREIGHTFLOW_BANKING_RECONCILIATION_ENABLED": "false",
+                        "FREIGHTFLOW_INVARIANTS_ENABLED": "false", "FREIGHTFLOW_INVARIANTS_INTERVAL": "2m"}, check=True)
+    log("banking-service recreated without its scheduled reconciliation and invariant audit")
 
 
 def phase1_emails(watch: Watch, account: str, run: str) -> None:

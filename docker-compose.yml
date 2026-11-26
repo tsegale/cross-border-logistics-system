@@ -322,6 +322,9 @@ services:
       SYSTEM_ACCOUNT_POSTING_MODE: ${SYSTEM_ACCOUNT_POSTING_MODE:-unlocked}
       # The scheduled ledger reconciliation (ADR 0031); the alert fire drill turns it off to see it noticed.
       FREIGHTFLOW_BANKING_RECONCILIATION_ENABLED: ${FREIGHTFLOW_BANKING_RECONCILIATION_ENABLED:-true}
+      # The invariant audit (ADR 0044): daily; the fire drill shortens it and turns it off to see it noticed.
+      FREIGHTFLOW_INVARIANTS_ENABLED: ${FREIGHTFLOW_INVARIANTS_ENABLED:-true}
+      FREIGHTFLOW_INVARIANTS_INTERVAL: ${FREIGHTFLOW_INVARIANTS_INTERVAL:-24h}
       # banking validates the relayed token itself, for its own audience (ADR 0017).
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-https://127.0.0.1:8080}/realms/freightflow
       KEYCLOAK_JWK_SET_URI: https://keycloak:8443/realms/freightflow/protocol/openid-connect/certs

@@ -113,7 +113,8 @@ public class InvariantAuditor {
 
     public InvariantAuditor(JdbcTemplate jdbc, ReconciliationMonitor reconciliation, MeterRegistry meters, Clock clock,
                             @Value("${freightflow.invariants.outbox-stuck-after:15m}") Duration stuckAfter,
-                            @Value("${freightflow.invariants.enabled:true}") boolean enabled) {
+                            @Value("${freightflow.invariants.enabled:true}") boolean enabled,
+                            @Value("${freightflow.invariants.interval:24h}") Duration interval) {
         this.jdbc = jdbc;
         this.reconciliation = reconciliation;
         this.clock = clock;
@@ -133,6 +134,11 @@ public class InvariantAuditor {
         Gauge.builder("freightflow.invariants.audit.age", lastRun,
                         last -> Duration.between(last.get(), clock.instant()).toSeconds())
                 .description("Seconds since the last completed invariant audit, or since startup before the first")
+                .baseUnit("seconds")
+                .register(meters);
+        // The schedule, so InvariantAuditNotRunning compares the age with what this service was told.
+        Gauge.builder("freightflow.invariants.audit.interval", interval, Duration::toSeconds)
+                .description("Seconds between scheduled invariant audits")
                 .baseUnit("seconds")
                 .register(meters);
     }

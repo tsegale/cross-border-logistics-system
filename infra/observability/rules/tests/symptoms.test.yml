@@ -290,6 +290,42 @@ tests:
               description: "Duty estimates use rates that may have changed: check the source and add a migration with the current rates."
               runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/customs-tariff-review.md
 
+  - name: a broken invariant pages at once, an audit past one and a half intervals opens a ticket
+    interval: 1m
+    input_series:
+      - series: freightflow_invariants_violations{service="banking-service",invariant="holds-captured-once"}
+        values: 0x3 2x10
+      - series: freightflow_invariants_violations{service="banking-service",invariant="journal-entries-balance"}
+        values: 0x13
+      # Every 10 minutes (600 s), last run at minute 0: 15 minutes is one and a half intervals.
+      - series: freightflow_invariants_audit_age_seconds{service="logistics-service"}
+        values: 0+60x30
+      - series: freightflow_invariants_audit_interval_seconds{service="logistics-service"}
+        values: 600x30
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: InvariantViolated
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: InvariantViolated
+        exp_alerts:
+          - exp_labels: {severity: page, service: banking-service, invariant: holds-captured-once}
+            exp_annotations:
+              summary: "banking-service: 2 row(s) break holds-captured-once"
+              description: "The invariant audit found money or events in a state no correct run produces. Stop what writes it before repairing."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/invariant-failure.md
+      - eval_time: 18m
+        alertname: InvariantAuditNotRunning
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: InvariantAuditNotRunning
+        exp_alerts:
+          - exp_labels: {severity: ticket, service: logistics-service}
+            exp_annotations:
+              summary: "logistics-service has not completed an invariant audit for 6m 0s past its schedule"
+              description: "The scheduled audit failed or was switched off: a broken invariant would go unnoticed."
+              runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/invariant-failure.md
+
   - name: refused carrier notifications open a ticket at once, a polled carrier behind after two minutes
     interval: 1m
     input_series:

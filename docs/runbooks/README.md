@@ -11,6 +11,7 @@ profile.
 | [slo-booking-latency](slo-booking-latency.md) | BookingLatencyBudgetBurnFast, BookingLatencyBudgetBurnSlow |
 | [slo-email-delivery](slo-email-delivery.md) | EmailDeliveryBudgetBurnFast, EmailDeliveryBudgetBurnSlow |
 | [ledger-drift](ledger-drift.md) | LedgerDrift, ReconciliationNotRunning |
+| [invariant-failure](invariant-failure.md) | InvariantViolated, InvariantAuditNotRunning |
 | [payment-commands-parked](payment-commands-parked.md) | PaymentCommandsParked |
 | [approvals-near-expiry](approvals-near-expiry.md) | ApprovalsNearExpiry |
 | [fx-reference-rates](fx-reference-rates.md) | FxReferenceRateStale, FxReferenceRateQuarantined |

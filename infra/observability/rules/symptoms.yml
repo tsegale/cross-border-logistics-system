@@ -12,6 +12,24 @@ groups:
           summary: "The ledger does not reconcile: {{ $value }} account(s) or currencies off"
           description: "An account's stored balance differs from its postings, or a currency's postings do not sum to zero."
           runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/ledger-drift.md
+      # ADR 0044: the invariant audit found a row that breaks a rule the database cannot express, or stopped running.
+      - alert: InvariantViolated
+        expr: max by (service, invariant) (freightflow_invariants_violations) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.service }}: {{ $value }} row(s) break {{ $labels.invariant }}"
+          description: "The invariant audit found money or events in a state no correct run produces. Stop what writes it before repairing."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/invariant-failure.md
+      - alert: InvariantAuditNotRunning
+        expr: max by (service) (freightflow_invariants_audit_age_seconds - 1.5 * freightflow_invariants_audit_interval_seconds) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.service }} has not completed an invariant audit for {{ $value | humanizeDuration }} past its schedule"
+          description: "The scheduled audit failed or was switched off: a broken invariant would go unnoticed."
+          runbook_url: https://github.com/tsegale/cross-border-logistics-system/blob/main/docs/runbooks/invariant-failure.md
       - alert: ReconciliationNotRunning
         expr: max(freightflow_ledger_reconciliation_age_seconds) > 900
         for: 5m
