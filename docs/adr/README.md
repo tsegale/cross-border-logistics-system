@@ -47,3 +47,4 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 | [0040](0040-tls-on-every-hop-and-mutual-tls-between-services.md) | TLS on every hop, mutual TLS between the services | Accepted |
 | [0041](0041-least-privilege.md) | Least privilege: database roles, containers, consoles | Accepted |
 | [0042](0042-bounded-public-inputs.md) | Bounded public inputs: webhook budgets, JSON limits, timeouts, headers, ZAP | Accepted |
+| [0043](0043-signed-images-and-a-pinned-supply-chain.md) | Signed images and a pinned supply chain | Accepted |
