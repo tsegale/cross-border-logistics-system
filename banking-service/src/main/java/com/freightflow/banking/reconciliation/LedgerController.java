@@ -13,9 +13,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class LedgerController {
 
     private final ReconciliationMonitor monitor;
+    private final InvariantAuditor auditor;
 
-    public LedgerController(ReconciliationMonitor monitor) {
+    public LedgerController(ReconciliationMonitor monitor, InvariantAuditor auditor) {
         this.monitor = monitor;
+        this.auditor = auditor;
+    }
+
+    @GetMapping("/invariants")
+    @Operation(summary = "Audit the ledger's invariants now: balanced entries, reconciled balances, holds captured "
+            + "once, customs disbursements, the outbox in order (ADR 0044)")
+    public com.freightflow.banking.reconciliation.dto.InvariantReport invariants() {
+        // Through the auditor, so an audit an operator asks for updates the gauges too.
+        return auditor.audit();
     }
 
     @GetMapping("/reconciliation")

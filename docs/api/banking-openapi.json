@@ -209,6 +209,18 @@
         },
         "type" : "object"
       },
+      "CaptureTotal" : {
+        "properties" : {
+          "amount" : {
+            "type" : "number"
+          },
+          "count" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "CreateAccountRequest" : {
         "description" : "Request to open a customer ledger account in a supported ISO 4217 currency",
         "properties" : {
@@ -669,6 +681,60 @@
           },
           "status" : {
             "enum" : [ "ACTIVE", "CAPTURED", "RELEASED", "EXPIRED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "Invariant" : {
+        "properties" : {
+          "examples" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "violations" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "InvariantReport" : {
+        "description" : "The ledger's invariants at one instant, each with the rows that break it",
+        "properties" : {
+          "broken" : {
+            "description" : "The names of the broken invariants",
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "captures" : {
+            "additionalProperties" : {
+              "$ref" : "#/components/schemas/CaptureTotal"
+            },
+            "type" : "object"
+          },
+          "checkedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "holds" : {
+            "description" : "True when no invariant is broken",
+            "type" : "boolean"
+          },
+          "invariants" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Invariant"
+            },
+            "type" : "array"
+          },
+          "service" : {
             "type" : "string"
           }
         },
@@ -2162,6 +2228,25 @@
         },
         "summary" : "Get a journal entry and its postings by ID",
         "tags" : [ "Journal Entries" ]
+      }
+    },
+    "/api/v1/ledger/invariants" : {
+      "get" : {
+        "operationId" : "invariants",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/InvariantReport"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "summary" : "Audit the ledger's invariants now: balanced entries, reconciled balances, holds captured once, customs disbursements, the outbox in order (ADR 0044)",
+        "tags" : [ "Ledger Reconciliation" ]
       }
     },
     "/api/v1/ledger/reconciliation" : {

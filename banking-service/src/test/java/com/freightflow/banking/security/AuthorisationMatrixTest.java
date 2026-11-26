@@ -92,6 +92,7 @@ class AuthorisationMatrixTest extends IntegrationTest {
         table.put("POST approval",               new int[] {403, 403, 403, 200, 403, 403, 403, 401});
         table.put("POST rejection",              new int[] {403, 403, 403, 200, 403, 403, 403, 401});
         table.put("GET reconciliation",          new int[] {403, 403, 200, 200, 200, 403, 403, 401});
+        table.put("GET invariants",              new int[] {403, 403, 200, 200, 200, 403, 403, 401});
         // Reference rates (ADR 0034): back office only. This database never stores one (tests that do have their
         // own), so a rate by id and a confirmation of one are 404 for whoever may see them.
         table.put("GET reference rates",         new int[] {403, 403, 200, 200, 200, 403, 403, 401});
@@ -203,6 +204,7 @@ class AuthorisationMatrixTest extends IntegrationTest {
             case "POST rejection" -> post("/api/v1/approvals/{id}/rejection", f.approvalId())
                     .contentType(MediaType.APPLICATION_JSON).content("{\"comment\":\"MATRIX\"}");
             case "GET reconciliation" -> get("/api/v1/ledger/reconciliation");
+            case "GET invariants" -> get("/api/v1/ledger/invariants");
             case "GET reference rates" -> get("/api/v1/reference-rates").param("status", "QUARANTINED");
             case "GET reference rate" -> get("/api/v1/reference-rates/{id}", java.util.UUID.randomUUID());
             case "POST rate confirmation" -> post("/api/v1/approvals").header("Idempotency-Key", key())
