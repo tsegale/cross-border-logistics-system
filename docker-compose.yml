@@ -541,7 +541,7 @@ services:
     tmpfs:
       - /tmp:size=1m
     mem_limit: 32m
-    image: alpine/socat:1.8.1.1@sha256:7f9a06753033f2b7de18edc2353f2c15153413d95a039163c6db270fc7a6c3b0
+    image: alpine/socat:1.8.1.3@sha256:5aa280c6fc5bee94dbd2bbdf2a58d30f50396eaa110be84b03636945b157ae68
     # Ports above 1024 only: no root needed (ADR 0041).
     user: "65534:65534"
     entrypoint: ["/bin/sh", "-c"]
