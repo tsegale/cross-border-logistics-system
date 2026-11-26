@@ -62,15 +62,50 @@ jobs:
           done
 
   # The stack as a user starts it. Unit and integration tests can't see a broken compose file or env wiring.
+  # On main it runs the images the docker job signed, once their signatures and attestations verify (ADR 0043);
+  # a pull request builds them here.
   default-stack:
     name: Default stack starts
+    needs: [docker]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    env:
+      PUBLISHED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sed -e 's/change-me[^ ]*/ci-only-value/' .env.example > .env
       - name: Generate the stack's secrets into secrets/
         run: python3 scripts/generate_secrets.py
-      - run: docker compose up -d --wait --wait-timeout 900 --build
+      - if: env.PUBLISHED == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: image-*
+          merge-multiple: true
+          path: images
+      - if: env.PUBLISHED == 'true'
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+        with:
+          cosign-release: v3.1.6
+      - if: env.PUBLISHED == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Images signed, with an SBOM and provenance, before compose runs them
+        if: env.PUBLISHED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          python3 scripts/verify_images.py --digests images --override compose.images.yml | tee images/verified.txt
+          # Every later compose command in this job sees the verified images.
+          echo "COMPOSE_FILE=docker-compose.yml:compose.images.yml" >> "$GITHUB_ENV"
+          { echo "## Signed images (ADR 0043)"; echo; echo '```'; cat images/verified.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - run: docker compose up -d --wait --wait-timeout 900 ${{ env.PUBLISHED != 'true' && '--build' || '' }}
       # ADR 0041, on the running containers: read-only, no capability, no-new-privileges, not root, no socket.
       - name: Every container is hardened
         run: python3 scripts/check_hardening.py
@@ -320,10 +355,21 @@ jobs:
           docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.30.1
           git /repo --redact --no-banner
 
+  # ADR 0043: on main, each image is pushed to GHCR, signed keyless with cosign (the certificate names this workflow),
+  # with its SBOM as a signed SPDX attestation and SLSA v1 provenance from actions/attest-build-provenance. The
+  # default-stack job verifies all three before compose runs the images. Pull requests build, scan and push nothing.
   docker:
     name: Docker image · ${{ matrix.service }}
     needs: [java]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/freightflow-${{ matrix.service }}
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     strategy:
       fail-fast: false
       matrix:
@@ -331,12 +377,24 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - if: env.PUBLISH == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.service }}
-          push: false
+          push: ${{ env.PUBLISH == 'true' }}
           load: true # into the local daemon, for the scan and the SBOM
-          tags: freightflow/${{ matrix.service }}:ci
+          tags: |
+            freightflow/${{ matrix.service }}:ci
+            ${{ env.PUBLISH == 'true' && format('{0}:{1}', env.IMAGE, github.sha) || '' }}
+          # Signed attestations are added below; BuildKit's unsigned ones would only make the image an index.
+          provenance: false
+          sbom: false
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
       # Third-party actions with access to the job are pinned by commit, not by a tag that can be moved.
@@ -353,5 +411,31 @@ jobs:
         with:
           image: freightflow/${{ matrix.service }}:ci
           format: spdx-json
+          output-file: sbom.spdx.json
           artifact-name: sbom-${{ matrix.service }}.spdx.json
           upload-release-assets: false
+      - if: env.PUBLISH == 'true'
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+        with:
+          cosign-release: v3.1.6
+      - name: Sign the image, attest its SBOM
+        if: env.PUBLISH == 'true'
+        env:
+          REFERENCE: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "$REFERENCE"
+          cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$REFERENCE"
+          mkdir -p digest && echo "$REFERENCE" > "digest/${{ matrix.service }}.digest"
+      - name: SLSA provenance
+        if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - if: env.PUBLISH == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ matrix.service }}
+          path: digest/
+          retention-days: 7
