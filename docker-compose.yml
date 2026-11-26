@@ -86,6 +86,35 @@ services:
       retries: 60
 
   # ---------------- Databases: one per service ----------------
+  # Backups (ADR 0046): SeaweedFS as the S3 object store every database archives its WAL and base backups to. Only
+  # its S3 gateway listens on the network, with TLS (infra/objectstore/start.sh); restarted on each renewal.
+  objectstore:
+    <<: *hardened
+    tmpfs:
+      - /tmp:size=16m,uid=1000,gid=1000,mode=0770
+    mem_limit: 256m
+    image: chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
+    user: "1000:1000"
+    entrypoint: ["/bin/sh", "/etc/freightflow/objectstore/start.sh"]
+    secrets: [backup_s3_access_key, backup_s3_secret_key]
+    volumes:
+      - ./infra/objectstore:/etc/freightflow/objectstore:ro
+      - objectstore-data:/data
+      - type: volume
+        source: certs
+        target: /tls
+        read_only: true
+        volume:
+          subpath: objectstore
+    depends_on:
+      cert-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "echo s3.bucket.list | weed shell -master=127.0.0.1:9333 2> /dev/null | grep -q freightflow-backups"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+
   banking-db:
     <<: *hardened
     tmpfs:
@@ -93,7 +122,9 @@ services:
       - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
       - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 192m
-    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
+    # Postgres with pgBackRest: WAL archived and base backups taken to the object store (ADR 0046).
+    build: infra/postgres
+    image: freightflow-postgres
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
     # user from the start, so the key it copies is its own.
     entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
@@ -102,7 +133,8 @@ services:
       POSTGRES_DB: banking
       POSTGRES_USER: ${BANKING_DB_USER:?set in .env}
       POSTGRES_PASSWORD_FILE: /run/secrets/banking_db_password
-    secrets: [banking_db_password]
+      PGBACKREST_STANZA: banking
+    secrets: [banking_db_password, backup_s3_access_key, backup_s3_secret_key, backup_cipher_pass]
     volumes:
       - banking-db-data:/var/lib/postgresql/data
       - ./infra/postgres:/etc/freightflow/postgres:ro
@@ -114,6 +146,8 @@ services:
           subpath: banking-db
     depends_on:
       cert-agent:
+        condition: service_healthy
+      objectstore:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -128,7 +162,9 @@ services:
       - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
       - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 192m
-    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
+    # Postgres with pgBackRest: WAL archived and base backups taken to the object store (ADR 0046).
+    build: infra/postgres
+    image: freightflow-postgres
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
     # user from the start, so the key it copies is its own.
     entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
@@ -137,7 +173,8 @@ services:
       POSTGRES_DB: logistics
       POSTGRES_USER: ${LOGISTICS_DB_USER:?set in .env}
       POSTGRES_PASSWORD_FILE: /run/secrets/logistics_db_password
-    secrets: [logistics_db_password]
+      PGBACKREST_STANZA: logistics
+    secrets: [logistics_db_password, backup_s3_access_key, backup_s3_secret_key, backup_cipher_pass]
     volumes:
       - logistics-db-data:/var/lib/postgresql/data
       - ./infra/postgres:/etc/freightflow/postgres:ro
@@ -149,6 +186,8 @@ services:
           subpath: logistics-db
     depends_on:
       cert-agent:
+        condition: service_healthy
+      objectstore:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -163,7 +202,9 @@ services:
       - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
       - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 128m
-    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
+    # Postgres with pgBackRest: WAL archived and base backups taken to the object store (ADR 0046).
+    build: infra/postgres
+    image: freightflow-postgres
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
     # user from the start, so the key it copies is its own.
     entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
@@ -172,7 +213,8 @@ services:
       POSTGRES_DB: notification
       POSTGRES_USER: ${NOTIFICATION_DB_USER:?set in .env}
       POSTGRES_PASSWORD_FILE: /run/secrets/notification_db_password
-    secrets: [notification_db_password]
+      PGBACKREST_STANZA: notification
+    secrets: [notification_db_password, backup_s3_access_key, backup_s3_secret_key, backup_cipher_pass]
     volumes:
       - notification-db-data:/var/lib/postgresql/data
       - ./infra/postgres:/etc/freightflow/postgres:ro
@@ -184,6 +226,8 @@ services:
           subpath: notification-db
     depends_on:
       cert-agent:
+        condition: service_healthy
+      objectstore:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -202,7 +246,9 @@ services:
       - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
       - /var/lib/postgresql/tls:size=1m,uid=70,gid=70,mode=0700
     mem_limit: 128m
-    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
+    # Postgres with pgBackRest: WAL archived and base backups taken to the object store (ADR 0046).
+    build: infra/postgres
+    image: freightflow-postgres
     # TLS from the internal CA, required for every TCP connection (infra/postgres, ADR 0039). As the image's postgres
     # user from the start, so the key it copies is its own.
     entrypoint: ["/bin/sh", "/etc/freightflow/postgres/start.sh"]
@@ -211,7 +257,8 @@ services:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
       POSTGRES_PASSWORD_FILE: /run/secrets/keycloak_db_password
-    secrets: [keycloak_db_password]
+      PGBACKREST_STANZA: keycloak
+    secrets: [keycloak_db_password, backup_s3_access_key, backup_s3_secret_key, backup_cipher_pass]
     volumes:
       - keycloak-db-data:/var/lib/postgresql/data
       - ./infra/postgres:/etc/freightflow/postgres:ro
@@ -223,6 +270,8 @@ services:
           subpath: keycloak-db
     depends_on:
       cert-agent:
+        condition: service_healthy
+      objectstore:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
@@ -976,6 +1025,12 @@ services:
 
 secrets:
   # Generated by scripts/generate_secrets.py into secrets/ (git-ignored).
+  backup_s3_access_key:
+    file: ./secrets/backup_s3_access_key
+  backup_s3_secret_key:
+    file: ./secrets/backup_s3_secret_key
+  backup_cipher_pass:
+    file: ./secrets/backup_cipher_pass
   banking_db_password:
     file: ./secrets/banking_db_password
   banking_db_app_password:
@@ -1018,6 +1073,7 @@ networks:
 
 volumes:
   ca-data:
+  objectstore-data:
   certs:
   banking-db-data:
   logistics-db-data:

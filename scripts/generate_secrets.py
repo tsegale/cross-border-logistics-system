@@ -48,6 +48,11 @@ FILES = (
     # The internal CA (ADR 0039): the password of its keys, which is also its provisioner's. Only the CA and the
     # certificate agent mount it.
     "ca_password",
+    # Point-in-time recovery (ADR 0046): the object store's S3 credentials, which the databases and the object store
+    # mount, and the passphrase every backup and archived WAL segment is encrypted with.
+    "backup_s3_access_key",
+    "backup_s3_secret_key",
+    "backup_cipher_pass",
 )
 # Keycloak's environment: the realm's ${PLACEHOLDERS} and its own admin and database credentials.
 KEYCLOAK_GENERATED = (

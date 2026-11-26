@@ -6,7 +6,12 @@
 # with TLS required (pg_hba.conf: hostssl only). When the agent renews the certificate, the copies are refreshed and
 # the configuration reloaded: Postgres re-reads its certificate and key on a reload, and connections already open
 # keep the old one.
+#
+# With PGBACKREST_STANZA set, it also archives every WAL segment to the object store and takes base backups
+# (ADR 0046): a full one at start when the stanza has none, then one every BACKUP_INTERVAL_SECONDS.
+# archive_timeout bounds the data a lost volume can cost to that many seconds of commits (the RPO).
 set -eu
+. /etc/freightflow/postgres/backup.sh
 
 SOURCE="${TLS_SOURCE:-/tls}"
 TARGET="${TLS_TARGET:-/var/lib/postgresql/tls}"
@@ -32,8 +37,30 @@ watch_certificates() {
   done
 }
 
+backup_loop() {
+  until pg_isready -q -h /var/run/postgresql; do sleep 2; done
+  # A second start finds the stanza; an archive that does not match this cluster fails here, loudly.
+  backup stanza-create > /dev/null || echo "backup: stanza-create failed for $STANZA"
+  if ! backup info --output=json | grep -q '"label"'; then
+    backup backup --type=full > /dev/null && echo "backup: first full backup of $STANZA taken" \
+      || echo "backup: the first full backup of $STANZA failed"
+  fi
+  while sleep "${BACKUP_INTERVAL_SECONDS:-86400}"; do
+    backup backup --type=full > /dev/null && echo "backup: full backup of $STANZA taken" \
+      || echo "backup: the full backup of $STANZA failed"
+  done
+}
+
 copy_certificates
 watch_certificates &
+
+if [ -n "$STANZA" ]; then
+  backup_config "$TARGET/ca.pem"
+  backup_loop &
+  set -- -c archive_mode=on \
+    -c "archive_command=pgbackrest --config=$BACKUP_CONF --stanza=$STANZA archive-push %p" \
+    -c "archive_timeout=${ARCHIVE_TIMEOUT_SECONDS:-60}" "$@"
+fi
 
 exec docker-entrypoint.sh postgres \
   -c ssl=on \
