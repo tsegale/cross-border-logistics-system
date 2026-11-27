@@ -76,7 +76,20 @@ class EdgeHardeningTest {
                 .expectHeader().valueEquals("Referrer-Policy", "no-referrer")
                 .expectHeader().valueEquals("X-Content-Type-Options", "nosniff")
                 .expectHeader().valueEquals("X-Frame-Options", "DENY")
+                .expectHeader().valueEquals("Cross-Origin-Resource-Policy", "same-origin")
+                .expectHeader().valueEquals("Cache-Control", "no-store")
                 .expectHeader().exists("Strict-Transport-Security");
+    }
+
+    /** ZAP found HSTS missing here: a filter that answers before the security chain still gets every header. */
+    @Test
+    void anInternalPathsNotFoundCarriesTheSecurityHeadersToo() {
+        client().post().uri("/api/v1/holds").header(HttpHeaders.AUTHORIZATION, TestIssuer.bearer(TestIssuer.customer()))
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectHeader().exists("Strict-Transport-Security")
+                .expectHeader().valueEquals("Cross-Origin-Resource-Policy", "same-origin")
+                .expectHeader().valueEquals("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
     }
 
     @Test

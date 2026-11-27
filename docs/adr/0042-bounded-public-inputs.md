@@ -27,7 +27,8 @@ The Phase 7 brief asks for all of this, a ZAP API scan with a reviewed baseline,
 - reactor-netty 1.3 `HttpServer`: `idleTimeout` (until a request arrives), `readTimeout` and `requestTimeout` (while
   its body is read), shown by `EdgeHardeningTest` to apply in that order; Boot 4.2 exposes the first as
   `server.netty.idle-timeout` and neither of the others.
-- Spring Security 7 `ServerHttpSecurity.headers()`: a header is written only when the response has none.
+- Spring Security 7 `ServerHttpSecurity.headers()`: writes only through the security chain, which a filter that
+  answers first skips. Hence a filter of the gateway's own.
 - ZAP 2.17.0 (github.com/zaproxy/zaproxy/releases, 2025-12-15; image `zaproxy/zap-stable:2.17.0`, pinned by digest):
   `zap-api-scan.py`, its rule configuration file and `ZAP_AUTH_HEADER_VALUE`.
 
@@ -53,13 +54,15 @@ The Phase 7 brief asks for all of this, a ZAP API scan with a reviewed baseline,
   - then 10 s of silence, or 30 s in all, for the body.
 
   The services' Tomcat takes the same header limit, a 10 s connection timeout and a 20 s keep-alive.
-- **Security headers for a JSON API**:
+- **Security headers for a JSON API**, from one filter that runs before everything else (`SecurityHeadersFilter`),
+  so a response a filter writes before the security chain carries them too. ZAP's first scan found HSTS missing on
+  exactly such a response, the internal paths' 404.
   - `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`;
-  - `Referrer-Policy: no-referrer`;
-  - Spring's `nosniff`, `X-Frame-Options: DENY` and `Cache-Control: no-store`;
+  - `Referrer-Policy: no-referrer`, `Cross-Origin-Resource-Policy: same-origin`;
+  - `nosniff`, `X-Frame-Options: DENY`, `Cache-Control: no-store`;
   - HSTS (ADR 0039).
 
-  Keycloak's login pages pass through with their own policy.
+  Each is written only where the response has none, so Keycloak's login pages keep their own policy.
 - **CORS is closed**: no configuration source, so no origin is allowed and a preflight gets no `Access-Control-*`
   field. The first browser front end adds its one origin here.
 - **A problem's detail is written for the caller, or it is generic.** Messages meant for the caller are an
