@@ -505,7 +505,7 @@ services:
     tmpfs:
       - /tmp:size=1m,uid=999,gid=1000,mode=0770
     mem_limit: 32m
-    image: redis:8.10-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
+    image: redis:8.12-alpine@sha256:5af80107c1eeecb484a2269b80a26d12bfa6521787da4663bd9f19f60a163483
     # The image's own user; it reads its key through the group the agent gives it (infra/tls/identities.conf).
     user: "999:1000"
     entrypoint: ["sh", "/etc/freightflow/redis/start.sh"]
@@ -841,7 +841,7 @@ services:
     <<: *hardened
     tmpfs:
       - /tmp:size=16m
-    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+    image: otel/opentelemetry-collector-contrib:0.166.0@sha256:3e18fe04181de50bdd72e23ad4a4d6214b54351e63d496f1c58127cc4541ad7f
     command: ["--config=/etc/otelcol/config.yaml"]
     mem_limit: 192m
     networks: [default, docker-api]
@@ -970,7 +970,7 @@ services:
     <<: *hardened
     tmpfs:
       - /tmp:size=8m
-    image: prom/alertmanager:v0.35.0@sha256:e638797febd034838eca8b98cdbd46f951e9bf7f178777aa8669167406a9946c
+    image: prom/alertmanager:v0.35.1@sha256:4e3d029e69c7f61dd53a2b31a3dc427a2b81736cffca185c0854075e07969e36
     command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
     mem_limit: 64m
     secrets: [smtp_password]
@@ -995,7 +995,7 @@ services:
     tmpfs:
       - /tmp:size=32m
       - /var/lib/grafana:size=64m,uid=472,gid=0,mode=0770
-    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
+    image: grafana/grafana:13.3.2@sha256:81556409ba48b2b922e0adb69a2511337d8ba7578f11962eefa6149a2d815101
     # 13.3.1 peaked at 255.9 of 256 MiB in CI and was OOM-killed at start (ADR 0032).
     mem_limit: 384m
     environment:
