@@ -32,7 +32,7 @@
         <wiremock.version>3.13.2</wiremock.version>
         <resilience4j.version>2.4.0</resilience4j.version>
         <swagger-request-validator.version>3.0.0</swagger-request-validator.version>
-        <testcontainers-keycloak.version>4.4.0</testcontainers-keycloak.version>
+        <testcontainers-keycloak.version>4.4.1</testcontainers-keycloak.version>
         <!-- The OpenTelemetry Logback appender and the OpenTelemetry API that release is built on (the opentelemetry-api
              dependency in its pom). Dependabot ignores the appender: both move by hand with a Spring Boot upgrade, and
              the enforcer fails the build unless the API equals the one Boot manages (${opentelemetry.version}). -->
